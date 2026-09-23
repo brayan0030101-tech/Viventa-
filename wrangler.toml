@@ -47,7 +47,7 @@ new_sqlite_classes = ["SupportAgent"]
 [[d1_databases]]
 binding = "DB"
 database_name = "horizontes_bot_inmobiliaria_8664f4_db"
-database_id = "{{D1_DATABASE_ID}}"  # crea tu D1 (wrangler d1 create horizontes_bot_inmobiliaria_8664f4_db) y pega aquí su id
+database_id = "94666184-7394-42b1-8d68-445fc9a1d303"
 
 [[vectorize]]
 binding = "KB"
@@ -69,7 +69,7 @@ index_name = "horizontes_bot_inmobiliaria_8664f4_kb"
 # bucket_name = "horizontes-bot-media"
 
 [vars]
-BOT_NAME = "Asistente de Viventa"
+BOT_NAME = "Maricela"
 BUSINESS_NAME = "Viventa"
 BOT_LANGUAGE = "es-MX"
 # BOT_TIMEZONE = "America/Mexico_City"  # zona horaria para resolver fechas ("mañana", "el jueves 27"). Sin ella cae a CALCOM_TIMEZONE y luego a CDMX. Cámbiala si tu negocio no está en el centro de México (ej. "America/Bogota", "Europe/Madrid").
@@ -99,7 +99,7 @@ BOT_NICHE = "inmobiliaria"  # el CLI lo reescribe al giro instalado (restaurante
 BUFFER_SECONDS = "15"
 # Se llena solo: `forjabot pair` escribe aquí la URL real del worker tras el deploy;
 # y en runtime el bot cae a su propio origin si está vacío (sin edición manual).
-DASHBOARD_BASE_URL = ""
+DASHBOARD_BASE_URL = "https://forja-inmobiliaria-8664f4.brayan0030101.workers.dev"
 
 # Si TODAS las respuestas de tu bot fallan con 403 "Request not allowed" hacia
 # api.anthropic.com (típico cuando el proveedor del canal manda sus webhooks
