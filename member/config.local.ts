@@ -21,7 +21,7 @@ export const businessConfig = {
   paymentMethods: ["tarjeta (se envía factura)"] as string[],
   contactPhone: "+34 611 688 609",
   customFields: {
-  "queHacemos": "acompañamiento a colombianos en el exterior para comprar y financiar vivienda en Colombia (apartamentos, casas, preconstrucción, vivienda usada)",
+  "queHacemos": "más de 20 años acompañando a colombianos en el exterior a comprar y financiar vivienda en Colombia (apartamentos, casas, preconstrucción, vivienda usada)",
   "ofrecemos": "Estudio de Viabilidad Financiera USD 45 (no reembolsable); Servicio Viventa de acompañamiento completo USD 450 (Europa 505€, EEUU 495 USD, reembolsable si el crédito es negado cumpliendo condiciones); proyectos desde 228 millones hasta más de 1100 millones COP en Bogotá, Cali, Barranquilla, Pereira, Cartagena, Manizales, Zipaquirá, Rionegro, La Estrella y Santa Marta",
   "tono": "cercano",
   "sitioWebYRedes": "instagram.com/compratucasaconmari",

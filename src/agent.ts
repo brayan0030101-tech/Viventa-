@@ -31,9 +31,27 @@ import { TEST_CHANNEL } from "./db/testFilter";
 import { mapMessageToAiTurn } from "./history";
 import { maskContact } from "./lib/mask";
 
-// Mensaje fijo cuando el LLM falló del todo (primario + retries + fallback).
-// No se verifica en el Blindaje: no afirma ningún dato.
-const LLM_FAILURE_REPLY = "Algo falló de mi lado, intenta de nuevo en un momento.";
+// El AI SDK's APICallError trae statusCode/responseBody/url como propiedades
+// propias, pero `console.error("texto", e)` con el objeto Error solo imprime
+// "Nombre: mensaje" en los logs de Cloudflare — el detalle real (por qué
+// Anthropic devolvió 403 "Forbidden", por ejemplo) se pierde. Esto lo saca a
+// la superficie para poder diagnosticar sin depender de capturar el tail en
+// el segundo exacto que pasa (2026-09-25: varios "Forbidden" intermitentes
+// sin poder ver el cuerpo real de la respuesta).
+function describeApiError(e: unknown): Record<string, unknown> {
+  if (!e || typeof e !== "object") return { error: String(e) };
+  const anyE = e as any;
+  return {
+    name: anyE.name,
+    message: anyE.message,
+    statusCode: anyE.statusCode,
+    url: anyE.url,
+    responseBody:
+      typeof anyE.responseBody === "string" ? anyE.responseBody.slice(0, 1000) : anyE.responseBody,
+    responseHeaders: anyE.responseHeaders,
+    cause: anyE.cause ? String(anyE.cause) : undefined,
+  };
+}
 
 // El cliente mandó un archivo (PDF/doc) sin nada escrito. El bot no lo lee: se
 // lo pasa a una persona y se lo dice, para no dejarlo en visto.
@@ -888,7 +906,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       // mayoría; si no, se prueba el proveedor alterno (también con un segundo
       // intento). El jitter des-sincroniza mensajes que llegaron en el mismo
       // segundo. El bot no puede quedarse mudo el día del evento.
-      console.error("[SupportAgent.processBuffer] streamText failed:", e);
+      console.error("[SupportAgent.processBuffer] streamText failed:", describeApiError(e));
       const backoff = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const { fallbackModel } = await import("./llm/provider");
       const primary = createModel(this.env, tier, cfg.llm);
@@ -900,7 +918,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         await attempt(model);
         ok = true;
       } catch (e1: any) {
-        console.error("[SupportAgent.processBuffer] primary retry failed:", e1);
+        console.error("[SupportAgent.processBuffer] primary retry failed:", describeApiError(e1));
       }
 
       if (!ok && fb) {
@@ -912,15 +930,33 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
           usedModelId = fb.modelId;
           ok = true;
         } catch (e2: any) {
-          console.error("[SupportAgent.processBuffer] fallback failed:", e2);
+          console.error("[SupportAgent.processBuffer] fallback failed:", describeApiError(e2));
           await backoff(2500 + Math.floor(Math.random() * 1500));
           try {
             await attempt(fb.model, fb.modelId);
             usedModelId = fb.modelId;
             ok = true;
           } catch (e3: any) {
-            console.error("[SupportAgent.processBuffer] fallback retry failed:", e3);
+            console.error("[SupportAgent.processBuffer] fallback retry failed:", describeApiError(e3));
           }
+        }
+      }
+
+      // Sin proveedor alterno configurado (Viventa solo tiene Anthropic — sin
+      // OPENAI_API_KEY/GOOGLE_API_KEY/XAI_API_KEY), fallbackModel() da null y
+      // el bloque de arriba nunca corre: el bot solo tenía 2 intentos totales,
+      // ambos contra el MISMO proveedor y separados por ~2-3.5s. Un hipo
+      // transitorio de Anthropic de más de esos segundos se llevaba las dos
+      // chances (visto en vivo 2026-09-25, "Forbidden" intermitente). Un
+      // tercer intento con más espera cubre hipos algo más largos sin costo
+      // extra salvo unos segundos de latencia — mejor que quedarse mudo.
+      if (!ok && !fb) {
+        await backoff(6000 + Math.floor(Math.random() * 2000));
+        try {
+          await attempt(model);
+          ok = true;
+        } catch (e4: any) {
+          console.error("[SupportAgent.processBuffer] segundo reintento del primario falló:", describeApiError(e4));
         }
       }
 
@@ -954,7 +990,25 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       }
 
       if (!ok) {
-        assistantText = LLM_FAILURE_REPLY;
+        // Nunca mandarle "Algo falló de mi lado" a un cliente real — un
+        // negocio que le escribe eso a un lead se ve roto y poco profesional
+        // (visto en vivo 2026-09-25: un cliente recibió justo ese mensaje).
+        // Mejor: quedarse en silencio (el turno del cliente queda sin
+        // respuesta en messages — exactamente lo que checkStuckConversations
+        // vigila) Y avisarle al dueño YA, sin esperar el próximo tick del
+        // cron de 5 min, porque acá ya sabemos con certeza que falló.
+        console.error(
+          `[SupportAgent.processBuffer] los ${primary.provider}${fb ? ` + ${fb.provider}` : ""} fallaron — no se le manda ningún error al cliente, se avisa al dueño`,
+        );
+        const { createHandoffTicket } = await import("./tools/handoffHuman");
+        const conv = await convs.getById(convId).catch(() => null);
+        await createHandoffTicket(this.env, {
+          conversationId: convId,
+          reason: "bot sin responder",
+          summary: `${conv?.display_name ?? "Cliente"} (${this.state.channel}) escribió y el proveedor de IA falló por completo — el bot se quedó en silencio a propósito en vez de mandar un error. Respondele a mano.`,
+          transcript: combined.slice(0, 2000),
+        }).catch((eTicket) => console.error("[SupportAgent.processBuffer] no se pudo avisar al dueño:", eTicket));
+        return;
       }
     }
 
@@ -964,7 +1018,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     // Sin respaldo → sale un "déjame confirmarlo" y se avisa al dueño (ticket,
     // misma maquinaria del handoff). FAIL-OPEN: cualquier error/timeout del
     // verificador manda la respuesta original intacta — jamás bloquea un envío.
-    if (assistantText && assistantText !== LLM_FAILURE_REPLY && cfg.blindajeEnabled) {
+    if (assistantText && cfg.blindajeEnabled) {
       try {
         const { guardReply } = await import("./blindaje/verify");
         const guard = await guardReply(this.env, {

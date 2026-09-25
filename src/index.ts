@@ -676,6 +676,33 @@ export default {
       return;
     }
 
+    // Cron frecuente dedicado (cada 5 min): los DOS vigilantes de salud —
+    // conversaciones sin respuesta Y fallos explícitos ("Algo falló") — corren
+    // acá, no una vez al día. Un fallo en cadena a las 10am no puede esperar
+    // hasta las 3am para avisar. No corre el resto (followups/outreach/etc.):
+    // esos ya tienen su propia cadencia diaria y no deben dispararse 288
+    // veces/día.
+    if (event.cron === "*/5 * * * *") {
+      const { checkStuckConversations, checkBotHealth } = await import("./watchdog");
+      await checkStuckConversations(env).catch((e) => console.error("watchdog:stuck:", e));
+      await checkBotHealth(env).catch((e) => console.error("watchdog:health:", e));
+      // Recordatorio de citas del día siguiente (Outlet/videollamada) — pedido
+      // del dueño 2026-09-25. Gateado a las 8am UTC (~10am Madrid) para no
+      // escribirle al cliente a cualquier hora; dentro de esa franja el propio
+      // recordatorioEnviadoEn evita reenvíos en los demás ticks de la hora.
+      if (new Date().getUTCHours() === 8) {
+        const { sendAppointmentReminders } = await import("./followup/appointmentReminder");
+        await sendAppointmentReminders(env).catch((e) => console.error("appointmentReminder:", e));
+      }
+      // Sincroniza el catálogo de proyectos de viventa.co/proyectos al KB, en
+      // tandas — pedido del dueño 2026-09-25: el bot debe conocer siempre los
+      // proyectos activos SIN que nadie los cargue a mano, pero sin redirigir
+      // nunca al cliente a la web (ver custom_instructions).
+      const { runViventaProyectosImportTick } = await import("./kb/importViventaProyectos");
+      await runViventaProyectosImportTick(env).catch((e) => console.error("importViventaProyectos:", e));
+      return;
+    }
+
     // Tier efectivo también en el cron (followups/analyzer/alertas usan isPro).
     await applyTier(env);
     await applyLanguage(env);

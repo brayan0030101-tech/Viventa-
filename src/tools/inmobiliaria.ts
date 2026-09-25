@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { LeadsRepo } from "../db/leads";
+import { phoneFromConversationId, channelUserIdFromConversationId } from "./shared-phone";
 
 // Tools del nicho Inmobiliaria. Registran un "lead" con metadata del giro
 // (operación/tipo/zona/presupuesto…) para el pipeline de compradores. NO cierran
@@ -24,13 +25,14 @@ export function calificarCompradorTool(env: Env, getConversationId: () => string
       contacto: z.string().optional().describe("Teléfono o email"),
     }),
     execute: async ({ nombre, operacion, tipo, zona, presupuesto, recamaras, timeline, financiamiento, contacto }) => {
+      const convId = getConversationId();
       const leads = new LeadsRepo(new Db(env.DB), env);
       const op = operacion === "renta" ? "Renta" : "Compra";
       const id = await leads.create({
-        conversationId: getConversationId(),
-        channelUserId: null,
+        conversationId: convId,
+        channelUserId: channelUserIdFromConversationId(convId),
         name: nombre,
-        contact: contacto,
+        contact: contacto ?? phoneFromConversationId(convId) ?? undefined,
         intent: `Comprador · ${op} de ${tipo} en ${zona} · ${presupuesto}`.slice(0, 300),
         notes: [timeline ? `Timeline: ${timeline}` : "", financiamiento ? `Financiamiento: ${financiamiento}` : ""].filter(Boolean).join(" · ") || undefined,
         metadata: {
@@ -60,12 +62,13 @@ export function registrarVisitaTool(env: Env, getConversationId: () => string | 
       contacto: z.string().optional().describe("Teléfono del cliente"),
     }),
     execute: async ({ nombre, propiedad, fecha, hora, contacto }) => {
+      const convId = getConversationId();
       const leads = new LeadsRepo(new Db(env.DB), env);
       const id = await leads.create({
-        conversationId: getConversationId(),
-        channelUserId: null,
+        conversationId: convId,
+        channelUserId: channelUserIdFromConversationId(convId),
         name: nombre,
-        contact: contacto,
+        contact: contacto ?? phoneFromConversationId(convId) ?? undefined,
         intent: `Visita · ${propiedad} · ${fecha} ${hora}`.slice(0, 300),
         // operacion="Visita" para que se distinga en el pipeline de compradores.
         metadata: { operacion: "Visita", propiedad, fecha, hora },

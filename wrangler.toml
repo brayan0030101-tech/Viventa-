@@ -100,6 +100,7 @@ BUFFER_SECONDS = "15"
 # Se llena solo: `forjabot pair` escribe aquí la URL real del worker tras el deploy;
 # y en runtime el bot cae a su propio origin si está vacío (sin edición manual).
 DASHBOARD_BASE_URL = "https://forja-inmobiliaria-8664f4.brayan0030101.workers.dev"
+YCLOUD_WA_FROM = "+34611688609"
 
 # Si TODAS las respuestas de tu bot fallan con 403 "Request not allowed" hacia
 # api.anthropic.com (típico cuando el proveedor del canal manda sus webhooks
@@ -156,7 +157,7 @@ DASHBOARD_BASE_URL = "https://forja-inmobiliaria-8664f4.brayan0030101.workers.de
 command = "node scripts/forja-preflight.mjs"
 
 [triggers]
-crons = ["0 3 * * *"]  # daily 3am UTC: purge old messages
+crons = ["0 3 * * *", "*/5 * * * *"]  # daily 3am UTC: purge old messages; every 5 min: vigilante de conversaciones sin respuesta
 
 # DASHBOARD_PASSWORD  (secret) — HTTP Basic Auth password for the admin dashboard; username is always "admin".
 # Set it with: wrangler secret put DASHBOARD_PASSWORD
