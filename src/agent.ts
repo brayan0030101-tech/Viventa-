@@ -594,8 +594,13 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     }
     await convs.touchLastMessage(convId);
 
-    // Load history (last 20)
-    const history = await msgs.lastN(convId, 20);
+    // Load history (last 80) — 20 se quedaba corto en conversaciones largas:
+    // un cliente que vuelve semanas después y menciona algo hablado antes se
+    // encontraba con el bot respondiendo como si no supiera nada (pedido del
+    // dueño 2026-09-28, tras feedback real de Maricela). No sube el costo de
+    // las conversaciones cortas/nuevas — lastN solo trae lo que realmente
+    // existe, nunca rellena de más.
+    const history = await msgs.lastN(convId, 80);
     const aiMessages: any[] = history.slice(0, -1).map(mapMessageToAiTurn);
     // Build the LAST user message multimodal-aware: if it carries an
     // [IMAGE_URL: ...] marker AND we're on the Pro tier, attach the image.

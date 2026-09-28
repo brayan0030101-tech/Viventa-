@@ -145,6 +145,65 @@ async function resolverMedia(pedidas: MediaPedida[], env: Env): Promise<ReplyMed
   }
 }
 
+// ── Foto de proyecto (inmobiliaria Viventa) ──────────────────────────────────
+// El modelo referencia el proyecto por ciudad (y barrio opcional), tal como
+// aparecen en el título que le devolvió searchKb — nunca por id ni por URL:
+//   [[foto_proyecto: Medellín | Poblado]]
+// Se resuelve contra project_photos (poblada por el importador automático de
+// viventa.co/proyectos, src/kb/importViventaProyectos.ts). Un match inventado
+// o inexistente se descarta en silencio, igual que un id de Galería inventado.
+// Independiente de la Galería: no ensucia esa lista ni el panel del dueño.
+const FOTO_PROYECTO_RE = /\[\[\s*foto_proyecto\s*:\s*([^|\]]{2,80})(?:\s*\|\s*([^\]]{1,80}))?\s*\]\]/gi;
+const MAX_FOTOS_PROYECTO_POR_RESPUESTA = 2;
+
+export interface FotoProyectoPedida {
+  ciudad: string;
+  barrio?: string;
+}
+
+export function extraeFotoProyecto(chunks: string[]): { chunks: string[]; pedidas: FotoProyectoPedida[] } {
+  const pedidas: FotoProyectoPedida[] = [];
+  const limpios = chunks
+    .map((c) => {
+      let out = c;
+      for (const m of c.matchAll(FOTO_PROYECTO_RE)) {
+        if (pedidas.length < MAX_FOTOS_PROYECTO_POR_RESPUESTA) {
+          pedidas.push({ ciudad: m[1].trim(), barrio: m[2]?.trim() || undefined });
+        }
+        out = out.replace(m[0], "");
+      }
+      return out.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+    })
+    .filter((c) => c.length > 0);
+  return { chunks: limpios, pedidas };
+}
+
+async function resolverFotoProyecto(pedidas: FotoProyectoPedida[], env: Env): Promise<ReplyMedia[]> {
+  if (!pedidas.length) return [];
+  try {
+    const { Db } = await import("../db/client");
+    const db = new Db(env.DB);
+    const out: ReplyMedia[] = [];
+    for (const { ciudad, barrio } of pedidas) {
+      const rows = barrio
+        ? await db.all<{ title: string; cover_url: string }>(
+            "SELECT title, cover_url FROM project_photos WHERE title LIKE ? AND title LIKE ? ORDER BY updated_at DESC LIMIT 1",
+            [`%${ciudad}%`, `%${barrio}%`],
+          )
+        : await db.all<{ title: string; cover_url: string }>(
+            "SELECT title, cover_url FROM project_photos WHERE title LIKE ? ORDER BY updated_at DESC LIMIT 1",
+            [`%${ciudad}%`],
+          );
+      const row = rows[0];
+      if (row?.cover_url) out.push({ kind: "image", url: row.cover_url });
+    }
+    return out;
+  } catch (e) {
+    console.error("[fotoProyecto] resolverFotoProyecto falló:", e);
+    return [];
+  }
+}
+
 export async function sendChunkedReply(
   adapter: ChannelAdapter,
   channel: ChannelId,
@@ -161,10 +220,15 @@ export async function sendChunkedReply(
   // texto (canal sin soporte). Se resuelve contra los assets reales: un id
   // inventado se descarta y el texto sale normal.
   const extMedia = extraeMediaIds(ext.chunks);
-  let finales = extMedia.chunks;
+  const extFoto = extraeFotoProyecto(extMedia.chunks);
+  let finales = extFoto.chunks;
   let media: ReplyMedia[] | undefined;
-  if (extMedia.medias.length) {
-    const resueltos = await resolverMedia(extMedia.medias, env);
+  if (extMedia.medias.length || extFoto.pedidas.length) {
+    const [resueltosGaleria, resueltosFoto] = await Promise.all([
+      resolverMedia(extMedia.medias, env),
+      resolverFotoProyecto(extFoto.pedidas, env),
+    ]);
+    const resueltos = [...resueltosGaleria, ...resueltosFoto].slice(0, MAX_MEDIA_POR_RESPUESTA);
     if (resueltos.length) {
       if (MEDIA_CHANNELS.has(channel)) {
         media = resueltos;

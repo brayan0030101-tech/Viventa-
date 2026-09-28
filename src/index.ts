@@ -683,9 +683,16 @@ export default {
     // esos ya tienen su propia cadencia diaria y no deben dispararse 288
     // veces/día.
     if (event.cron === "*/5 * * * *") {
+      // Medición temporal (2026-09-28): un "Exceeded CPU Limit" real está
+      // frenando el import de proyectos y no está claro en qué paso — estos
+      // console.log con tiempos se sacan apenas se confirme dónde está.
+      const t0 = Date.now();
       const { checkStuckConversations, checkBotHealth } = await import("./watchdog");
       await checkStuckConversations(env).catch((e) => console.error("watchdog:stuck:", e));
+      console.log(`[cron5] checkStuckConversations: ${Date.now() - t0}ms`);
+      const t1 = Date.now();
       await checkBotHealth(env).catch((e) => console.error("watchdog:health:", e));
+      console.log(`[cron5] checkBotHealth: ${Date.now() - t1}ms`);
       // Recordatorio de citas del día siguiente (Outlet/videollamada) — pedido
       // del dueño 2026-09-25. Gateado a las 8am UTC (~10am Madrid) para no
       // escribirle al cliente a cualquier hora; dentro de esa franja el propio
@@ -698,8 +705,15 @@ export default {
       // tandas — pedido del dueño 2026-09-25: el bot debe conocer siempre los
       // proyectos activos SIN que nadie los cargue a mano, pero sin redirigir
       // nunca al cliente a la web (ver custom_instructions).
+      const t2 = Date.now();
       const { runViventaProyectosImportTick } = await import("./kb/importViventaProyectos");
       await runViventaProyectosImportTick(env).catch((e) => console.error("importViventaProyectos:", e));
+      console.log(`[cron5] runViventaProyectosImportTick: ${Date.now() - t2}ms`);
+      // Datos fijos del negocio (ej. bancos aliados) que faltaban en la KB —
+      // se siembran una sola vez, gatean solos por settings.
+      const { seedBusinessFacts } = await import("./kb/seedBusinessFacts");
+      await seedBusinessFacts(env).catch((e) => console.error("seedBusinessFacts:", e));
+      console.log(`[cron5] TOTAL: ${Date.now() - t0}ms`);
       return;
     }
 

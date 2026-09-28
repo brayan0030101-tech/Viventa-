@@ -347,6 +347,17 @@ CREATE TABLE IF NOT EXISTS media (
 CREATE INDEX IF NOT EXISTS idx_media_conv ON media(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_media_time ON media(created_at);
 
+-- Foto de portada por proyecto (inmobiliaria Viventa), poblada por el importador
+-- automático de viventa.co/proyectos (src/kb/importViventaProyectos.ts). El
+-- marcador [[foto_proyecto: ciudad | barrio]] (sender.ts) la busca por título,
+-- nunca por URL/slug — el modelo nunca ve ni inventa el slug de origen.
+CREATE TABLE IF NOT EXISTS project_photos (
+  slug TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  cover_url TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- Libera conversaciones amarradas a un ticket resuelto o a un id de ticket que ya
 -- no existe. Idempotente (seguro en cada db:apply). Mismo statement que
 -- TicketsRepo.cleanupStaleOpenTicketRefs.
