@@ -147,6 +147,11 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
 
     const db = new Db(this.env.DB);
     const convs = new ConversationsRepo(db);
+    // Capturado ANTES de getOrCreate: si la fila ya existía, su started_at es
+    // de antes de este instante; si se acaba de crear ahora, started_at cae
+    // DESPUÉS de este timestamp. Así distinguimos "cliente nuevo" de "cliente
+    // con historia" sin tocar ConversationsRepo ni el schema — ver más abajo.
+    const antesDeGetOrCreate = Date.now();
     const conv = await convs.getOrCreate(
       payload.channel,
       payload.channelUserId,
@@ -177,11 +182,31 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     const media = await this.processMedia(payload, db, conv.id);
     const { processedText, hasImage } = media;
 
-    // Conversación en pausa (un humano tomó el control): el bot se calla, pero el
-    // mensaje del cliente DEBE registrarse — si no, nunca aparece en el panel y el
-    // equipo no tiene qué contestar a mano (que es el punto de pausar). Visto en
-    // prod (2026-07-29). Reportado por conconfianza.
-    if (await convs.isPaused(conv.id)) {
+    // ── Freno urgente (2026-09-28, pedido del dueño): el bot estaba
+    // interviniendo en conversaciones que Maricela YA lleva a mano y dañando
+    // el trato con clientes antiguos (Requerimientos_chat_bot.pdf §2). Mientras
+    // se arma el flujo completo del documento (detección fina de "cliente
+    // nuevo" con lead/ticket/cita, prospección guiada, etc.), este freno usa
+    // lo único que hace falta para resolver el daño real: si la conversación
+    // YA EXISTÍA antes de este mensaje (cliente con historia previa), el bot
+    // se calla — igual que una pausa manual — y Maricela sigue por WhatsApp
+    // sin que el bot se le cruce. Con alguien que escribe por primera vez,
+    // el bot sigue funcionando normal. Toggle por si hace falta apagarlo:
+    // settings.mute_clientes_antiguos = '0' lo desactiva sin redeploy.
+    const esClienteAntiguo = conv.started_at < antesDeGetOrCreate;
+    // .all() (no .get) a propósito: es el mismo método bulk que ya usa
+    // resolveAgentConfig() para leer settings, y el que los tests stubean
+    // (stubSettings/SettingsRepo.prototype.all) — .get() pega directo a D1 y
+    // rompe en los tests que corren con env.DB de mentira.
+    const settingsAll = await new SettingsRepo(db).all();
+    const muteClientesAntiguos = settingsAll["mute_clientes_antiguos"] !== "0";
+
+    // Conversación en pausa (un humano tomó el control) O cliente antiguo con
+    // el freno activo: el bot se calla, pero el mensaje del cliente DEBE
+    // registrarse — si no, nunca aparece en el panel y el equipo no tiene qué
+    // contestar a mano (que es el punto de pausar). Visto en prod (2026-07-29).
+    // Reportado por conconfianza.
+    if ((await convs.isPaused(conv.id)) || (esClienteAntiguo && muteClientesAntiguos)) {
       await this.recordWithoutReplying(db, conv.id, processedText, media.mediaIds);
       // Ping a la app móvil (Forja Inbox): el cliente escribió mientras un
       // humano atiende ESTA conversación — justo el momento en que el dueño
