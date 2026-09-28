@@ -26,8 +26,11 @@ const TTL_MS = 30_000;
 export const IDIOMAS = {
   "es-419": {
     etiqueta: "Español (Latinoamérica)",
-    // Lo que se le inyecta al prompt en {{LANGUAGE}}.
-    prompt: "español latinoamericano (de tú, natural y cercano; NUNCA uses 'vosotros')",
+    // Lo que se le inyecta al prompt en {{LANGUAGE}}. Tuteo explícito con
+    // ejemplos: sin esto el modelo a veces deriva a voseo ("decime", "tenés")
+    // aunque diga "de tú" — reportado en vivo 2026-09-28 (Brayan).
+    prompt:
+      "español latinoamericano de TÚ, natural y cercano: 'dime', 'puedes', 'tienes', 'mira', 'elige' — NUNCA voseo ('decime', 'tenés', 'podés', 'mirá', 'acomodá'); NUNCA uses 'vosotros'",
   },
   "es-ES": {
     etiqueta: "Español (España)",

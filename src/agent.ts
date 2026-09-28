@@ -556,10 +556,57 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
 
   /**
    * Called by the agents SDK scheduler when the msg-buffer task fires.
-   * Processes accumulated messages as one input, runs the LLM loop, and
-   * sends the chunked reply over the channel adapter.
+   *
+   * Envoltorio de seguridad: el runtime de la librería `agents` (Agent.alarm)
+   * atrapa cualquier excepción de este callback con un solo console.error MUDO
+   * — sin reintento, sin avisar al dueño, sin mandarle nada al cliente (visto
+   * en vivo 2026-09-28: un cliente mandó una foto + pregunta y el bot se quedó
+   * mudo del todo, sin ticket). Como no podemos parchear esa librería, este
+   * método pasa a ser un try/catch que cubre TODO el turno — el trabajo real
+   * vive en processBufferTurn(). Cualquier falla no prevista termina en el
+   * mismo camino ya conocido: silencio hacia el cliente + ticket real para
+   * el dueño (notifyOwnerTurnFailed), nunca en un swallow sin rastro.
    */
   async processBuffer(): Promise<void> {
+    try {
+      await this.processBufferTurn();
+    } catch (e) {
+      await this.notifyOwnerTurnFailed("el turno falló de forma inesperada", e);
+    }
+  }
+
+  /**
+   * Camino único para "el turno falló y el bot se queda mudo a propósito": lo
+   * usa tanto un fallo del proveedor de IA (más abajo) como el catch-all de
+   * processBuffer(). Nunca se le manda un error al cliente (decisión del
+   * dueño 2026-09-25 — un negocio que le escribe "algo falló" a un lead se ve
+   * poco profesional); en cambio se avisa al dueño con un ticket para que
+   * responda a mano. Solo necesita this.state/this.env — funciona sin
+   * importar en qué punto del turno haya fallado.
+   */
+  private async notifyOwnerTurnFailed(reason: string, detail: unknown): Promise<void> {
+    console.error(
+      `[SupportAgent.processBuffer] ${reason} — no se le manda ningún error al cliente, se avisa al dueño`,
+      detail,
+    );
+    const convId = this.state.conversationId;
+    if (!convId) return;
+    try {
+      const db = new Db(this.env.DB);
+      const convs = new ConversationsRepo(db);
+      const conv = await convs.getById(convId).catch(() => null);
+      const { createHandoffTicket } = await import("./tools/handoffHuman");
+      await createHandoffTicket(this.env, {
+        conversationId: convId,
+        reason: "bot sin responder",
+        summary: `${conv?.display_name ?? "Cliente"} (${this.state.channel}) escribió y ${reason} — el bot se quedó en silencio a propósito en vez de mandar un error. Respondele a mano.`,
+      });
+    } catch (eTicket) {
+      console.error("[SupportAgent.processBuffer] no se pudo avisar al dueño:", eTicket);
+    }
+  }
+
+  private async processBufferTurn(): Promise<void> {
     // Despertó por alarm del DO (sin middleware): refresca el tier efectivo para
     // que el Blindaje (Pro) y el gating de la respuesta usen el valor real.
     const { applyTier } = await import("./tier");
@@ -1002,17 +1049,10 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         // respuesta en messages — exactamente lo que checkStuckConversations
         // vigila) Y avisarle al dueño YA, sin esperar el próximo tick del
         // cron de 5 min, porque acá ya sabemos con certeza que falló.
-        console.error(
-          `[SupportAgent.processBuffer] los ${primary.provider}${fb ? ` + ${fb.provider}` : ""} fallaron — no se le manda ningún error al cliente, se avisa al dueño`,
+        await this.notifyOwnerTurnFailed(
+          `el proveedor de IA falló por completo (${primary.provider}${fb ? ` + ${fb.provider}` : ""})`,
+          { primary: primary.provider, fallback: fb?.provider },
         );
-        const { createHandoffTicket } = await import("./tools/handoffHuman");
-        const conv = await convs.getById(convId).catch(() => null);
-        await createHandoffTicket(this.env, {
-          conversationId: convId,
-          reason: "bot sin responder",
-          summary: `${conv?.display_name ?? "Cliente"} (${this.state.channel}) escribió y el proveedor de IA falló por completo — el bot se quedó en silencio a propósito en vez de mandar un error. Respondele a mano.`,
-          transcript: combined.slice(0, 2000),
-        }).catch((eTicket) => console.error("[SupportAgent.processBuffer] no se pudo avisar al dueño:", eTicket));
         return;
       }
     }
