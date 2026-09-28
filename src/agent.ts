@@ -680,7 +680,23 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     if (lastUserMsg) {
       const { stripMediaMarkers } = await import("./lib/media-markers");
       // Los marcadores son contabilidad interna: el modelo ve el texto limpio.
-      const cleanText = stripMediaMarkers(lastUserMsg.content);
+      let cleanText = stripMediaMarkers(lastUserMsg.content);
+      // El modelo NO ve timestamps (mapMessageToAiTurn solo manda role+content),
+      // así que no tiene forma de saber cuánto pasó desde el último mensaje.
+      // Pedido del dueño (2026-09-29): con clientes que ya tienen historial, si
+      // pasó 1 día o más desde el último intercambio, saludar brevemente por
+      // cordialidad antes de retomar — sin repetir el guion completo de
+      // presentación, que es solo para el primer contacto. Se lo decimos
+      // explícito con un marcador de contexto; ver custom_instructions
+      // ("Marcador de tiempo transcurrido").
+      const prevMsg = history[history.length - 2];
+      if (prevMsg) {
+        const gapMs = lastUserMsg.created_at - prevMsg.created_at;
+        const gapDays = Math.floor(gapMs / (24 * 60 * 60 * 1000));
+        if (gapDays >= 1) {
+          cleanText = `[Han pasado ${gapDays} día${gapDays === 1 ? "" : "s"} desde el último mensaje en esta conversación] ${cleanText}`;
+        }
+      }
       const imgMatch = lastUserMsg.content.match(/\[IMAGE_URL: (.+?)\]/);
       if (imgMatch && isPro(this.env)) {
         // El token se enmascaró al guardar; vuelve solo aquí, para bajar el
