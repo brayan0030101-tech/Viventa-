@@ -294,6 +294,7 @@ export type GuardAction =
   | "skipped-no-claims" // la respuesta no afirma datos (o, en modo permisivo, no niega nada)
   | "sent-original" // verificada y respaldada — sale tal cual
   | "replaced" // sin respaldo — sale el "déjame confirmarlo" + ticket
+  | "replaced-silent" // sin respaldo, pero YA se mandó ese mismo "déjame confirmarlo" antes en esta charla — no se repite, no sale nada
   | "fail-open"; // el verificador falló/timeout — sale la original intacta
 
 export interface GuardOptions {
@@ -388,10 +389,29 @@ export async function guardReply(env: Env, opts: GuardOptions): Promise<GuardRes
   }
 
   await bumpCounter(env, SETTING_KEYS.blindajeBlocked);
+
+  // Pedido del dueño (2026-09-29): "si no tienes la información te quedas
+  // callado, no sigues enviando que vas a revisar" — safeConfirmReply() es un
+  // texto FIJO por idioma/canal, así que si ya salió antes en esta misma
+  // charla (el cliente sigue preguntando cosas sin respaldo, o repite la
+  // pregunta), mandarlo de nuevo es literalmente el mismo mensaje dos veces:
+  // se ve como un bot roto y espanta al cliente. Mejor silencio total esta
+  // vez — el ticket ya avisó al dueño la primera vez, y la conversación queda
+  // como "sin responder" (lo que checkStuckConversations vigila) para que un
+  // humano la retome.
+  const safeReply = safeConfirmReply(env.BOT_LANGUAGE, opts.channel);
+  const yaLoDijo = (opts.mensajesDelNegocio ?? []).some((m) => m.trim() === safeReply.trim());
+  if (yaLoDijo) {
+    console.warn(
+      `[blindaje] "déjame confirmarlo" ya se había mandado en esta charla — silencio en vez de repetirlo. Claim: "${claim.slice(0, 120)}"`,
+    );
+    return { finalText: "", action: "replaced-silent", unsupportedClaim: claim };
+  }
+
   console.warn(`[blindaje] respuesta reemplazada (dato sin respaldo): "${claim.slice(0, 120)}"`);
 
   return {
-    finalText: safeConfirmReply(env.BOT_LANGUAGE, opts.channel),
+    finalText: safeReply,
     action: "replaced",
     unsupportedClaim: claim,
   };

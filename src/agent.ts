@@ -1118,10 +1118,39 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         });
         if (guard.action === "replaced") {
           assistantText = guard.finalText;
+        } else if (guard.action === "replaced-silent") {
+          // Pedido del dueño (2026-09-29): no repetir el mismo "déjame
+          // confirmarlo" dos veces en la misma charla — mejor silencio total
+          // que sonar a bot roto. El costo YA se gastó (el streamText de este
+          // turno ya corrió), así que igual se anota en la libreta de gastos;
+          // lo único que se salta es persistir/mandar un mensaje al cliente.
+          await recordIaUsage(db, {
+            fn: "conversacion",
+            model: usedModelId,
+            usage: { input: inputTokens, cached: cachedTokens, cacheCreation: cacheCreationTokens, output: outputTokens },
+            conversationId: convId,
+          });
+          return;
         }
       } catch (e) {
         console.warn("[blindaje] guard falló — fail-open, va la respuesta original:", e);
       }
+    }
+
+    // Red de seguridad genérica (2026-09-29, pedido del dueño): si el modelo
+    // mismo decidió no decir nada — por la regla de "no respondas a ciegas
+    // sobre algo que no tenés en el historial" (custom_instructions), o por
+    // cualquier otro motivo — el texto final puede llegar vacío. Nunca hay que
+    // mandar ni guardar un mensaje vacío: se trata igual que "replaced-silent"
+    // más arriba, el turno simplemente no genera respuesta visible.
+    if (!assistantText.trim()) {
+      await recordIaUsage(db, {
+        fn: "conversacion",
+        model: usedModelId,
+        usage: { input: inputTokens, cached: cachedTokens, cacheCreation: cacheCreationTokens, output: outputTokens },
+        conversationId: convId,
+      });
+      return;
     }
 
     // Persist assistant message (with usage + model_used + tool calls)
