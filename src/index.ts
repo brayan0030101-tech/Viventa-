@@ -522,7 +522,7 @@ app.post("/webhooks/ycloud", async (c) => {
     // COEXISTENCIA: el dueño respondió desde su app (whatsapp.smb.message.echoes) →
     // pausamos esa conversación (takeover). El resto de eventos entrantes van al pipeline.
     if (ev?.type === "whatsapp.smb.message.echoes") {
-      await ycloudOwnerTakeover(ev, c.env).catch((e) => console.error("ycloud takeover:", e));
+      await ycloudOwnerTakeover(ev, c.env, origin).catch((e) => console.error("ycloud takeover:", e));
       continue;
     }
     for (const msg of await parseYCloudEvents(ev, c.env, origin)) {

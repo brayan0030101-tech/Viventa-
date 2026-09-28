@@ -15,6 +15,18 @@ vi.mock("../../src/db/conversations", () => ({
 }));
 vi.mock("../../src/db/settings", () => ({ resolveTakeoverMs }));
 
+// Mocks para la transcripción + guardado del audio del dueño (coexistencia).
+const { transcribeAudio, appendMock } = vi.hoisted(() => ({
+  transcribeAudio: vi.fn(async () => ({ text: "Hola, te confirmo que sí tenemos ese proyecto" })),
+  appendMock: vi.fn(async () => "msg_1"),
+}));
+vi.mock("../../src/media/transcribe", () => ({ transcribeAudio }));
+vi.mock("../../src/db/messages", () => ({
+  MessagesRepo: class {
+    append = appendMock;
+  },
+}));
+
 import {
   parseYCloudEvents,
   verifyYCloudSignature,
@@ -124,16 +136,50 @@ describe("ycloudOwnerTakeover (coexistencia)", () => {
   });
 
   it("echo del business app → pausa la conversación del cliente (to)", async () => {
-    const paused = await ycloudOwnerTakeover(echo("+52 81 4580 3756") as any, env);
+    const paused = await ycloudOwnerTakeover(echo("+52 81 4580 3756") as any, env, "https://example.com");
     expect(paused).toBe(true);
     expect(getOrCreate).toHaveBeenCalledWith("ycloud", "528145803756", "Joe");
     expect(setPausedUntil).toHaveBeenCalledWith("ycloud:5218145803756", expect.any(Number));
   });
 
   it("un evento que no es echo → NO pausa", async () => {
-    const paused = await ycloudOwnerTakeover(inbound({ from: "1", type: "text", text: { body: "x" } }) as any, env);
+    const paused = await ycloudOwnerTakeover(inbound({ from: "1", type: "text", text: { body: "x" } }) as any, env, "https://example.com");
     expect(paused).toBe(false);
     expect(setPausedUntil).not.toHaveBeenCalled();
+  });
+
+  it("echo de AUDIO → transcribe y guarda el texto como mensaje 'owner' (memoria del bot)", async () => {
+    appendMock.mockClear();
+    transcribeAudio.mockClear();
+    const audioEcho = {
+      id: "evt_e2",
+      type: "whatsapp.smb.message.echoes",
+      whatsappMessage: {
+        wamid: "wamid.y",
+        status: "sent",
+        from: "+528100000000",
+        to: "+52 81 4580 3756",
+        type: "audio",
+        customerProfile: { name: "Joe" },
+        audio: { id: "aud_1", link: "https://api.ycloud.com/v2/whatsapp/media/download/aud_1", mime_type: "audio/ogg" },
+      },
+    };
+    const paused = await ycloudOwnerTakeover(audioEcho as any, env, ORIGIN);
+    expect(paused).toBe(true);
+    expect(transcribeAudio).toHaveBeenCalledTimes(1);
+    expect(appendMock).toHaveBeenCalledWith(
+      "ycloud:5218145803756",
+      "owner",
+      "Hola, te confirmo que sí tenemos ese proyecto",
+    );
+  });
+
+  it("echo de TEXTO → pausa pero NO intenta guardar texto (YCloud no lo manda)", async () => {
+    appendMock.mockClear();
+    transcribeAudio.mockClear();
+    await ycloudOwnerTakeover(echo("+52 81 4580 3756") as any, env, ORIGIN);
+    expect(transcribeAudio).not.toHaveBeenCalled();
+    expect(appendMock).not.toHaveBeenCalled();
   });
 });
 

@@ -53,6 +53,11 @@ interface YCloudEchoMessage {
   to?: string; // cliente
   type?: string;
   customerProfile?: { name?: string };
+  // Solo en echoes de audio (confirmado contra la doc oficial de YCloud,
+  // docs.ycloud.com/reference/whatsapp-business-app-sent-message-sync-webhook-examples):
+  // los echoes de TEXTO no traen el cuerpo del mensaje, pero los de audio sí traen
+  // este objeto — permite transcribir y guardar en memoria lo que el dueño dijo.
+  audio?: { id?: string; link?: string; mime_type?: string };
 }
 
 interface YCloudWebhookBody {
@@ -231,9 +236,19 @@ export async function parseYCloudEvents(
  * COEXISTENCIA. Evento `whatsapp.smb.message.echoes`: el dueño respondió a un cliente
  * DESDE SU APP de WhatsApp Business. Pausa esa conversación (takeover), igual que el
  * panel — para que el bot no responda encima. El cliente es `whatsappMessage.to`.
+ *
+ * Además (pedido del dueño, 2026-09-29): guarda en la memoria del bot lo que el
+ * dueño dijo, no solo que "alguien respondió" — mismo rol "owner" que una
+ * respuesta desde el panel (ver admin/routes.ts). YCloud NO manda el texto en
+ * los echoes de tipo texto (confirmado contra su documentación oficial), así que
+ * ahí seguimos sin poder capturarlo — pero los echoes de AUDIO sí traen un link
+ * descargable, y lo transcribimos con el mismo pipeline que usamos para audios
+ * entrantes de clientes. Best-effort: si la transcripción falla, la pausa ya
+ * se aplicó de todos modos.
+ *
  * Devuelve true si pausó.
  */
-export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env): Promise<boolean> {
+export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env, origin: string): Promise<boolean> {
   if (body.type !== "whatsapp.smb.message.echoes") return false;
   const phone = normPhone(body.whatsappMessage?.to);
   if (!phone) return false;
@@ -241,6 +256,24 @@ export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env): Pr
   const conv = await convs.getOrCreate("ycloud", phone, body.whatsappMessage?.customerProfile?.name);
   await convs.setPausedUntil(conv.id, Date.now() + (await resolveTakeoverMs(env)));
   console.log("ycloud coexistence: owner replied from app → paused", JSON.stringify({ phone }));
+
+  const audioId = body.whatsappMessage?.audio?.id;
+  if (audioId) {
+    try {
+      const audioUrl = await signedMediaUrl(audioId, env, origin);
+      if (audioUrl) {
+        const { transcribeAudio } = await import("../media/transcribe");
+        const result = await transcribeAudio(audioUrl, env);
+        if (result.text?.trim()) {
+          const { MessagesRepo } = await import("../db/messages");
+          await new MessagesRepo(new Db(env.DB)).append(conv.id, "owner", result.text.trim());
+        }
+      }
+    } catch (e) {
+      console.warn("[ycloud coexistence] no se pudo transcribir/guardar el audio del dueño:", e);
+    }
+  }
+
   return true;
 }
 
