@@ -86,11 +86,70 @@ export async function getAvailableSlots(
     }
     const body = (await res.json()) as { data?: Record<string, Slot[]> };
     const byDate = body.data ?? {};
-    const slots = Object.values(byDate)
-      .flat()
+    const slots = (byDate[date] ?? [])
       .map((s) => s?.start)
       .filter((s): s is string => typeof s === "string");
     return { ok: true, slots };
+  } catch (e: any) {
+    return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
+  }
+}
+
+/**
+ * Horarios libres de varios días de una sola vez: { "YYYY-MM-DD": [ISO start, ...] }.
+ * La fecha final cuenta como incluida (así responde Cal.com).
+ */
+export async function getAvailableSlotsRange(
+  env: Env,
+  eventTypeId: number,
+  startDate: string,
+  endDate: string,
+  timeZone: string,
+): Promise<{ ok: true; byDate: Record<string, string[]> } | { ok: false; reason: string }> {
+  if (!env.CALCOM_API_KEY) return { ok: false, reason: "not_configured" };
+  const url = `${CALCOM_API}/slots?eventTypeId=${eventTypeId}&start=${startDate}&end=${endDate}&timeZone=${encodeURIComponent(timeZone)}`;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": SLOTS_VERSION },
+    });
+    if (!res.ok) {
+      console.error(`[calcom] slots-range http_${res.status} · eventType=${eventTypeId} · ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      return { ok: false, reason: `http_${res.status}` };
+    }
+    const body = (await res.json()) as { data?: Record<string, Slot[]> };
+    const byDate: Record<string, string[]> = {};
+    for (const [date, list] of Object.entries(body.data ?? {})) {
+      byDate[date] = (list ?? []).map((s) => s?.start).filter((s): s is string => typeof s === "string");
+    }
+    return { ok: true, byDate };
+  } catch (e: any) {
+    return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
+  }
+}
+
+/**
+ * Inicios (ISO) de las reservas futuras REALES del calendario. Solo el inicio:
+ * la imagen de disponibilidad nunca necesita nombres ni datos de nadie.
+ */
+export async function getUpcomingBookingStarts(
+  env: Env,
+  eventTypeId?: number,
+): Promise<{ ok: true; starts: string[] } | { ok: false; reason: string }> {
+  if (!env.CALCOM_API_KEY) return { ok: false, reason: "not_configured" };
+  const qs = `status=upcoming&take=100${eventTypeId ? `&eventTypeIds=${eventTypeId}` : ""}`;
+  try {
+    const res = await fetch(`${CALCOM_API}/bookings?${qs}`, {
+      headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": BOOKINGS_VERSION },
+    });
+    if (!res.ok) {
+      console.error(`[calcom] bookings-list http_${res.status} · ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      return { ok: false, reason: `http_${res.status}` };
+    }
+    const body = (await res.json()) as { data?: { start?: string; status?: string }[] };
+    const starts = (body.data ?? [])
+      .filter((b) => typeof b?.start === "string" && b.status !== "cancelled" && b.status !== "rejected")
+      .map((b) => b.start as string);
+    return { ok: true, starts };
   } catch (e: any) {
     return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
   }

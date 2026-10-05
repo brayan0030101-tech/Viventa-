@@ -72,7 +72,9 @@ index_name = "horizontes_bot_inmobiliaria_8664f4_kb"
 BOT_NAME = "Maricela"
 BUSINESS_NAME = "Viventa"
 BOT_LANGUAGE = "es-MX"
-# BOT_TIMEZONE = "America/Mexico_City"  # zona horaria para resolver fechas ("mañana", "el jueves 27"). Sin ella cae a CALCOM_TIMEZONE y luego a CDMX. Cámbiala si tu negocio no está en el centro de México (ej. "America/Bogota", "Europe/Madrid").
+BOT_TIMEZONE = "Europe/Madrid"  # zona horaria para resolver fechas ("mañana", "el jueves 27")
+CALCOM_EVENT_TYPE_ID = "7227219"  # tipo de evento "Videollamada Viventa" (15 min) en el Cal.com de Maricela
+CALCOM_TIMEZONE = "Europe/Madrid"
 BOT_TIER = "pro"  # 'free' | 'pro'
 LLM_PROVIDER = "anthropic"
 # BLINDAJE_MODE = "full"  # estrictez del Blindaje anti-invento (Pro): 'off' | 'negaciones' | 'full'. Sin línea = 'full' (verificación completa; el prompt ya trata tool/KB/listados/cálculos como respaldo y solo bloquea contradicciones o datos sin fuente). 'negaciones' = confía en TODO dato positivo y solo vigila negaciones — para negocios que listan inventario en vivo. 'off' = apagado.

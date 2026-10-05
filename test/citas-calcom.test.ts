@@ -53,7 +53,12 @@ const envCal = {
 function stubFetchSlots(slots: string[]) {
   const fetchMock = vi.fn(async () => ({
     ok: true,
-    json: async () => ({ data: { dia: slots.map((s) => ({ start: s })) } }),
+    json: async () => ({
+      data: slots.reduce<Record<string, { start: string }[]>>((acc, s) => {
+        (acc[s.slice(0, 10)] ??= []).push({ start: s });
+        return acc;
+      }, {}),
+    }),
   }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;

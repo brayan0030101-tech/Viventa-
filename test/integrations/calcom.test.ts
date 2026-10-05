@@ -83,6 +83,26 @@ describe("getAvailableSlots", () => {
     expect((init as any).headers["cal-api-version"]).toBe("2024-09-04");
   });
 
+  it("ignora los slots del día siguiente que Cal.com incluye por la fecha final inclusiva", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              "2026-10-06": [{ start: "2026-10-06T18:00:00.000+02:00" }],
+              "2026-10-07": [{ start: "2026-10-07T10:00:00.000+02:00" }],
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const res = await getAvailableSlots(env({ CALCOM_API_KEY: "cal_x" }), 10, "2026-10-06", "Europe/Madrid");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.slots).toEqual(["2026-10-06T18:00:00.000+02:00"]);
+  });
+
   it("devuelve error si la API falla", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 500 })));
     const res = await getAvailableSlots(env({ CALCOM_API_KEY: "cal_x" }), 10, "2026-07-20", "UTC");

@@ -14,19 +14,18 @@
 // `ctx.env` = variables/bindings del bot; `ctx.getConversationId()` = la
 // conversación en curso.
 import type { MemberToolCtx } from "../src/tools/member";
+import { calcomConfigured } from "../src/integrations/calcom";
+import { verDisponibilidadTool, agendarCitaTool, cancelarCitaTool } from "../src/tools/servicios";
 
+// El giro "inmobiliaria" no trae agendarCita/verDisponibilidad de fábrica (esas
+// tools son de los giros de cita — barbería, spa, dentista…). Viventa SÍ agenda
+// videollamadas/visitas, así que las reactivamos acá reusando el mismo cliente
+// de Cal.com ya construido en src/integrations/calcom.ts — sin tocar src/.
 export function memberTools(ctx: MemberToolCtx): Record<string, unknown> {
-  void ctx; // quítalo cuando uses ctx dentro de tus tools
+  if (!calcomConfigured(ctx.env)) return {};
   return {
-    // Ejemplo — descomenta, agrega los imports de arriba y adáptalo:
-    //
-    // estatusPedido: tool({
-    //   description: "Consulta el estatus de un pedido por su número de orden.",
-    //   inputSchema: z.object({ orden: z.string().describe("número de orden") }),
-    //   execute: async ({ orden }) => {
-    //     // Tu lógica. Puedes usar ctx.env y ctx.getConversationId().
-    //     return `El pedido ${orden} está en preparación.`;
-    //   },
-    // }),
+    verDisponibilidad: verDisponibilidadTool(ctx.env, ctx.getConversationId),
+    agendarCita: agendarCitaTool(ctx.env, ctx.getConversationId),
+    cancelarCita: cancelarCitaTool(ctx.env, ctx.getConversationId),
   };
 }
