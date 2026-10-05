@@ -24,6 +24,7 @@
     "@ai-sdk/openai": "^4.0.0",
     "@ai-sdk/xai": "^4.0.0",
     "@anthropic-ai/sdk": "^0.90.0",
+    "@resvg/resvg-wasm": "^2.6.2",
     "agents": "^0.1.0",
     "ai": "^7.0.0",
     "hono": "^4.10.0",

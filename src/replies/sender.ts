@@ -204,6 +204,49 @@ async function resolverFotoProyecto(pedidas: FotoProyectoPedida[], env: Env): Pr
   }
 }
 
+// ── Disponibilidad de la agenda (imagen con horarios reservados tachados) ────
+// [[disponibilidad]] al final de la respuesta → imagen generada al vuelo desde
+// Cal.com (libres + reservas REALES). Si no se puede generar la imagen, cae a
+// texto con ~tachado~ de WhatsApp; si tampoco hay datos, se descarta en silencio.
+const DISPONIBILIDAD_RE = /\[\[\s*disponibilidad\s*(?::([^\]]*))?\]\]/gi;
+
+export function extraeDisponibilidad(chunks: string[]): { chunks: string[]; pedida: boolean; modo: "dia" | "noche" } {
+  let pedida = false;
+  let modo: "dia" | "noche" = "dia";
+  const limpios = chunks
+    .map((c) => {
+      const out = c.replace(DISPONIBILIDAD_RE, (_m, arg: string | undefined) => {
+        pedida = true;
+        if (arg && /noche|nocturn|tarde/i.test(arg)) modo = "noche";
+        return "";
+      });
+      return out.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+    })
+    .filter((c) => c.length > 0);
+  return { chunks: limpios, pedida, modo };
+}
+
+async function resolverDisponibilidad(env: Env, modo: "dia" | "noche"): Promise<{ media?: ReplyMedia; text?: string }> {
+  try {
+    const [{ selfOrigin }, svc] = await Promise.all([import("../lib/self-origin"), import("../media/availability-service")]);
+    try {
+      const png = await svc.getAvailabilityPng(env, modo);
+      if (png) {
+        const origin = await selfOrigin(env);
+        const url = await svc.signedAvailabilityUrl(env, origin, modo);
+        if (url) return { media: { kind: "image", url } };
+      }
+    } catch (e) {
+      console.warn("[disponibilidad] no se pudo generar la imagen, se usa texto:", e);
+    }
+    const text = await svc.getAvailabilityText(env, modo);
+    return text ? { text } : {};
+  } catch (e) {
+    console.error("[disponibilidad] resolverDisponibilidad falló:", e);
+    return {};
+  }
+}
+
 export async function sendChunkedReply(
   adapter: ChannelAdapter,
   channel: ChannelId,
@@ -221,14 +264,25 @@ export async function sendChunkedReply(
   // inventado se descarta y el texto sale normal.
   const extMedia = extraeMediaIds(ext.chunks);
   const extFoto = extraeFotoProyecto(extMedia.chunks);
-  let finales = extFoto.chunks;
+  const extDisp = extraeDisponibilidad(extFoto.chunks);
+  let finales = extDisp.chunks;
   let media: ReplyMedia[] | undefined;
-  if (extMedia.medias.length || extFoto.pedidas.length) {
+  let dispMedia: ReplyMedia | undefined;
+  if (extDisp.pedida) {
+    const disp = await resolverDisponibilidad(env, extDisp.modo);
+    dispMedia = disp.media;
+    if (disp.text) {
+      finales = finales.length
+        ? [...finales.slice(0, -1), `${finales[finales.length - 1]}\n\n${disp.text}`]
+        : [disp.text];
+    }
+  }
+  if (extMedia.medias.length || extFoto.pedidas.length || dispMedia) {
     const [resueltosGaleria, resueltosFoto] = await Promise.all([
       resolverMedia(extMedia.medias, env),
       resolverFotoProyecto(extFoto.pedidas, env),
     ]);
-    const resueltos = [...resueltosGaleria, ...resueltosFoto].slice(0, MAX_MEDIA_POR_RESPUESTA);
+    const resueltos = [...resueltosGaleria, ...resueltosFoto, ...(dispMedia ? [dispMedia] : [])].slice(0, MAX_MEDIA_POR_RESPUESTA);
     if (resueltos.length) {
       if (MEDIA_CHANNELS.has(channel)) {
         media = resueltos;

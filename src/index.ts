@@ -646,6 +646,27 @@ app.get("/media/:id", async (c) => {
   });
 });
 
+// Imagen de disponibilidad de la agenda (horarios reservados tachados), generada
+// al vuelo desde Cal.com. Pública pero FIRMADA con expiración: el proveedor la
+// descarga por link sin auth y así nadie puede martillar Cal.com desde fuera.
+app.get("/disponibilidad.png", async (c) => {
+  const svc = await import("./media/availability-service");
+  const mode = c.req.query("m") === "noche" ? "noche" : "dia";
+  const check = await svc.verifyAvailabilitySignature(c.env, c.req.query("exp") ?? null, c.req.query("sig") ?? null, mode);
+  if (check === "expired") return c.text("expired", 410);
+  if (check !== "ok") return c.text("forbidden", 403);
+  try {
+    const png = await svc.getAvailabilityPng(c.env, mode);
+    if (!png) return c.text("not found", 404);
+    return new Response(png, {
+      headers: { "Content-Type": "image/png", "Content-Length": String(png.length), "Cache-Control": "public, max-age=60" },
+    });
+  } catch (e) {
+    console.error("[disponibilidad] render falló:", e);
+    return c.text("render failed", 500);
+  }
+});
+
 // KB reindex — embeds scripts/kb-fixtures.json into Vectorize. Guarded by the
 // KB_REINDEX_TOKEN secret via the X-Reindex-Token header. Trigger after deploy:
 //   curl -X POST https://<worker>/kb/reindex -H "X-Reindex-Token: <token>"
