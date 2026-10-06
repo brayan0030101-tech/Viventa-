@@ -13,6 +13,9 @@ import { chunkReply } from "../replies/chunker";
  * (metadata.citaFecha/citaHora/citaTipo) y le escribe al cliente, una sola
  * vez por cita (metadata.recordatorioEnviadoEn evita duplicados).
  *
+ * Las videollamadas ya NO pasan por aquí: tienen recordatorios a 24 h y 1 h
+ * (followup/sistemaViventa.ts). Esto queda para el Outlet.
+ *
  * Corre desde el cron frecuente (cada 5 min) pero gateado a UNA franja
  * horaria del día — ver index.ts — así en la práctica dispara una vez por día.
  */
@@ -56,7 +59,8 @@ export async function sendAppointmentReminders(
   const rows = await db.all<LeadRow>(
     `SELECT id, conversation_id, channel_user_id, name, metadata FROM leads
      WHERE json_extract(metadata, '$.citaFecha') = ?
-       AND json_extract(metadata, '$.recordatorioEnviadoEn') IS NULL`,
+       AND json_extract(metadata, '$.recordatorioEnviadoEn') IS NULL
+       AND COALESCE(json_extract(metadata, '$.citaTipo'), '') != 'videollamada'`,
     [tomorrow],
   );
 

@@ -722,6 +722,11 @@ export default {
         const { sendAppointmentReminders } = await import("./followup/appointmentReminder");
         await sendAppointmentReminders(env).catch((e) => console.error("appointmentReminder:", e));
       }
+      // Sistema de atención Viventa: seguimiento del guion (~24 h), seguimiento a
+      // 48 h de los proyectos y recordatorios de la videollamada (24 h / 1 h) +
+      // resumen para Maricela. Cada uno reclama antes de enviar (sin duplicados).
+      const { runSistemaViventa } = await import("./followup/sistemaViventa");
+      await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
       // Sincroniza el catálogo de proyectos de viventa.co/proyectos al KB, en
       // tandas — pedido del dueño 2026-09-25: el bot debe conocer siempre los
       // proyectos activos SIN que nadie los cargue a mano, pero sin redirigir

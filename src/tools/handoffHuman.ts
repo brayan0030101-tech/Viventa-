@@ -68,6 +68,22 @@ export async function createHandoffTicket(
   // text would be rejected by WhatsApp. Both are best-effort.
   await notifyOwner(env, { reason, summary, ticketId });
 
+  // Viventa: Camila (equipo comercial) recibe cada traspaso con la ficha del
+  // lead. Best-effort y sin efecto si CAMILA_* no está configurado.
+  try {
+    const { camilaConfigured, notifyCamila, leadFicha } = await import("../lib/camila");
+    if (camilaConfigured(env)) {
+      const ficha = await leadFicha(db, conversationId);
+      await notifyCamila(env, {
+        heading: `📥 Traspaso [${reason}]`,
+        body: `${summary}\n\n${ficha}`,
+        url: `${await selfOrigin(env)}/admin/tickets`,
+      });
+    }
+  } catch (e) {
+    console.error("[handoffHuman] aviso a Camila falló:", e);
+  }
+
   // Ping a la app móvil (Forja Inbox) — mismo espíritu que notifyOwner: aviso
   // best-effort; el ticket ya está a salvo en D1 + panel.
   let cliente = "Cliente";

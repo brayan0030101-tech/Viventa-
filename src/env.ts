@@ -206,6 +206,8 @@ export interface Env {
   COMPOSIO_ENTITY_ID?: string;  // opcional: filtra las cuentas conectadas por user_id (Composio v3); sin ella se usan TODAS las del proyecto
   OWNER_EMAIL: string;  // for handoff notifications (email)
   OWNER_TELEGRAM_CHAT_ID?: string;  // for handoff notifications (default channel)
+  CAMILA_TELEGRAM_CHAT_ID?: string; // Viventa: aviso a Camila (equipo comercial) por Telegram
+  CAMILA_EMAIL?: string;            // Viventa: aviso a Camila por correo (Resend)
   OWNER_WA_NUMBER?: string;  // for Pro handoff WhatsApp DM (requires template)
 
   // HTTP Basic Auth password for the admin dashboard (secret).

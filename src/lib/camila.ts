@@ -1,0 +1,136 @@
+/**
+ * Aviso al equipo comercial (Camila) — Viventa.
+ *
+ * Camila envía los proyectos cuando el bot termina el guion de calificación,
+ * así que necesita enterarse de cada traspaso con la ficha completa del lead.
+ * Canales (cada uno opcional e independiente, best-effort, nunca lanza):
+ *   • Telegram: CAMILA_TELEGRAM_CHAT_ID (reusa TELEGRAM_BOT_TOKEN del bot)
+ *   • Correo:   CAMILA_EMAIL (Resend, igual que el aviso al dueño)
+ * Los valores de contacto viven como secretos del worker; el repo es público.
+ */
+import { Resend } from "resend";
+import type { Env } from "../env";
+import type { Db } from "../db/client";
+
+export interface TeamNotice {
+  heading: string;
+  body: string;
+  url?: string;
+}
+
+export function camilaConfigured(env: Env): boolean {
+  const telegram = Boolean(env.TELEGRAM_BOT_TOKEN && env.CAMILA_TELEGRAM_CHAT_ID);
+  const mail = Boolean(env.RESEND_API_KEY && env.CAMILA_EMAIL);
+  return telegram || mail;
+}
+
+/** Manda un aviso a Camila por Telegram y/o correo. Devuelve si algún canal lo aceptó. */
+export async function notifyCamila(env: Env, notice: TeamNotice): Promise<boolean> {
+  if (!camilaConfigured(env)) {
+    console.error(`[camila] "${notice.heading}" sin canal (falta CAMILA_TELEGRAM_CHAT_ID o CAMILA_EMAIL) — Camila no lo verá`);
+    return false;
+  }
+  let delivered = false;
+
+  if (env.TELEGRAM_BOT_TOKEN && env.CAMILA_TELEGRAM_CHAT_ID) {
+    try {
+      const text = `${notice.heading}\n${notice.body}${notice.url ? `\n\n${notice.url}` : ""}`;
+      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: env.CAMILA_TELEGRAM_CHAT_ID, text }),
+      });
+      if (res.ok) delivered = true;
+      else console.error(`[camila] telegram http_${res.status}`);
+    } catch (e) {
+      console.error("[camila] telegram failed:", e);
+    }
+  }
+
+  if (env.RESEND_API_KEY && env.CAMILA_EMAIL) {
+    try {
+      const resend = new Resend(env.RESEND_API_KEY);
+      const html = notice.body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>");
+      await resend.emails.send({
+        from: `${env.BUSINESS_NAME} Bot <onboarding@resend.dev>`,
+        to: env.CAMILA_EMAIL,
+        subject: notice.heading,
+        html: `<p>${html}</p>${notice.url ? `<p><a href="${notice.url}">Abrir panel</a></p>` : ""}`,
+      });
+      delivered = true;
+    } catch (e) {
+      console.error("[camila] resend failed:", e);
+    }
+  }
+  return delivered;
+}
+
+const CAMPOS: Array<[string, string]> = [
+  ["ciudadResidencia", "Vive en"],
+  ["ciudadCompra", "Quiere comprar en"],
+  ["motivoCompra", "Para"],
+  ["entregaInmediataOFutura", "Entrega"],
+  ["plazoCompra", "Plazo"],
+  ["ahorroDisponible", "Ahorro para la inicial"],
+  ["capacidadMensual", "Podría destinar al mes"],
+  ["ingresosMensuales", "Ingresos"],
+  ["tipoEmpleo", "Trabajo"],
+  ["antiguedadLaboral", "Antigüedad laboral"],
+  ["compraSoloOAcompanado", "Compra"],
+];
+
+interface LeadRow {
+  name: string | null;
+  contact: string | null;
+  intent: string | null;
+  notes: string | null;
+  metadata: string | null;
+}
+
+/**
+ * Ficha del lead de una conversación, lista para pegar en un aviso. Junta todos
+ * los leads de la conversación (captureLead guarda uno por llamada): el dato más
+ * reciente de cada campo gana. Sin conversación o sin leads devuelve un texto
+ * neutro — nunca lanza.
+ */
+export async function leadFicha(db: Db, conversationId: string | null): Promise<string> {
+  if (!conversationId) return "(sin ficha: no hay conversación asociada)";
+  let rows: LeadRow[] = [];
+  try {
+    rows = await db.all<LeadRow>(
+      `SELECT name, contact, intent, notes, metadata FROM leads
+       WHERE conversation_id = ? AND intent NOT LIKE 'Cita ·%'
+       ORDER BY created_at ASC`,
+      [conversationId],
+    );
+  } catch (e) {
+    console.error("[camila] leadFicha:", e);
+  }
+  if (!rows.length) return "(sin ficha: el bot todavía no guardó datos de este cliente)";
+
+  let name = "";
+  let contact = "";
+  const meta: Record<string, string> = {};
+  const notes: string[] = [];
+  for (const r of rows) {
+    if (r.name) name = r.name;
+    if (r.contact) contact = r.contact;
+    if (r.notes && !notes.includes(r.notes)) notes.push(r.notes);
+    if (r.metadata) {
+      try {
+        Object.assign(meta, JSON.parse(r.metadata));
+      } catch {
+        // metadata rota: se ignora esa fila
+      }
+    }
+  }
+
+  const lines: string[] = [];
+  lines.push(`Nombre: ${name || "(sin nombre)"}`);
+  if (contact) lines.push(`Contacto: ${contact}`);
+  for (const [key, label] of CAMPOS) {
+    if (meta[key]) lines.push(`${label}: ${meta[key]}`);
+  }
+  for (const n of notes) lines.push(`Notas: ${n}`);
+  return lines.join("\n");
+}
