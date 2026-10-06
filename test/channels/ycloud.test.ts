@@ -32,6 +32,8 @@ import {
   verifyYCloudSignature,
   ycloudOwnerTakeover,
   normalizeYCloudEvents,
+  isForThisNumber,
+  serveYCloudMedia,
 } from "../../src/channels/ycloud";
 
 const ORIGIN = "https://bot.example.workers.dev";
@@ -190,5 +192,77 @@ describe("normalizeYCloudEvents", () => {
   it("array o { items: [...] } → expande", () => {
     expect(normalizeYCloudEvents([{}, {}])).toHaveLength(2);
     expect(normalizeYCloudEvents({ items: [{}] })).toHaveLength(1);
+  });
+});
+
+describe("filtro por número (cuenta de YCloud compartida con otro bot)", () => {
+  const VIVENTA = "+34611688609";
+  const OTRO = "+34603039032";
+  const envNum = { ...env, YCLOUD_WA_FROM: VIVENTA } as any;
+  const msg = (to: string) =>
+    inbound({ id: "id9", wamid: "wamid.9", from: "+57 300 123 4567", to, type: "text", text: { body: "hola" } }) as any;
+  const eco = (from: string) =>
+    ({
+      id: "evt_e9",
+      type: "whatsapp.smb.message.echoes",
+      whatsappMessage: { wamid: "wamid.e9", status: "sent", from, to: "+57 300 123 4567", type: "text", customerProfile: { name: "Ana" } },
+    }) as any;
+
+  beforeEach(() => {
+    setPausedUntil.mockClear();
+    getOrCreate.mockClear();
+  });
+
+  it("(a) un mensaje dirigido al otro número se ignora", async () => {
+    expect(await parseYCloudEvents(msg(OTRO), envNum, ORIGIN)).toHaveLength(0);
+  });
+
+  it("(b) un mensaje dirigido al número de Viventa se procesa (con cualquier formato)", async () => {
+    expect(await parseYCloudEvents(msg(VIVENTA), envNum, ORIGIN)).toHaveLength(1);
+    expect(await parseYCloudEvents(msg("+34 611-688-609"), envNum, ORIGIN)).toHaveLength(1);
+  });
+
+  it("(c) un eco cuyo from es el otro número no pausa nada ni toca la base", async () => {
+    const paused = await ycloudOwnerTakeover(eco(OTRO), envNum, ORIGIN);
+    expect(paused).toBe(false);
+    expect(getOrCreate).not.toHaveBeenCalled();
+    expect(setPausedUntil).not.toHaveBeenCalled();
+  });
+
+  it("(d) un eco del número de Viventa sí pausa", async () => {
+    const paused = await ycloudOwnerTakeover(eco(VIVENTA), envNum, ORIGIN);
+    expect(paused).toBe(true);
+    expect(setPausedUntil).toHaveBeenCalledTimes(1);
+  });
+
+  it("isForThisNumber compara solo dígitos y deja pasar si falta algún número", () => {
+    expect(isForThisNumber("+34 611 688 609", envNum)).toBe(true);
+    expect(isForThisNumber("34611688609", envNum)).toBe(true);
+    expect(isForThisNumber(OTRO, envNum)).toBe(false);
+    expect(isForThisNumber(undefined, envNum)).toBe(true);
+    expect(isForThisNumber("", envNum)).toBe(true);
+    expect(isForThisNumber(OTRO, env)).toBe(true);
+  });
+});
+
+describe("serveYCloudMedia — diagnóstico cuando YCloud rechaza la descarga", () => {
+  it("responde 502 y registra el código y el cuerpo de YCloud, sin la llave", async () => {
+    const envM = { YCLOUD_WEBHOOK_SECRET: "whsec", YCLOUD_API_KEY: "SECRETA_KEY_123" } as any;
+    const exp = String(Date.now() + 60_000);
+    const sig = await hmacHex("whsec", `media123.${exp}`);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response('{"error":{"code":"not_found","message":"media expired"}}', { status: 404, headers: { "content-type": "application/json" } })),
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await serveYCloudMedia("media123", exp, sig, envM);
+    expect(res.status).toBe(502);
+    const logged = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logged).toContain("http_404");
+    expect(logged).toContain("media expired");
+    expect(logged).toContain("media123");
+    expect(logged).not.toContain("SECRETA_KEY_123");
+    errSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });

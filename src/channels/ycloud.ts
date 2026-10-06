@@ -73,6 +73,12 @@ function normPhone(p: string | undefined | null): string {
   return (p ?? "").replace(/[^\d]/g, "");
 }
 
+export function isForThisNumber(businessNumber: string | undefined | null, env: Env): boolean {
+  const mine = normPhone(env.YCLOUD_WA_FROM);
+  const theirs = normPhone(businessNumber);
+  return !mine || !theirs || mine === theirs;
+}
+
 async function hmacHex(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -153,7 +159,13 @@ export async function serveYCloudMedia(
   const res = await fetch(`${YCLOUD_BASE}/whatsapp/media/download/${encodeURIComponent(mediaId)}`, {
     headers: { "X-API-Key": apiKey },
   });
-  if (!res.ok) return new Response("media download failed", { status: 502 });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 200);
+    console.error(
+      `[ycloud media] descarga falló · id=${mediaId} · http_${res.status} · content-type=${res.headers.get("content-type") ?? "-"} · ${detail}`,
+    );
+    return new Response("media download failed", { status: 502 });
+  }
   const contentType = res.headers.get("content-type") || "application/octet-stream";
   return new Response(res.body, { status: 200, headers: { "Content-Type": contentType } });
 }
@@ -183,6 +195,10 @@ export async function parseYCloudEvents(
   if (body.type && body.type !== "whatsapp.inbound_message.received") return [];
   const m = body.whatsappInboundMessage;
   if (!m) return [];
+  if (!isForThisNumber(m.to, env)) {
+    console.log("ycloud: evento de otro número ignorado", JSON.stringify({ type: body.type, businessNumber: normPhone(m.to) }));
+    return [];
+  }
   const from = normPhone(m.from);
   if (!from) return [];
 
@@ -250,6 +266,10 @@ export async function parseYCloudEvents(
  */
 export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env, origin: string): Promise<boolean> {
   if (body.type !== "whatsapp.smb.message.echoes") return false;
+  if (!isForThisNumber(body.whatsappMessage?.from, env)) {
+    console.log("ycloud: evento de otro número ignorado", JSON.stringify({ type: body.type, businessNumber: normPhone(body.whatsappMessage?.from) }));
+    return false;
+  }
   const phone = normPhone(body.whatsappMessage?.to);
   if (!phone) return false;
   const convs = new ConversationsRepo(new Db(env.DB));
