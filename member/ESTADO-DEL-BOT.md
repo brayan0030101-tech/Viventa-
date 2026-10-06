@@ -1,6 +1,6 @@
 # Estado del bot de Viventa (memoria compartida entre conversaciones)
 
-> Léelo antes de tocar nada. Última actualización: 6 de octubre de 2026.
+> Léelo antes de tocar nada. Última actualización: 6 de octubre de 2026 (reglas de conducta ampliadas).
 > Aquí **nunca** va el valor de una llave. Solo nombres y dónde viven.
 > El repo es **público**: no subas `.env`, tokens ni números de clientes.
 
@@ -15,7 +15,7 @@
 - Repo: `github.com/brayan0030101-tech/Viventa-`, rama `main` (público).
 - Desplegar: `pnpm run deploy` (no `pnpm deploy`). Comprobar: `npx tsc --noEmit` y `npx vitest run`. Ver registros: `npx wrangler tail forja-inmobiliaria-8664f4`.
 - Cloudflare: la sesión necesita `CLOUDFLARE_API_TOKEN` en el entorno (menú del entorno → Editar). Si está cambiada o falta, wrangler pide autenticarse. Una variable nueva solo la ve una sesión nueva.
-- **Ajustes que NO están en git** (viven en la base D1 y se cambian sin desplegar): las instrucciones adicionales del bot (`custom_instructions`, ya largas, ~26 mil caracteres la última vez que se midieron) y `max_chunks = 2`. Antes de cambiarlas, léelas y no las reemplaces enteras.
+- **Ajustes que NO están en git** (viven en la base D1 y se cambian sin desplegar): las instrucciones adicionales del bot (`custom_instructions`, ya largas, ~26 mil caracteres la última vez que se midieron) y `max_chunks = 1` (un solo mensaje por respuesta). Antes de cambiarlas, léelas y no las reemplaces enteras.
 
 ## Canales
 | Canal | Cómo entra | Detalle |
@@ -32,10 +32,15 @@ Lección: Instagram directo con la app propia de Meta solo responde a cuentas co
 - Imagen de disponibilidad con horarios tachados: marcador `[[disponibilidad]]` (modo día o `noche`), ruta firmada `/disponibilidad.png`. Solo se tachan reservas reales. Si falla el PNG, el bot manda el texto con `~hora~`.
 - Pendiente: probar la imagen en un chat real de WhatsApp.
 
-## Reglas de conducta del bot (dichas por Brayan)
+## Reglas de conducta del bot (dichas por Brayan y Maricela)
+Estas reglas viven en la base D1 (`custom_instructions`, valen para WhatsApp **e** Instagram siempre) y `max_chunks = 1`. Última actualización: 6 de octubre de 2026. Antes de cambiarlas, leer el texto actual y editar solo la parte que toca, con copia de seguridad.
 1. **Nunca** decir "eso me lo confirma el equipo" ni frases parecidas para ganar tiempo. Si no sabe algo, **se queda callado y se lo pasa a Maricela** directamente.
-2. Máximo **dos mensajes** por turno, y esperar la respuesta del cliente.
-3. Es Maricela, en primera persona. Español neutro.
+2. **Un solo mensaje por turno**, de un párrafo de máximo 3 renglones (unas 40 palabras), y esperar la respuesta del cliente. Nunca dos o tres mensajes seguidos ni párrafos gigantes. `max_chunks = 1` lo fuerza desde la configuración.
+3. **Una sola pregunta por turno.**
+4. Es Maricela, en primera persona. Español neutro.
+5. **Calentar primero:** con un cliente nuevo, pedir de uno en uno y en este orden: nombre completo, correo, ciudad donde vive, ciudad de Colombia que le interesa. No hablar de proyectos antes de tener los primeros datos. Reaccionar con media frase a lo que dice el cliente.
+6. **Precios solo al final:** no dar precios ni rangos por iniciativa propia. Solo después de tener los datos del cliente y de haberle explicado los beneficios del acompañamiento de Viventa. Si preguntan antes, decir con calidez que depende del proyecto y de su situación y seguir con la siguiente pregunta (sin "te lo confirma el equipo"). Si insisten otra vez, ofrecer una videollamada y agendarla.
+7. **"Casa" es genérico:** cuando el cliente dice "casa" puede ser casa o apartamento. Nunca decir "no hay casas" ni "no vi casas"; hablar de vivienda en general y de lo que sí hay. Aclarar el tipo solo si hace falta y dentro de la única pregunta.
 
 ## Llaves (solo nombres; valores nunca)
 Viven como secretos del worker (`npx wrangler secret list` muestra los nombres): la llave del modelo de IA, `YCLOUD_API_KEY` y `YCLOUD_WEBHOOK_SECRET`, `CALCOM_API_KEY`, `ZERNIO_API_KEY` y `ZERNIO_WEBHOOK_SECRET`, `META_VERIFY_TOKEN`, la contraseña del panel. Los secretos de Instagram con Meta (`INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_SECRET`) se **borraron** del worker.
