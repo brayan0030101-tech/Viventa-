@@ -6,7 +6,7 @@
 
 ## Quién es quién
 - **Viventa:** ayuda a colombianos que viven fuera a comprar vivienda en Colombia.
-- **El bot** se presenta como **"el asistente virtual del equipo comercial de Maricela Naranjo"**. Ya NO se hace pasar por Maricela (cambio del 7 de octubre). No nombra a Camila en los mensajes: habla del "equipo comercial de Maricela".
+- **El bot** se presenta como **"el equipo comercial de Maricela Naranjo"** (en plural) y **no dice por iniciativa propia que es un asistente virtual, bot o IA** (pedido de Brayan, 7 de octubre). No se hace pasar por Maricela ni por una persona, y **si el cliente pregunta directamente si habla con una persona, un bot o una IA, responde con honestidad** (nunca lo niega): es un límite deliberado, también por transparencia frente a los clientes en España/UE. No nombra a Camila en los mensajes: habla del "equipo comercial de Maricela".
 - **Camila** (equipo comercial) recibe el lead calificado y envía los proyectos. **Maricela** hace la videollamada de cierre.
 - **Brayan:** dueño y quien pide los cambios. No es técnico: español neutro, sencillo, sin tecnicismos. Pide confirmación antes de desplegar, de subir a GitHub o de cambiar algo de producción.
 
