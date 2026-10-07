@@ -203,6 +203,16 @@ describe("videollamada: recordatorios y resumen", () => {
     expect(sendOutboundMock.mock.calls[0][1].text).toContain("En una hora");
   });
 
+  it("con equipo comercial configurado, el resumen va a Camila/Maricela y no al dueño", async () => {
+    (env as any).TELEGRAM_BOT_TOKEN = "T";
+    (env as any).CAMILA_TELEGRAM_CHAT_ID = "111,222";
+    await seedCita("34600000026", NOW + 55 * 60_000, NOW - 3 * 24 * H);
+    const r = await runRecordatoriosLlamada(env, NOW);
+    expect(r.resumenes).toBe(1);
+    expect(notifyCamilaMock.mock.calls.some((c) => String(c[1].heading).includes("Videollamada"))).toBe(true);
+    expect(messageOwnerMock).not.toHaveBeenCalled();
+  });
+
   it("no manda el de 24 h si la cita se agendó hace poco, ni de citas canceladas", async () => {
     await seedCita("34600000022", NOW + 20 * H, NOW - 2 * H); // agendada con 22 h de antelación
     await seedCita("34600000023", NOW + 23.5 * H, NOW - 5 * 24 * H, "Cancelada");

@@ -972,6 +972,14 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         | undefined;
       cacheCreationTokens = provMeta?.anthropic?.cacheCreationInputTokens ?? 0;
       const steps = await result.steps;
+      // Con herramientas el modelo puede escribir una frase ANTES de llamarlas y
+      // repetirla DESPUÉS (visto con Sonnet 5.5: "¿Me confirmas tu nombre?" dos
+      // veces pegado). textStream concatena todos los pasos; si más de un paso
+      // trae texto, la respuesta es la del ÚLTIMO.
+      const textosPorPaso = steps
+        .map((s: any) => (typeof s?.text === "string" ? s.text.trim() : ""))
+        .filter(Boolean);
+      if (textosPorPaso.length > 1) assistantText = textosPorPaso[textosPorPaso.length - 1];
       toolCallCount = steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0);
       // Persist what the agent DID (not just what it said): tool name + input,
       // feeding the dashboard's thread chips, stats and the Mi Agente counters.

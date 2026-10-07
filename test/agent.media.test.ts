@@ -355,6 +355,37 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     expect(second.providerOptions).toBeUndefined();
   });
 
+  it("si el modelo escribe antes y después de una tool, se envía SOLO el texto del último paso (sin repetir)", async () => {
+    const { agent } = makeAgent({ tier: "pro" });
+    const frase = "Gracias 😊 ¿Me confirmas tu nombre y apellido?";
+    streamTextMock.mockReset();
+    streamTextMock.mockImplementation(() => {
+      async function* gen() {
+        yield frase;
+        yield frase; // el paso 2 vuelve a escribirla: textStream concatena ambos
+      }
+      return {
+        textStream: gen(),
+        usage: Promise.resolve({ inputTokens: 10, outputTokens: 5, cachedInputTokens: 0 }),
+        steps: Promise.resolve([
+          { text: frase, toolCalls: [{ toolName: "captureLead", input: {} }] },
+          { text: frase, toolCalls: [] },
+        ]),
+      };
+    });
+    const sendReply = vi.fn(async () => {});
+    vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue(undefined as any);
+    vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "user", content: "Sí" }] as any);
+    vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+    vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply } as any);
+    agent.state.pendingMessages = [{ text: "Sí", receivedAt: Date.now() }];
+
+    await agent.processBuffer();
+
+    const enviado = (sendReply.mock.calls as any[]).flatMap((c) => c[0].chunks).join(" ");
+    expect(enviado).toBe(frase);
+  });
+
   it("caches the system prompt as a SystemModelMessage with an ephemeral breakpoint", async () => {
     const { agent } = makeAgent({ tier: "free" });
 

@@ -24,7 +24,7 @@ import { ConversationsRepo } from "../db/conversations";
 import { SettingsRepo } from "../db/settings";
 import { botTimezone } from "../time/dateAnchor";
 import { selfOrigin } from "../lib/self-origin";
-import { notifyCamila, leadFicha } from "../lib/camila";
+import { camilaConfigured, notifyCamila, leadFicha } from "../lib/camila";
 import { messageOwner } from "../tools/handoffHuman";
 import { sendOutbound } from "./send";
 import { sendYCloudTemplate } from "../channels/ycloud";
@@ -277,11 +277,15 @@ export async function runRecordatoriosLlamada(
     if (falta <= 70 * MIN && falta > 10 * MIN && (await claim(db, "leads", lead.id, "viventa_resumen", now))) {
       try {
         const ficha = await leadFicha(db, lead.conversation_id);
-        await messageOwner(env, {
+        const aviso = {
           heading: `📞 Videollamada a las ${hora} (hora de España)`,
           body: `Cliente: ${nombre || "(sin nombre)"}\nFecha: ${fechaEs(inicio, tz)}\n\n${ficha}`,
           url: `${await selfOrigin(env)}/admin`,
-        });
+        };
+        // El resumen es para Maricela (y Camila): van al equipo comercial; si no
+        // hay equipo configurado, al dueño como antes.
+        if (camilaConfigured(env)) await notifyCamila(env, aviso);
+        else await messageOwner(env, aviso);
         out.resumenes++;
       } catch (e) {
         console.error(`[sistemaViventa] resumen ${lead.id}:`, e);

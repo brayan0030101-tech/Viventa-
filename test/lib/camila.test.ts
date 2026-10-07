@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { camilaConfigured, notifyCamila, leadFicha } from "../../src/lib/camila";
+import { camilaConfigured, notifyCamila, leadFicha, teamTelegramIds } from "../../src/lib/camila";
 import type { Env } from "../../src/env";
 
 let db: Db;
@@ -37,6 +37,27 @@ describe("camilaConfigured / notifyCamila", () => {
     expect(body.chat_id).toBe("999");
     expect(body.text).toContain("📥 Traspaso");
     expect(body.text).toContain("ficha");
+  });
+
+  it("admite VARIOS ids (Camila y Maricela): manda el aviso a cada uno", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    const env = { TELEGRAM_BOT_TOKEN: "TOKEN", CAMILA_TELEGRAM_CHAT_ID: "111, 222;333" } as unknown as Env;
+    expect(teamTelegramIds(env)).toEqual(["111", "222", "333"]);
+    expect(await notifyCamila(env, { heading: "h", body: "b" })).toBe(true);
+    const ids = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).chat_id);
+    expect(ids).toEqual(["111", "222", "333"]);
+  });
+
+  it("si uno de los destinatarios falla, los demás igual reciben el aviso", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    const env = { TELEGRAM_BOT_TOKEN: "TOKEN", CAMILA_TELEGRAM_CHAT_ID: "111,222" } as unknown as Env;
+    expect(await notifyCamila(env, { heading: "h", body: "b" })).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("si Telegram falla devuelve false y no lanza", async () => {

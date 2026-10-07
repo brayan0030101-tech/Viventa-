@@ -18,8 +18,19 @@ export interface TeamNotice {
   url?: string;
 }
 
+/**
+ * Destinatarios de Telegram del equipo comercial: CAMILA_TELEGRAM_CHAT_ID admite
+ * VARIOS ids separados por coma (Camila y Maricela), p. ej. "111,222".
+ */
+export function teamTelegramIds(env: Pick<Env, "CAMILA_TELEGRAM_CHAT_ID">): string[] {
+  return String(env.CAMILA_TELEGRAM_CHAT_ID ?? "")
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function camilaConfigured(env: Env): boolean {
-  const telegram = Boolean(env.TELEGRAM_BOT_TOKEN && env.CAMILA_TELEGRAM_CHAT_ID);
+  const telegram = Boolean(env.TELEGRAM_BOT_TOKEN && teamTelegramIds(env).length > 0);
   const mail = Boolean(env.RESEND_API_KEY && env.CAMILA_EMAIL);
   return telegram || mail;
 }
@@ -32,18 +43,20 @@ export async function notifyCamila(env: Env, notice: TeamNotice): Promise<boolea
   }
   let delivered = false;
 
-  if (env.TELEGRAM_BOT_TOKEN && env.CAMILA_TELEGRAM_CHAT_ID) {
-    try {
-      const text = `${notice.heading}\n${notice.body}${notice.url ? `\n\n${notice.url}` : ""}`;
-      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: env.CAMILA_TELEGRAM_CHAT_ID, text }),
-      });
-      if (res.ok) delivered = true;
-      else console.error(`[camila] telegram http_${res.status}`);
-    } catch (e) {
-      console.error("[camila] telegram failed:", e);
+  if (env.TELEGRAM_BOT_TOKEN) {
+    const text = `${notice.heading}\n${notice.body}${notice.url ? `\n\n${notice.url}` : ""}`;
+    for (const chatId of teamTelegramIds(env)) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text }),
+        });
+        if (res.ok) delivered = true;
+        else console.error(`[camila] telegram ${chatId} http_${res.status}`);
+      } catch (e) {
+        console.error(`[camila] telegram ${chatId} failed:`, e);
+      }
     }
   }
 
