@@ -317,7 +317,12 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     });
 
     const last = messages[messages.length - 1];
-    expect(last).toEqual({ role: "user", content: "hola normal" });
+    expect(last).toMatchObject({ role: "user", content: "hola normal" });
+    // Punto de caché (5 min) en el último mensaje: pasos 2..N y turnos seguidos
+    // leen el historial a 0,1× (src/llm/cache.ts).
+    expect(last.providerOptions).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
+    // ...y solo ese: el resto del historial no lleva marca.
+    for (const m of messages.slice(0, -1)) expect(m.providerOptions).toBeUndefined();
   });
 
   it("caches the system prompt as a SystemModelMessage with an ephemeral breakpoint", async () => {

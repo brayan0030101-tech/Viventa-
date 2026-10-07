@@ -22,6 +22,7 @@ import { monthIaCostUsd, applyBudgetGuard } from "./budget";
 import { CustomerFactsRepo } from "./db/facts";
 import { createModel } from "./llm/provider";
 import { costOfUsage } from "./pricing";
+import { systemCacheOptions, withCacheBreakpoint } from "./llm/cache";
 import { recordIaUsage } from "./db/ia-usage";
 import type { ChannelId } from "./channels/shared";
 import type { SearchKbResult } from "./tools/searchKb";
@@ -804,9 +805,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       {
         role: "system",
         content: cfg.systemPrompt,
-        ...(supportsPromptCache
-          ? { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }
-          : {}),
+        ...(supportsPromptCache ? { providerOptions: systemCacheOptions(this.env) } : {}),
       },
     ];
 
@@ -945,7 +944,9 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       const result = streamText({
         model: m,
         system,
-        messages: aiMessages,
+        // Punto de caché en el último mensaje: los pasos 2..N del turno (tools) y
+        // los turnos seguidos de la conversación leen el historial a 0,1×.
+        messages: supportsPromptCache ? withCacheBreakpoint(aiMessages) : aiMessages,
         tools: enabledTools,
         stopWhen: ({ steps }) => steps.length >= 6,
         ...(conTemp ? { temperature: cfg.temperature } : {}),
