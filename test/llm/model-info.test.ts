@@ -48,7 +48,7 @@ describe("describeModel", () => {
     expect(m.model_label).toBe("Claude Sonnet 5");
     expect(m.source).toBe("forja");
     expect(m.tier).toBe("auto");
-    expect(m.cost_per_mtok).toEqual({ in: 3, out: 15 });
+    expect(m.cost_per_mtok).toEqual({ in: 2, out: 10 });
     expect(m.month_usd).toBe(0);
     // Los 4 proveedores reales, con costo nativo y ready=false (no hay llaves).
     expect(m.available_providers.map((p) => p.id)).toEqual([...PROVIDERS]);

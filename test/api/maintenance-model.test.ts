@@ -67,7 +67,7 @@ describe("GET /api/maintenance — bloque model", () => {
       model_label: "Claude Sonnet 5",
       source: "forja",
       tier: "auto",
-      cost_per_mtok: { in: 3, out: 15 },
+      cost_per_mtok: { in: 2, out: 10 },
       month_usd: 0,
     });
     const ids = body.model.available_providers.map((p: any) => p.id);

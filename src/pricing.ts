@@ -10,6 +10,13 @@ export const PRICING = {
     cacheRead: 0.30,
     output: 15.00,
   },
+  // Sonnet 5 y 5.5: $2/$10 es el precio ESTÁNDAR (platform.claude.com/docs/en/about-claude/pricing,
+  // nota 3: el aumento previsto a $3/$15 el 1-sep-2026 no ocurrió). Cache read 0.1× = $0.20.
+  sonnet5: {
+    input: 2.00,
+    cacheRead: 0.20,
+    output: 10.00,
+  },
   // OpenAI alternative (defaults mapped in src/llm/provider.ts).
   "gpt-4o-mini": {
     input: 0.15,
@@ -37,9 +44,9 @@ const RATES: Record<string, Rates> = {
   "gpt-4o-mini": PRICING["gpt-4o-mini"],
   "gpt-4o": PRICING["gpt-4o"],
   // BYO-LLM picker (dashboard "Modelo de IA")
-  // Sonnet 5: sticker $3/$15 (intro $2/$10 hasta 2026-08-31 — cobramos sticker,
-  // el sub-cobro de agosto es a favor del miembro). Opus 5: $5/$25.
-  "claude-sonnet-5": PRICING.sonnet,
+  // Sonnet 5 / 5.5: $2/$10 estándar (ver PRICING.sonnet5). Opus 5: $5/$25.
+  "claude-sonnet-5": PRICING.sonnet5,
+  "claude-sonnet-5-5": PRICING.sonnet5,
   "claude-opus-5": { input: 5.0, cacheRead: 0.5, output: 25.0 },
   "claude-sonnet-4-6": PRICING.sonnet,
   "claude-opus-4-6": { input: 5.0, cacheRead: 0.5, output: 25.0 },
