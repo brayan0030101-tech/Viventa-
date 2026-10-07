@@ -1,3 +1,4 @@
+import { fetchMedia, isErrorPage } from "../lib/media-fetch";
 import type { ModelMessage } from "ai";
 import type { Env } from "../env";
 
@@ -14,9 +15,9 @@ export async function describeImage(env: Env, imageUrl: string): Promise<string 
     return null;
   }
   try {
-    const res = await fetch(imageUrl);
-    if (!res.ok) {
-      console.warn(`[vision] fallback: no pude bajar la imagen (http_${res.status})`);
+    const res = await fetchMedia(imageUrl);
+    if (!res.ok || isErrorPage(res)) {
+      console.warn(`[vision] fallback: no pude bajar la imagen (http_${res.status} ${res.headers.get("content-type") ?? "-"})`);
       return null;
     }
     const bytes = [...new Uint8Array(await res.arrayBuffer())];

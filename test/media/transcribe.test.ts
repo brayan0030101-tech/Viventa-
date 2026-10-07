@@ -138,3 +138,25 @@ describe("transcribeAudio — audios de Instagram (MP4/AAC)", () => {
   });
 });
 
+describe("transcribeAudio — descarga desde la CDN de Meta (causa de los audios de Instagram)", () => {
+  it("manda User-Agent de navegador (sin él Meta responde una página HTML)", async () => {
+    const seen: any[] = [];
+    globalThis.fetch = vi.fn(async (_url: any, init?: any) => {
+      seen.push(init);
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "video/mp4" } });
+    }) as any;
+    const env: any = { AI: { run: async () => ({ results: { channels: [{ alternatives: [{ transcript: "ok" }] }] } }) } };
+    await transcribeAudio("https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1", env);
+    expect(seen[0].headers["User-Agent"]).toMatch(/Mozilla\/5\.0/);
+    expect(seen[0].headers.Accept).toContain("audio/*");
+    expect(seen[0].redirect).toBe("follow");
+  });
+
+  it("si la CDN igual devuelve una página (text/html), falla CLARO sin gastar modelos de voz", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("<html>Sorry</html>", { headers: { "content-type": 'text/html; charset="utf-8"' } })) as any;
+    const run = vi.fn();
+    await expect(transcribeAudio("https://x/a", { AI: { run } } as any)).rejects.toThrow(/devolvió una página/);
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+

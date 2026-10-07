@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { fetchMedia, isErrorPage } from "../lib/media-fetch";
 
 export interface TranscriptionResult {
   text: string;
@@ -23,8 +24,13 @@ export async function transcribeAudio(
   audioUrl: string,
   env: Env,
 ): Promise<TranscriptionResult> {
-  const res = await fetch(audioUrl);
+  const res = await fetchMedia(audioUrl);
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`);
+  if (isErrorPage(res)) {
+    throw new Error(
+      `audio fetch devolvió una página (${res.headers.get("content-type")}) en vez del audio — enlace vencido o bloqueado`,
+    );
+  }
   const buffer = await res.arrayBuffer();
   const mime = (res.headers.get("content-type") ?? "audio/ogg").split(";")[0].trim();
 
