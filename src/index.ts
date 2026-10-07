@@ -535,7 +535,7 @@ app.post("/webhooks/ycloud", async (c) => {
 // Proxy FIRMADO del media entrante de YCloud (audio/imagen). Hace el media
 // públicamente fetchable (para transcribe/vision) sin exponer el X-API-Key.
 app.get("/webhooks/ycloud/media/:id", (c) =>
-  serveYCloudMedia(c.req.param("id"), c.req.query("exp") ?? null, c.req.query("sig") ?? null, c.env),
+  serveYCloudMedia(c.req.param("id"), c.req.query("exp") ?? null, c.req.query("sig") ?? null, c.env, c.req.query("src") ?? null),
 );
 
 // Universal webhook LEARN endpoint. When learn mode is ON for `:channel`, this

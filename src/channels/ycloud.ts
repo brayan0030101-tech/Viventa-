@@ -125,14 +125,36 @@ export async function verifyYCloudSignature(
   return timingSafeEqual(expected, s);
 }
 
-/** Construye la URL firmada del proxy para un media id (o null si no hay secret/base). */
-async function signedMediaUrl(mediaId: string, env: Env, origin: string): Promise<string | null> {
+/** Host desde el que YCloud sirve el media entrante (el único que el proxy acepta como `src`). */
+const YCLOUD_MEDIA_HOST = "api.ycloud.com";
+
+function isYCloudMediaLink(src: string | null | undefined): src is string {
+  if (!src) return false;
+  try {
+    const u = new URL(src);
+    return u.protocol === "https:" && u.hostname === YCLOUD_MEDIA_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Construye la URL firmada del proxy para un media id (o null si no hay secret/base).
+ *
+ * `link` = el enlace de descarga que YCloud manda en el evento
+ * (`https://api.ycloud.com/v2/whatsapp/media/download/<id>?sig=…&payload=…`).
+ * El id SOLO no basta: sin el `sig`/`payload` del enlace YCloud rechaza la
+ * descarga (era la causa de los audios "(no pude entender el audio)"). La firma
+ * del proxy cubre también el `src`, así que nadie puede cambiarlo.
+ */
+async function signedMediaUrl(mediaId: string, env: Env, origin: string, link?: string | null): Promise<string | null> {
   const secret = env.YCLOUD_WEBHOOK_SECRET || env.YCLOUD_API_KEY || "";
   const base = (origin || env.DASHBOARD_BASE_URL || "").replace(/\/$/, "");
   if (!secret || !base) return null;
   const exp = Date.now() + MEDIA_TTL_MS;
-  const sig = await hmacHex(secret, `${mediaId}.${exp}`);
-  return `${base}/webhooks/ycloud/media/${encodeURIComponent(mediaId)}?exp=${exp}&sig=${sig}`;
+  const src = isYCloudMediaLink(link) ? link : null;
+  const sig = await hmacHex(secret, src ? `${mediaId}.${exp}.${src}` : `${mediaId}.${exp}`);
+  return `${base}/webhooks/ycloud/media/${encodeURIComponent(mediaId)}?exp=${exp}&sig=${sig}${src ? `&src=${encodeURIComponent(src)}` : ""}`;
 }
 
 /**
@@ -146,6 +168,7 @@ export async function serveYCloudMedia(
   exp: string | null,
   sig: string | null,
   env: Env,
+  src: string | null = null,
 ): Promise<Response> {
   const secret = env.YCLOUD_WEBHOOK_SECRET || env.YCLOUD_API_KEY || "";
   const apiKey = env.YCLOUD_API_KEY;
@@ -153,10 +176,13 @@ export async function serveYCloudMedia(
   const expNum = Number(exp);
   if (!exp || !sig || !Number.isFinite(expNum)) return new Response("bad request", { status: 400 });
   if (Date.now() > expNum) return new Response("expired", { status: 410 });
-  const expected = await hmacHex(secret, `${mediaId}.${exp}`);
+  if (src && !isYCloudMediaLink(src)) return new Response("bad request", { status: 400 });
+  const expected = await hmacHex(secret, src ? `${mediaId}.${exp}.${src}` : `${mediaId}.${exp}`);
   if (!timingSafeEqual(expected, sig)) return new Response("bad signature", { status: 403 });
 
-  const res = await fetch(`${YCLOUD_BASE}/whatsapp/media/download/${encodeURIComponent(mediaId)}`, {
+  // Con `src` se baja el enlace COMPLETO del evento (trae la firma de YCloud);
+  // sin él, el camino viejo por id (YCloud suele rechazarlo).
+  const res = await fetch(src ?? `${YCLOUD_BASE}/whatsapp/media/download/${encodeURIComponent(mediaId)}`, {
     headers: { "X-API-Key": apiKey },
   });
   if (!res.ok) {
@@ -210,13 +236,13 @@ export async function parseYCloudEvents(
   if (m.type === "text") {
     text = m.text?.body || undefined;
   } else if (m.type === "image" && m.image?.id) {
-    imageUrl = (await signedMediaUrl(m.image.id, env, origin)) ?? undefined;
+    imageUrl = (await signedMediaUrl(m.image.id, env, origin, m.image.link)) ?? undefined;
     text = m.image.caption || undefined;
   } else if (m.type === "audio" && m.audio?.id) {
-    audioUrl = (await signedMediaUrl(m.audio.id, env, origin)) ?? undefined;
+    audioUrl = (await signedMediaUrl(m.audio.id, env, origin, m.audio.link)) ?? undefined;
   } else if (m.type === "document" && m.document?.id) {
     // Documento/PDF: el bot no lo lee, pero se archiva y escala a una persona.
-    fileUrl = (await signedMediaUrl(m.document.id, env, origin)) ?? undefined;
+    fileUrl = (await signedMediaUrl(m.document.id, env, origin, m.document.link)) ?? undefined;
     text = m.document.caption || undefined;
   } else {
     return []; // video/location/… no soportados aún
@@ -280,7 +306,7 @@ export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env, ori
   const audioId = body.whatsappMessage?.audio?.id;
   if (audioId) {
     try {
-      const audioUrl = await signedMediaUrl(audioId, env, origin);
+      const audioUrl = await signedMediaUrl(audioId, env, origin, body.whatsappMessage?.audio?.link);
       if (audioUrl) {
         const { transcribeAudio } = await import("../media/transcribe");
         const result = await transcribeAudio(audioUrl, env);

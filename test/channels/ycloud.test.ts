@@ -266,3 +266,78 @@ describe("serveYCloudMedia — diagnóstico cuando YCloud rechaza la descarga", 
     vi.unstubAllGlobals();
   });
 });
+
+describe("media con enlace firmado de YCloud (causa de los audios '(no pude entender el audio)')", () => {
+  const LINK = "https://api.ycloud.com/v2/whatsapp/media/download/AUD9?sig=t%3D1677%2Cs%3Dabc&payload=eyJ3YWJhSWQiOiIxIn0%3D";
+
+  it("el audio entrante lleva el enlace de YCloud (src) dentro de la URL firmada del proxy", async () => {
+    const out = await parseYCloudEvents(
+      inbound({ wamid: "wamid.9", from: "5215512345678", type: "audio", audio: { id: "AUD9", link: LINK } }) as any,
+      env,
+      ORIGIN,
+    );
+    const u = new URL(out[0].audioUrl as string);
+    expect(u.pathname).toBe("/webhooks/ycloud/media/AUD9");
+    expect(u.searchParams.get("src")).toBe(LINK);
+    const exp = u.searchParams.get("exp")!;
+    expect(u.searchParams.get("sig")).toBe(await hmacHex("whsec", `AUD9.${exp}.${LINK}`));
+  });
+
+  it("imágenes y documentos también llevan su enlace", async () => {
+    const img = "https://api.ycloud.com/v2/whatsapp/media/download/I1?sig=x&payload=y";
+    const doc = "https://api.ycloud.com/v2/whatsapp/media/download/D1?sig=x&payload=y";
+    const a = await parseYCloudEvents(inbound({ wamid: "w1", from: "5215512345678", type: "image", image: { id: "I1", link: img } }) as any, env, ORIGIN);
+    const b = await parseYCloudEvents(inbound({ wamid: "w2", from: "5215512345678", type: "document", document: { id: "D1", link: doc, filename: "a.pdf" } }) as any, env, ORIGIN);
+    expect(new URL(a[0].imageUrl as string).searchParams.get("src")).toBe(img);
+    expect(new URL(b[0].fileUrl as string).searchParams.get("src")).toBe(doc);
+  });
+
+  it("un enlace de otro sitio NO se mete en la URL (sin SSRF): cae al camino por id", async () => {
+    const out = await parseYCloudEvents(
+      inbound({ wamid: "wamid.8", from: "5215512345678", type: "audio", audio: { id: "AUD8", link: "https://evil.example/x" } }) as any,
+      env,
+      ORIGIN,
+    );
+    expect(new URL(out[0].audioUrl as string).searchParams.get("src")).toBeNull();
+  });
+
+  it("el proxy baja el enlace COMPLETO con la llave en el encabezado y devuelve el audio", async () => {
+    const envM = { YCLOUD_WEBHOOK_SECRET: "whsec", YCLOUD_API_KEY: "KEY_X" } as any;
+    const exp = String(Date.now() + 60_000);
+    const sig = await hmacHex("whsec", `AUD9.${exp}.${LINK}`);
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/ogg" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await serveYCloudMedia("AUD9", exp, sig, envM, LINK);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("audio/ogg");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [calledUrl, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(calledUrl).toBe(LINK);
+    expect((init.headers as Record<string, string>)["X-API-Key"]).toBe("KEY_X");
+    vi.unstubAllGlobals();
+  });
+
+  it("rechaza un src alterado (firma no coincide) o de otro host, sin llamar a nadie", async () => {
+    const envM = { YCLOUD_WEBHOOK_SECRET: "whsec", YCLOUD_API_KEY: "KEY_X" } as any;
+    const exp = String(Date.now() + 60_000);
+    const sig = await hmacHex("whsec", `AUD9.${exp}.${LINK}`);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const otro = "https://api.ycloud.com/v2/whatsapp/media/download/OTRO?sig=1&payload=2";
+    expect((await serveYCloudMedia("AUD9", exp, sig, envM, otro)).status).toBe(403);
+    const malo = "https://evil.example/x";
+    expect((await serveYCloudMedia("AUD9", exp, await hmacHex("whsec", `AUD9.${exp}.${malo}`), envM, malo)).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("el audio del dueño (echo) usa el mismo enlace firmado — ver la prueba de ycloudOwnerTakeover", async () => {
+    const out = await parseYCloudEvents(
+      inbound({ wamid: "w3", from: "5215512345678", type: "audio", audio: { id: "E1", link: LINK } }) as any,
+      env,
+      ORIGIN,
+    );
+    expect(new URL(out[0].audioUrl as string).searchParams.get("src")).toBe(LINK);
+  });
+});
+
