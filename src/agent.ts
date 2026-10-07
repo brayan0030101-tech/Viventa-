@@ -1004,14 +1004,35 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       console.error("[SupportAgent.processBuffer] streamText failed:", describeApiError(e));
       const backoff = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const { fallbackModel } = await import("./llm/provider");
+
+      // Red de seguridad del modelo elegido a mano (ajuste llm_model): si el id
+      // no es válido o la llave no tiene acceso (400/403/404), se usa AL INSTANTE
+      // el modelo normal del nivel. Sin esto, con una sola llave de Anthropic el
+      // bot reintentaba el mismo modelo roto y se quedaba mudo con el cliente.
+      let recovered = false;
+      if (cfg.llm?.model && [400, 403, 404].includes((e as any)?.statusCode)) {
+        try {
+          const normal = createModel(this.env, tier, { ...cfg.llm, model: "" });
+          if (normal.modelId !== modelId) {
+            console.warn(`[SupportAgent] modelo elegido ${modelId} no disponible → usando ${normal.modelId}`);
+            await attempt(normal.model, normal.modelId);
+            usedModelId = normal.modelId;
+            recovered = true;
+          }
+        } catch (eNormal: any) {
+          console.error("[SupportAgent.processBuffer] modelo normal también falló:", describeApiError(eNormal));
+        }
+      }
       const primary = createModel(this.env, tier, cfg.llm);
       const fb = fallbackModel(this.env, tier, primary.provider);
-      let ok = false;
+      let ok = recovered;
 
-      await backoff(2000 + Math.floor(Math.random() * 1500));
+      if (!ok) await backoff(2000 + Math.floor(Math.random() * 1500));
       try {
-        await attempt(model);
-        ok = true;
+        if (!ok) {
+          await attempt(model);
+          ok = true;
+        }
       } catch (e1: any) {
         console.error("[SupportAgent.processBuffer] primary retry failed:", describeApiError(e1));
       }

@@ -325,6 +325,36 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     for (const m of messages.slice(0, -1)) expect(m.providerOptions).toBeUndefined();
   });
 
+  it("modelo elegido a mano no disponible (404): usa AL INSTANTE el modelo normal y manda esfuerzo solo al 5.5", async () => {
+    stubSettings({ llm_model: "claude-sonnet-5-5" });
+    const { agent } = makeAgent({ tier: "pro" });
+    agent.env.ANTHROPIC_EFFORT = "medium";
+
+    streamTextMock.mockReset();
+    streamTextMock
+      .mockImplementationOnce(() => {
+        throw Object.assign(new Error("model: claude-sonnet-5-5"), { statusCode: 404 });
+      })
+      .mockImplementation(() => makeStreamResult("ok"));
+
+    vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue(undefined as any);
+    vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([
+      { role: "user", content: "hola" },
+    ] as any);
+    vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+    vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply: vi.fn(async () => {}) } as any);
+    agent.state.pendingMessages = [{ text: "hola", receivedAt: Date.now() }];
+
+    await agent.processBuffer();
+
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+    const [first, second] = streamTextMock.mock.calls.map((c) => c[0]);
+    expect(first.model).toEqual({ modelId: "claude-sonnet-5-5" });
+    expect(first.providerOptions).toEqual({ anthropic: { effort: "medium" } });
+    expect(second.model).toEqual({ modelId: "claude-sonnet-5" });
+    expect(second.providerOptions).toBeUndefined();
+  });
+
   it("caches the system prompt as a SystemModelMessage with an ephemeral breakpoint", async () => {
     const { agent } = makeAgent({ tier: "free" });
 
