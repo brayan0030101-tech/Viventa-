@@ -239,3 +239,14 @@ describe("videollamada: recordatorios y resumen", () => {
     expect(sendTemplateMock).toHaveBeenCalledWith(expect.anything(), "34600000025", "viventa_recordatorio", "es", ["Ana", expect.stringMatching(/^\d\d:\d\d$/)]);
   });
 });
+
+describe("límite de lecturas de D1 (el cron NO puede hacer subconsultas por conversación)", () => {
+  it("el código no usa subconsultas correlacionadas sobre tickets/messages (leían ~60 mil filas por pasada)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/followup/sistemaViventa.ts", "utf8");
+    expect(src).not.toMatch(/t\.conversation_id\s*=\s*c\.id/);
+    expect(src).not.toMatch(/m\.conversation_id\s*=\s*c\.id/);
+    expect(src).not.toMatch(/EXISTS\s*\(\s*SELECT/i);
+  });
+});
+

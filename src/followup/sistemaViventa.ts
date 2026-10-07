@@ -121,22 +121,52 @@ interface GuionRow extends ConvRef {
   last_role: string | null;
 }
 
+/**
+ * IMPORTANTE (límite de lecturas de D1): estas consultas corren en el cron y NO
+ * pueden hacer subconsultas correlacionadas por conversación (un EXISTS sobre
+ * `tickets`, que no tiene índice por conversación, leía ~60 mil filas por
+ * pasada y agotó el cupo diario de D1). Aquí: una consulta acotada por índice
+ * para las conversaciones, una sobre los mensajes de las últimas 30 h
+ * (índice created_at) y una sobre los tickets "Lead calificado" recientes; el
+ * cruce se hace en memoria.
+ */
 export async function runGuionSeguimiento(env: Env, now = Date.now()): Promise<{ sent: number }> {
   const db = new Db(env.DB);
-  const rows = await db.all<GuionRow>(
-    `SELECT c.id, c.channel, c.channel_user_id, c.display_name,
-            (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS last_user_at,
-            (SELECT role FROM messages m WHERE m.conversation_id = c.id ORDER BY created_at DESC, rowid DESC LIMIT 1) AS last_role
+  const convs = await db.all<ConvRef>(
+    `SELECT c.id, c.channel, c.channel_user_id, c.display_name
        FROM conversations c
-      WHERE c.channel IN ('ycloud', 'zernio')
+      WHERE c.last_message_at > ?
+        AND c.channel IN ('ycloud', 'zernio')
         AND c.open_ticket_id IS NULL
         AND (c.paused_until IS NULL OR c.paused_until < ?)
-        AND c.last_message_at > ?
-        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_guion24') IS NULL
-        AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.role = 'owner')
-        AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.conversation_id = c.id AND t.summary LIKE '[Lead calificado%')`,
-    [now, now - 30 * H],
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_guion24') IS NULL`,
+    [now - 30 * H, now],
   );
+  if (convs.length === 0) return { sent: 0 };
+
+  const recientes = await db.all<{ conversation_id: string; role: string; created_at: number }>(
+    "SELECT conversation_id, role, created_at FROM messages WHERE created_at > ? ORDER BY created_at ASC",
+    [now - 30 * H],
+  );
+  const calificados = new Set(
+    (
+      await db.all<{ conversation_id: string }>(
+        "SELECT DISTINCT conversation_id FROM tickets WHERE created_at > ? AND summary LIKE '[Lead calificado%'",
+        [now - 14 * 24 * H],
+      )
+    ).map((r) => r.conversation_id),
+  );
+  const porConv = new Map<string, { lastUser: number | null; lastRole: string | null; owner: boolean }>();
+  for (const m of recientes) {
+    const e = porConv.get(m.conversation_id) ?? { lastUser: null, lastRole: null, owner: false };
+    if (m.role === "user") e.lastUser = m.created_at;
+    if (m.role === "owner") e.owner = true;
+    e.lastRole = m.role;
+    porConv.set(m.conversation_id, e);
+  }
+  const rows: GuionRow[] = convs
+    .filter((c) => !calificados.has(c.id) && !porConv.get(c.id)?.owner)
+    .map((c) => ({ ...c, last_user_at: porConv.get(c.id)?.lastUser ?? null, last_role: porConv.get(c.id)?.lastRole ?? null }));
 
   let sent = 0;
   for (const c of rows) {
@@ -173,20 +203,40 @@ interface ProyectosRow extends ConvRef {
 
 export async function runSeguimientoProyectos(env: Env, now = Date.now()): Promise<{ sent: number; sinPlantilla: number }> {
   const db = new Db(env.DB);
-  const rows = await db.all<ProyectosRow>(
-    `SELECT c.id, c.channel, c.channel_user_id, c.display_name,
-            (SELECT MIN(m.created_at) FROM messages m
-               WHERE m.conversation_id = c.id AND m.role = 'owner'
-                 AND m.created_at > (SELECT MIN(t.created_at) FROM tickets t
-                                      WHERE t.conversation_id = c.id AND t.summary LIKE '[Lead calificado%')) AS projects_at,
-            (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS last_user_at
-       FROM conversations c
-      WHERE c.channel IN ('ycloud', 'zernio')
-        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_proy48') IS NULL
-        AND EXISTS (SELECT 1 FROM tickets t WHERE t.conversation_id = c.id AND t.summary LIKE '[Lead calificado%')
-        AND c.last_message_at > ?`,
-    [now - 8 * 24 * H],
+  // Primero los tickets "Lead calificado" de la última semana (tabla chica); de ahí
+  // salen las pocas conversaciones a revisar — consultas por clave primaria/índice.
+  const tickets = await db.all<{ conversation_id: string; t: number }>(
+    `SELECT conversation_id, MIN(created_at) AS t FROM tickets
+      WHERE created_at > ? AND conversation_id IS NOT NULL AND summary LIKE '[Lead calificado%'
+      GROUP BY conversation_id`,
+    [now - 9 * 24 * H],
   );
+  const rows: ProyectosRow[] = [];
+  for (const tk of tickets) {
+    const conv = await db.first<ConvRef & { metadata: string | null }>(
+      "SELECT id, channel, channel_user_id, display_name, metadata FROM conversations WHERE id = ?",
+      [tk.conversation_id],
+    );
+    if (!conv || (conv.channel !== "ycloud" && conv.channel !== "zernio")) continue;
+    if (/"viventa_proy48"/.test(conv.metadata ?? "")) continue;
+    const proy = await db.first<{ t: number | null }>(
+      "SELECT MIN(created_at) AS t FROM messages WHERE conversation_id = ? AND created_at > ? AND role = 'owner'",
+      [conv.id, tk.t],
+    );
+    if (proy?.t == null) continue;
+    const usr = await db.first<{ t: number | null }>(
+      "SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND created_at > ? AND role = 'user'",
+      [conv.id, tk.t - 24 * H],
+    );
+    rows.push({
+      id: conv.id,
+      channel: conv.channel,
+      channel_user_id: conv.channel_user_id,
+      display_name: conv.display_name,
+      projects_at: proy.t,
+      last_user_at: usr?.t ?? null,
+    });
+  }
 
   let sent = 0;
   let sinPlantilla = 0;
@@ -247,7 +297,7 @@ export async function runRecordatoriosLlamada(
         AND json_extract(COALESCE(metadata, '{}'), '$.estado') = 'Reservada (Cal.com)'
         AND json_extract(COALESCE(metadata, '{}'), '$.calStart') IS NOT NULL
         AND created_at > ?`,
-    [now - 90 * 24 * H],
+    [now - 45 * 24 * H],
   );
 
   const out = { r24: 0, r1: 0, resumenes: 0 };

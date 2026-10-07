@@ -725,8 +725,12 @@ export default {
       // Sistema de atención Viventa: seguimiento del guion (~24 h), seguimiento a
       // 48 h de los proyectos y recordatorios de la videollamada (24 h / 1 h) +
       // resumen para Maricela. Cada uno reclama antes de enviar (sin duplicados).
-      const { runSistemaViventa } = await import("./followup/sistemaViventa");
-      await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
+      // Cada 15 min (no cada 5): ahorra lecturas de D1 y las ventanas de los
+      // recordatorios (≥ 1 h) lo toleran de sobra.
+      if (new Date().getUTCMinutes() % 15 < 5) {
+        const { runSistemaViventa } = await import("./followup/sistemaViventa");
+        await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
+      }
       // Sincroniza el catálogo de proyectos de viventa.co/proyectos al KB, en
       // tandas — pedido del dueño 2026-09-25: el bot debe conocer siempre los
       // proyectos activos SIN que nadie los cargue a mano, pero sin redirigir
