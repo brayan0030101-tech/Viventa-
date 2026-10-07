@@ -52,3 +52,16 @@ export function withCacheBreakpoint<T extends { providerOptions?: Record<string,
   } as T;
   return [...messages.slice(0, -1), marked];
 }
+
+/**
+ * Esfuerzo de razonamiento (ANTHROPIC_EFFORT = low | medium | high). Sonnet 5.5
+ * razona de forma adaptativa y por defecto en "high": esos tokens se cobran como
+ * salida y alargan la espera. Para un chat conviene "low" o "medium". Solo se
+ * manda a los modelos 5.5 (los demás ni lo necesitan ni lo aceptan todos).
+ */
+export function effortOptions(env: Pick<Env, "ANTHROPIC_EFFORT">, modelId: string) {
+  const effort = (env.ANTHROPIC_EFFORT ?? "").trim().toLowerCase();
+  if (effort !== "low" && effort !== "medium" && effort !== "high") return undefined;
+  if (!/^claude-(sonnet|opus)-5-5$/.test(modelId)) return undefined;
+  return { anthropic: { effort } };
+}

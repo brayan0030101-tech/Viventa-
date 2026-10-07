@@ -79,6 +79,7 @@ BOT_TIER = "pro"  # 'free' | 'pro'
 LLM_PROVIDER = "anthropic"
 IG_OFFICIAL = "off"  # apaga el canal oficial de Meta para Instagram; los DMs entran por Zernio
 PROMPT_CACHE_TTL = "1h"  # el prompt grande dura 1 h en el caché de Anthropic (escribe a 2×, lee a 0,1×). Volver a "5m" si el tráfico baja
+ANTHROPIC_EFFORT = "medium"  # esfuerzo de razonamiento de Sonnet 5.5 (low | medium | high); solo aplica a los modelos 5.5
 # BLINDAJE_MODE = "full"  # estrictez del Blindaje anti-invento (Pro): 'off' | 'negaciones' | 'full'. Sin línea = 'full' (verificación completa; el prompt ya trata tool/KB/listados/cálculos como respaldo y solo bloquea contradicciones o datos sin fuente). 'negaciones' = confía en TODO dato positivo y solo vigila negaciones — para negocios que listan inventario en vivo. 'off' = apagado.
 # ── White-label del panel (Modo Agencia): TU marca o la del cliente. Opcionales;
 #    sin ellas el panel usa el tema Forja. Un valor inválido cae al default. Las

@@ -22,7 +22,7 @@ import { monthIaCostUsd, applyBudgetGuard } from "./budget";
 import { CustomerFactsRepo } from "./db/facts";
 import { createModel } from "./llm/provider";
 import { costOfUsage } from "./pricing";
-import { systemCacheOptions, withCacheBreakpoint } from "./llm/cache";
+import { effortOptions, systemCacheOptions, withCacheBreakpoint } from "./llm/cache";
 import { recordIaUsage } from "./db/ia-usage";
 import type { ChannelId } from "./channels/shared";
 import type { SearchKbResult } from "./tools/searchKb";
@@ -949,6 +949,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         messages: supportsPromptCache ? withCacheBreakpoint(aiMessages) : aiMessages,
         tools: enabledTools,
         stopWhen: ({ steps }) => steps.length >= 6,
+        ...(effortOptions(this.env, mId) ? { providerOptions: effortOptions(this.env, mId) } : {}),
         ...(conTemp ? { temperature: cfg.temperature } : {}),
       });
       let text = "";

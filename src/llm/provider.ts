@@ -52,6 +52,7 @@ export interface LlmOverrides {
 // nombre del producto.
 export const CURATED_MODELS: { id: string; nombre: string; desc: string; provider: LlmProvider }[] = [
   { id: "claude-haiku-4-5-20251001", nombre: "Claude Haiku 4.5", desc: "modeloDesc.rapidoBarato", provider: "anthropic" },
+  { id: "claude-sonnet-5-5", nombre: "Claude Sonnet 5.5", desc: "modeloDesc.mejorEquilibrio", provider: "anthropic" },
   { id: "claude-sonnet-5", nombre: "Claude Sonnet 5", desc: "modeloDesc.mejorEquilibrio", provider: "anthropic" },
   { id: "claude-sonnet-4-6", nombre: "Claude Sonnet 4.6", desc: "modeloDesc.equilibrado", provider: "anthropic" },
   { id: "claude-sonnet-4-5-20250929", nombre: "Claude Sonnet 4.5", desc: "modeloDesc.equilibrado", provider: "anthropic" },

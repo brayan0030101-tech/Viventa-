@@ -2,7 +2,7 @@
  * Caché de prompts: TTL del bloque system y punto de caché en el último mensaje.
  */
 import { describe, it, expect } from "vitest";
-import { cacheTtl, systemCacheOptions, withCacheBreakpoint } from "../../src/llm/cache";
+import { cacheTtl, effortOptions, systemCacheOptions, withCacheBreakpoint } from "../../src/llm/cache";
 
 describe("cacheTtl / systemCacheOptions", () => {
   it("por defecto es de 5 min y no manda ttl", () => {
@@ -54,5 +54,16 @@ describe("withCacheBreakpoint", () => {
 
   it("lista vacía → lista vacía", () => {
     expect(withCacheBreakpoint([])).toEqual([]);
+  });
+});
+
+describe("effortOptions", () => {
+  it("solo se manda a Sonnet/Opus 5.5 y con un valor válido", () => {
+    expect(effortOptions({ ANTHROPIC_EFFORT: "medium" }, "claude-sonnet-5-5")).toEqual({ anthropic: { effort: "medium" } });
+    expect(effortOptions({ ANTHROPIC_EFFORT: " LOW " }, "claude-opus-5-5")).toEqual({ anthropic: { effort: "low" } });
+    expect(effortOptions({ ANTHROPIC_EFFORT: "medium" }, "claude-sonnet-5")).toBeUndefined();
+    expect(effortOptions({ ANTHROPIC_EFFORT: "medium" }, "claude-haiku-4-5-20251001")).toBeUndefined();
+    expect(effortOptions({ ANTHROPIC_EFFORT: "extremo" }, "claude-sonnet-5-5")).toBeUndefined();
+    expect(effortOptions({}, "claude-sonnet-5-5")).toBeUndefined();
   });
 });

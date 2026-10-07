@@ -209,6 +209,7 @@ export interface Env {
   CAMILA_TELEGRAM_CHAT_ID?: string; // Viventa: aviso a Camila (equipo comercial) por Telegram
   CAMILA_EMAIL?: string;            // Viventa: aviso a Camila por correo (Resend)
   PROMPT_CACHE_TTL?: string;       // "1h" = el prompt grande dura 1 h en caché de Anthropic (default "5m")
+  ANTHROPIC_EFFORT?: string;        // low | medium | high — esfuerzo de razonamiento de Sonnet/Opus 5.5 (vacío = el del modelo)
   OWNER_WA_NUMBER?: string;  // for Pro handoff WhatsApp DM (requires template)
 
   // HTTP Basic Auth password for the admin dashboard (secret).
