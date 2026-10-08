@@ -1,6 +1,7 @@
 # Estado del bot de Viventa (memoria compartida entre conversaciones)
 
 > Léelo antes de tocar nada. Última actualización: 7 de octubre de 2026.
+> Historia cronológica desde el 28 de septiembre: `member/HISTORIAL-DEL-PROYECTO.md`.
 > Aquí **nunca** va el valor de una llave. Solo nombres y dónde viven.
 > El repo es **público**: no subas `.env`, tokens, ids de Telegram, números de clientes ni la licencia de Forja.
 
