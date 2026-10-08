@@ -35,6 +35,8 @@ import {
   runGuionSeguimiento,
   runSeguimientoProyectos,
   runRecordatoriosLlamada,
+  runPedirTelefono,
+  TEXTO_PEDIR_TELEFONO,
   TPL_SEGUIMIENTO,
   TPL_RECORDATORIO,
 } from "../../src/followup/sistemaViventa";
@@ -250,3 +252,60 @@ describe("límite de lecturas de D1 (el cron NO puede hacer subconsultas por con
   });
 });
 
+
+describe("pedir el teléfono a Instagram", () => {
+  async function seedIg(userId: string, idleMin: number, content = "Hola, me interesa") {
+    const id = await seedConv("zernio", userId);
+    await msgs.append(id, "user", content, { createdAt: NOW - idleMin * 60_000 });
+    await msgs.append(id, "assistant", "¿En qué ciudad vives?", { createdAt: NOW - idleMin * 60_000 + 1000 });
+    return id;
+  }
+
+  it("envía el texto de Maricela una sola vez", async () => {
+    const id = await seedIg("ig1", 120);
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(1);
+    expect(sendOutboundMock.mock.calls[0][1]).toMatchObject({ conversationId: id, channel: "zernio", text: TEXTO_PEDIR_TELEFONO });
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(0);
+  });
+
+  it("no escribe a quien ya dio su número (en el chat o en la ficha)", async () => {
+    await seedIg("ig2", 120, "mi número es +34 600 111 222");
+    const id3 = await seedIg("ig3", 120);
+    await db.run(
+      "INSERT INTO leads (id, conversation_id, name, contact, intent, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      [crypto.randomUUID(), id3, "Luis", "+34600999888", "compra", "new", NOW - H, NOW - H],
+    );
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(0);
+  });
+
+  it("respeta la ventana: ni charla activa (<45 min) ni pasadas 22 h", async () => {
+    await seedIg("ig4", 10);
+    await seedIg("ig5", 23 * 60);
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(0);
+  });
+
+  it("solo Instagram: no toca WhatsApp", async () => {
+    const id = await seedConv("ycloud", "34600000009");
+    await msgs.append(id, "user", "hola", { createdAt: NOW - 3 * H });
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(0);
+  });
+
+  it("solo en horario de España (9–21 h)", async () => {
+    await seedIg("ig6", 120);
+    const noche = Date.UTC(2026, 9, 20, 23, 0, 0); // 01:00 en Madrid
+    expect((await runPedirTelefono(env, noche)).sent).toBe(0);
+  });
+
+  it("envía de a 5 por pasada", async () => {
+    for (let i = 0; i < 7; i++) await seedIg(`igm${i}`, 120);
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(5);
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(2);
+  });
+
+  it("no repite si el bot ya le pidió el número y espera respuesta", async () => {
+    const id = await seedConv("zernio", "ig7");
+    await msgs.append(id, "user", "hola", { createdAt: NOW - 3 * H });
+    await msgs.append(id, "assistant", "¿Me compartes tu número de WhatsApp?", { createdAt: NOW - 3 * H + 1000 });
+    expect((await runPedirTelefono(env, NOW)).sent).toBe(0);
+  });
+});

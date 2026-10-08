@@ -13,6 +13,10 @@
  *  3. Videollamada con Maricela: recordatorio al cliente 24 h y 1 h antes (hora
  *     de España) y resumen del lead para Maricela 1 h antes. Las citas salen de
  *     los leads "Cita ·" reservados en Cal.com (metadata.calStart, instante exacto).
+ *  4. Teléfono de Instagram: Instagram no entrega el número. A quien escribió por
+ *     Instagram y no lo ha dado, UN mensaje (texto de Maricela) pidiéndolo y la
+ *     hora para llamarle; así ella puede escribirle por WhatsApp. Solo dentro de
+ *     la ventana de 24 h de Instagram y en horario de España.
  *
  * Todos reclaman antes de enviar (marca en metadata) → imposible duplicar.
  * Best-effort: un candidato que falla no frena a los demás.
@@ -139,7 +143,8 @@ export async function runGuionSeguimiento(env: Env, now = Date.now()): Promise<{
         AND c.channel IN ('ycloud', 'zernio')
         AND c.open_ticket_id IS NULL
         AND (c.paused_until IS NULL OR c.paused_until < ?)
-        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_guion24') IS NULL`,
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_guion24') IS NULL
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_pidetel') IS NULL`,
     [now - 30 * H, now],
   );
   if (convs.length === 0) return { sent: 0 };
@@ -387,8 +392,102 @@ async function falloRecordatorio(env: Env, cuando: string, quien: string, hora: 
 }
 
 /** Corre los tres automatismos; cada uno es independiente. */
+// ─── 4. Pedir el teléfono a quien escribió por Instagram ───────────────────────
+
+/** Texto de Maricela (sin cambios) para pedir el número y la hora de la llamada. */
+export const TEXTO_PEDIR_TELEFONO =
+  "Hola 😊 Muchas gracias por escribirme y por tu interés en comprar vivienda en Colombia 🇨🇴🏡.\n\n" +
+  "Quiero llamarte mañana para conocerte mejor, resolver tus dudas y orientarte sobre las opciones disponibles.\n\n" +
+  "📞 Si aún no me has compartido tu número de teléfono, ¿me lo puedes enviar por aquí, por favor? " +
+  "Y dime qué hora te viene bien mañana para dejar la llamada agendada 😊.";
+
+const RE_TELEFONO = /\+?\d[\d\s().-]{6,}\d/;
+const RE_PIDE_TEL = /(n[uú]mero|tel[eé]fono|whats\s?app)/i;
+/** Espera mínima desde el último mensaje del cliente: no interrumpe una charla activa. */
+const IDLE_MIN_TEL = 45 * MIN;
+/** Instagram bloquea el texto libre pasadas 24 h; se corta antes con margen. */
+const MAX_IDLE_TEL = 22 * H;
+/** Tope por pasada (cada 15 min): enviar de a poco, no una ráfaga que parezca spam. */
+const MAX_POR_PASADA_TEL = 5;
+
+export async function runPedirTelefono(env: Env, now = Date.now()): Promise<{ sent: number }> {
+  const horaMadrid = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hour12: false }).format(new Date(now)),
+  );
+  if (horaMadrid < 9 || horaMadrid >= 21) return { sent: 0 };
+
+  const db = new Db(env.DB);
+  const convs = await db.all<ConvRef>(
+    `SELECT c.id, c.channel, c.channel_user_id, c.display_name
+       FROM conversations c
+      WHERE c.last_message_at > ?
+        AND c.channel = 'zernio'
+        AND (c.paused_until IS NULL OR c.paused_until < ?)
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_pidetel') IS NULL
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_guion24') IS NULL`,
+    [now - 30 * H, now],
+  );
+  if (convs.length === 0) return { sent: 0 };
+
+  const recientes = await db.all<{ conversation_id: string; role: string; content: string; created_at: number }>(
+    "SELECT conversation_id, role, content, created_at FROM messages WHERE created_at > ? ORDER BY created_at ASC",
+    [now - 30 * H],
+  );
+  const porConv = new Map<string, { lastUser: number | null; lastRole: string | null; lastAsst: string; owner: boolean; tel: boolean }>();
+  for (const m of recientes) {
+    const e = porConv.get(m.conversation_id) ?? { lastUser: null, lastRole: null, lastAsst: "", owner: false, tel: false };
+    if (m.role === "user") {
+      e.lastUser = m.created_at;
+      if (RE_TELEFONO.test(m.content)) e.tel = true;
+    }
+    if (m.role === "owner") e.owner = true;
+    if (m.role === "assistant") e.lastAsst = m.content;
+    e.lastRole = m.role;
+    porConv.set(m.conversation_id, e);
+  }
+
+  const candidatos = convs.filter((c) => {
+    const e = porConv.get(c.id);
+    if (!e || e.lastUser == null || e.owner || e.tel) return false;
+    const idle = now - e.lastUser;
+    if (idle < IDLE_MIN_TEL || idle > MAX_IDLE_TEL) return false;
+    // Si lo último que dijo el bot fue pedir el número, ya está esperando respuesta.
+    if (e.lastRole === "assistant" && RE_PIDE_TEL.test(e.lastAsst)) return false;
+    return true;
+  });
+  if (candidatos.length === 0) return { sent: 0 };
+
+  // ¿Ya dejó un teléfono en su ficha? (leads es chica; solo se lee si hay candidatos)
+  const conTelefono = new Set<string>();
+  const leads = await db.all<{ conversation_id: string; contact: string | null }>(
+    "SELECT conversation_id, contact FROM leads WHERE created_at > ? AND contact IS NOT NULL AND contact != ''",
+    [now - 7 * 24 * H],
+  );
+  for (const l of leads) {
+    if (l.contact && !l.contact.includes("@") && RE_TELEFONO.test(l.contact)) conTelefono.add(l.conversation_id);
+  }
+
+  let sent = 0;
+  for (const c of candidatos) {
+    if (conTelefono.has(c.id)) continue;
+    if (sent >= MAX_POR_PASADA_TEL) break;
+    if (!(await claim(db, "conversations", c.id, "viventa_pidetel", now))) continue;
+    try {
+      await enviarACliente(env, db, c, TEXTO_PEDIR_TELEFONO, null, porConv.get(c.id)?.lastUser ?? null, now);
+      sent++;
+    } catch (e) {
+      console.error(`[sistemaViventa] pedir teléfono ${c.id}:`, e);
+    }
+  }
+  if (sent > 0) {
+    await avisarEquipo(env, "📞 Pedí el teléfono por Instagram", `Le escribí a ${sent} cliente(s) de Instagram que no habían dado su número, para poder llamarles/escribirles por WhatsApp. Cuando respondan, el número queda en su ficha y en el Excel.`);
+  }
+  return { sent };
+}
+
 export async function runSistemaViventa(env: Env, now = Date.now()): Promise<void> {
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
   await runRecordatoriosLlamada(env, now).catch((e) => console.error("[sistemaViventa] llamada:", e));
+  await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
 }
