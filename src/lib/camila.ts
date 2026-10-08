@@ -147,3 +147,28 @@ export async function leadFicha(db: Db, conversationId: string | null): Promise<
   for (const n of notes) lines.push(`Notas: ${n}`);
   return lines.join("\n");
 }
+
+/**
+ * Línea de origen de un aviso: de qué canal viene el cliente y cómo contactarlo.
+ * WhatsApp muestra el teléfono; Instagram, el nombre del perfil (no hay número).
+ * Nunca lanza: sin conversación devuelve "".
+ */
+export async function origenCliente(db: Db, conversationId: string | null): Promise<string> {
+  if (!conversationId) return "";
+  try {
+    const rows = await db.all<{ channel: string; channel_user_id: string; display_name: string | null }>(
+      "SELECT channel, channel_user_id, display_name FROM conversations WHERE id = ?",
+      [conversationId],
+    );
+    const c = rows[0];
+    if (!c) return "";
+    const nombre = c.display_name ? ` · ${c.display_name}` : "";
+    if (c.channel === "ycloud") return `💬 WhatsApp${nombre} · +${c.channel_user_id}`;
+    if (c.channel === "zernio" || c.channel === "instagram") return `📸 Instagram${nombre}`;
+    if (c.channel === "telegram") return `✈️ Telegram${nombre}`;
+    return `${c.channel}${nombre}`;
+  } catch (e) {
+    console.error("[camila] origenCliente:", e);
+    return "";
+  }
+}

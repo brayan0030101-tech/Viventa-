@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { camilaConfigured, notifyCamila, leadFicha, teamTelegramIds } from "../../src/lib/camila";
+import { camilaConfigured, notifyCamila, leadFicha, teamTelegramIds, origenCliente } from "../../src/lib/camila";
 import type { Env } from "../../src/env";
 
 let db: Db;
@@ -99,5 +99,26 @@ describe("leadFicha", () => {
     expect(await leadFicha(db, null)).toContain("sin ficha");
     await addConv("c2");
     expect(await leadFicha(db, "c2")).toContain("sin ficha");
+  });
+});
+
+describe("origenCliente", () => {
+  async function conv(id: string, channel: string, user: string, name: string | null) {
+    await db.run(
+      "INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)",
+      [id, channel, user, name, 1, 1],
+    );
+  }
+  it("WhatsApp muestra el teléfono", async () => {
+    await conv("ycloud:34600000001", "ycloud", "34600000001", "Ana");
+    expect(await origenCliente(db, "ycloud:34600000001")).toBe("💬 WhatsApp · Ana · +34600000001");
+  });
+  it("Instagram muestra el perfil y no un número", async () => {
+    await conv("zernio:123", "zernio", "123", "Luis");
+    expect(await origenCliente(db, "zernio:123")).toBe("📸 Instagram · Luis");
+  });
+  it("sin conversación devuelve vacío", async () => {
+    expect(await origenCliente(db, null)).toBe("");
+    expect(await origenCliente(db, "nope")).toBe("");
   });
 });

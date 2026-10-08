@@ -66,7 +66,9 @@ export async function createHandoffTicket(
   // and, because this is a business-INITIATED message outside any 24h
   // session window, MUST use a pre-approved Content Template (HSM) — free
   // text would be rejected by WhatsApp. Both are best-effort.
-  await notifyOwner(env, { reason, summary, ticketId });
+  const { origenCliente } = await import("../lib/camila");
+  const origen = await origenCliente(db, conversationId);
+  await notifyOwner(env, { reason, summary, ticketId, origen });
 
   // Viventa: Camila (equipo comercial) recibe cada traspaso con la ficha del
   // lead. Best-effort y sin efecto si CAMILA_* no está configurado.
@@ -76,7 +78,7 @@ export async function createHandoffTicket(
       const ficha = await leadFicha(db, conversationId);
       await notifyCamila(env, {
         heading: `📥 Traspaso [${reason}]`,
-        body: `${summary}\n\n${ficha}`,
+        body: `${origen ? `${origen}\n` : ""}${summary}\n\n${ficha}`,
         url: `${await selfOrigin(env)}/admin/tickets`,
       });
     }
@@ -125,6 +127,8 @@ interface HandoffNotice {
   reason: string;
   summary: string;
   ticketId: string;
+  /** Canal y contacto del cliente (ver origenCliente); opcional. */
+  origen?: string;
 }
 
 /**
@@ -265,7 +269,7 @@ export async function notifyOwner(env: Env, notice: HandoffNotice): Promise<void
           body: JSON.stringify({
             chat_id: env.OWNER_TELEGRAM_CHAT_ID,
             text:
-              `🚨 Nuevo ticket [${notice.reason}]\n${notice.summary}\n\nVer: ${ticketUrl}`,
+              `🚨 Nuevo ticket [${notice.reason}]\n${notice.origen ? `${notice.origen}\n` : ""}${notice.summary}\n\nVer: ${ticketUrl}`,
           }),
         },
       );
