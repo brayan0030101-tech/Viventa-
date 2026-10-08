@@ -153,20 +153,29 @@ export async function leadFicha(db: Db, conversationId: string | null): Promise<
  * WhatsApp muestra el teléfono; Instagram, el nombre del perfil (no hay número).
  * Nunca lanza: sin conversación devuelve "".
  */
+export interface OrigenRow {
+  channel: string;
+  channel_user_id: string;
+  display_name: string | null;
+}
+
+/** Texto de origen (canal + cómo contactar) a partir de la fila de la conversación. */
+export function etiquetaOrigen(c: OrigenRow): string {
+  const nombre = c.display_name ? ` · ${c.display_name}` : "";
+  if (c.channel === "ycloud") return `💬 WhatsApp${nombre} · +${c.channel_user_id}`;
+  if (c.channel === "zernio" || c.channel === "instagram") return `📸 Instagram${nombre}`;
+  if (c.channel === "telegram") return `✈️ Telegram${nombre}`;
+  return `${c.channel}${nombre}`;
+}
+
 export async function origenCliente(db: Db, conversationId: string | null): Promise<string> {
   if (!conversationId) return "";
   try {
-    const rows = await db.all<{ channel: string; channel_user_id: string; display_name: string | null }>(
+    const rows = await db.all<OrigenRow>(
       "SELECT channel, channel_user_id, display_name FROM conversations WHERE id = ?",
       [conversationId],
     );
-    const c = rows[0];
-    if (!c) return "";
-    const nombre = c.display_name ? ` · ${c.display_name}` : "";
-    if (c.channel === "ycloud") return `💬 WhatsApp${nombre} · +${c.channel_user_id}`;
-    if (c.channel === "zernio" || c.channel === "instagram") return `📸 Instagram${nombre}`;
-    if (c.channel === "telegram") return `✈️ Telegram${nombre}`;
-    return `${c.channel}${nombre}`;
+    return rows[0] ? etiquetaOrigen(rows[0]) : "";
   } catch (e) {
     console.error("[camila] origenCliente:", e);
     return "";

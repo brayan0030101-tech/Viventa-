@@ -3,6 +3,7 @@ import { traductor } from "../i18n";
 import { Db } from "../../db/client";
 import { TicketsRepo } from "../../db/tickets";
 import { layout } from "./layout";
+import { etiquetaOrigen, type OrigenRow } from "../../lib/camila";
 
 function esc(s: string): string {
   return s.replace(
@@ -21,6 +22,22 @@ export async function renderTickets(env: Env): Promise<string> {
   const repo = new TicketsRepo(new Db(env.DB));
   const open = await repo.listOpen();
 
+  // Canal de cada ticket (WhatsApp con teléfono / Instagram con perfil): una sola
+  // consulta por clave primaria, solo para los tickets abiertos. Nunca rompe la página.
+  const origenes = new Map<string, string>();
+  const ids = [...new Set(open.map((t) => t.conversation_id).filter((x): x is string => !!x))];
+  if (ids.length) {
+    try {
+      const rows = await new Db(env.DB).all<OrigenRow & { id: string }>(
+        `SELECT id, channel, channel_user_id, display_name FROM conversations WHERE id IN (${ids.map(() => "?").join(",")})`,
+        ids,
+      );
+      for (const r of rows) origenes.set(r.id, etiquetaOrigen(r));
+    } catch (e) {
+      console.error("[tickets] origen:", e);
+    }
+  }
+
   const list = open
     .map((t) => {
       const date = new Date(t.created_at).toLocaleString("es-MX");
@@ -33,6 +50,7 @@ export async function renderTickets(env: Env): Promise<string> {
           </div>
           <span class="text-dim text-[11px]" style="flex:none">${date}</span>
         </div>
+        ${origenes.get(t.conversation_id ?? "") ? `<p class="text-cream text-[12.5px]" style="margin:0 0 6px;font-weight:600">${esc(origenes.get(t.conversation_id ?? "")!)}</p>` : ""}
         <p class="text-muted text-[12.5px] leading-relaxed" style="margin:0 0 12px">${t.summary}</p>
         <form method="POST" action="/admin/tickets/${t.id}/resolve" style="display:flex;gap:8px">
           <input name="resolved_by" placeholder="${esc(tr("tickets.placeholderResueltoPor"))}" required
