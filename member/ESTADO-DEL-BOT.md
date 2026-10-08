@@ -84,7 +84,7 @@ Para guardar uno: `printf '%s' '<valor>' | npx wrangler secret put NOMBRE`, sin 
 - Los avisos de Zernio llegan firmados con `ZERNIO_WEBHOOK_SECRET`; para reprocesar mensajes perdidos se puede reenviar un `message.received` firmado con un id propio (`replay-<id>`), así no se duplica.
 
 ## Pendientes
-1. **Camila y Maricela en Telegram:** que le escriban al bot, leer sus ids en D1 y guardarlos en `CAMILA_TELEGRAM_CHAT_ID` (coma). Opcional: aviso corto por WhatsApp a Camila (necesita plantilla en YCloud y su número como secreto).
+1. ~~Camila y Maricela en Telegram~~ — **hecho el 8 oct:** `CAMILA_TELEGRAM_CHAT_ID` tiene los ids de las dos (Camila y Maricela). Falta ver el primer aviso real. Los avisos indican el canal (WhatsApp con teléfono, Instagram con perfil). Opcional: aviso por WhatsApp a Camila (plantilla en YCloud).
 2. **Plantillas de WhatsApp** (seguimiento a 48 h y recordatorios) aprobadas en YCloud.
 3. ~~WhatsApp perdido durante la caída de D1 (19:09–19:30 UTC del 7 oct)~~ — **resuelto** por Brayan (los de Instagram se reenviaron al bot).
 4. **Seguridad (todo pasó por el chat):** restablecer la clave y el token de la app de Instagram en Meta; crear una llave nueva en Cal.com y guardarla como `CALCOM_API_KEY`; cerrar sesiones de Forja desconocidas (el código de acceso del CLI pasó por el chat).
