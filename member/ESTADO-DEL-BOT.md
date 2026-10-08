@@ -68,7 +68,8 @@ Viven en D1 (`custom_instructions`; valen para WhatsApp **e** Instagram siempre)
 5. **Durante la calificación no habla de disponibilidad de proyectos:** nada de "no veo proyectos" ni "te aviso cuando haya algo" (suena a despedida). Dice que el equipo comercial evaluará las mejores opciones y oportunidades para sus necesidades y sigue con las preguntas. No usa `searchKb` en esa fase.
 6. **Tono cercano:** el nombre del cliente con mucha moderación (máx. una vez al conocerlo y quizá al despedirse; nunca en mensajes seguidos); no empezar mensajes seguidos con "Gracias"/"Perfecto"; reaccionar de forma breve y genuina; emojis moderados.
 7. **Teléfono solo en Instagram (8 oct):** en Instagram el bot pide el número de WhatsApp justo después del correo (una sola vez); en WhatsApp **nunca** lo pide, ya lo tiene.
-8. Si piden hablar con una persona o se frustran → `handoffHuman` de inmediato. No promete hipoteca, rentabilidad ni fechas de entrega. Datos legales los confirma Maricela o su abogado.
+8. **Pedir teléfono a Instagram (8 oct):** `runPedirTelefono` (en `sistemaViventa.ts`) escribe una vez, con el texto de Maricela (`TEXTO_PEDIR_TELEFONO`), a quien escribió por Instagram y no dio número; 9–21 h de España, 45 min–22 h tras su último mensaje, 5 por pasada. Si el cliente responde con número y hora, el bot los guarda (captureLead + notas), agradece y dice que esté atento a la llamada; no agenda ni da horarios (regla en D1).
+9. Si piden hablar con una persona o se frustran → `handoffHuman` de inmediato. No promete hipoteca, rentabilidad ni fechas de entrega. Datos legales los confirma Maricela o su abogado.
 
 ### Cómo cambiar las instrucciones
 Leer `SELECT value FROM settings WHERE key='custom_instructions'` (wrangler d1 execute --remote --json), guardar copia, editar solo el bloque que toca, y escribir con `UPDATE ... updated_at = <ms>`. El bot las lee en vivo (sin desplegar).
