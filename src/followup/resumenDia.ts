@@ -382,8 +382,8 @@ interface Pendiente {
   nombre: string;
 }
 
-/** Leads calificados de los últimos 7 días que Maricela aún no marcó como registrados. */
-async function pendientesRegistro(db: Db, now: number): Promise<Pendiente[]> {
+/** Leads calificados de los últimos 7 días que aún no están registrados ni marcados como existentes. */
+export async function leadsPendientes(db: Db, now: number): Promise<Array<{ conv: ConvInfo & { metadata: string | null }; lead: LeadResumen }>> {
   const tickets = await db.all<{ conversation_id: string }>(
     "SELECT DISTINCT conversation_id FROM tickets WHERE created_at > ? AND summary LIKE '[Lead calificado%' AND conversation_id IS NOT NULL",
     [now - 7 * 24 * H],
@@ -391,8 +391,8 @@ async function pendientesRegistro(db: Db, now: number): Promise<Pendiente[]> {
   if (tickets.length === 0) return [];
   const ids = tickets.map((t) => t.conversation_id);
   const marks = ids.map(() => "?").join(",");
-  const convs = await db.all<ConvInfo>(
-    `SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations
+  const convs = await db.all<ConvInfo & { metadata: string | null }>(
+    `SELECT id, channel, channel_user_id, display_name, last_message_at, metadata FROM conversations
       WHERE id IN (${marks}) AND json_extract(COALESCE(metadata, '{}'), '$.viventa_registrado') IS NULL AND json_extract(COALESCE(metadata, '{}'), '$.viventa_existente') IS NULL`,
     ids,
   );
@@ -401,7 +401,12 @@ async function pendientesRegistro(db: Db, now: number): Promise<Pendiente[]> {
     `SELECT conversation_id, name, contact, notes, metadata FROM leads WHERE conversation_id IN (${convs.map(() => "?").join(",")}) AND intent NOT LIKE 'Cita ·%'`,
     convs.map((c) => c.id),
   );
-  return armarLeads(convs, leads).map((l) => ({ convId: l.convId, nombre: l.nombre }));
+  const porId = new Map(convs.map((c) => [c.id, c]));
+  return armarLeads(convs, leads).map((lead) => ({ conv: porId.get(lead.convId)!, lead }));
+}
+
+async function pendientesRegistro(db: Db, now: number): Promise<Pendiente[]> {
+  return (await leadsPendientes(db, now)).map(({ lead }) => ({ convId: lead.convId, nombre: lead.nombre }));
 }
 
 export const AYUDA_EQUIPO =

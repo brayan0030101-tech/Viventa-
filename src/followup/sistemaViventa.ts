@@ -17,6 +17,8 @@
  *     Instagram y no lo ha dado, UN mensaje (texto de Maricela) pidiéndolo y la
  *     hora para llamarle; así ella puede escribirle por WhatsApp. Solo dentro de
  *     la ventana de 24 h de Instagram y en horario de España.
+ *  5. Datos que faltan para el formulario de Zoho: a quien ya terminó el guion y le
+ *     falta apellido, correo, teléfono o ciudades, UN mensaje pidiendo solo eso.
  *
  * Todos reclaman antes de enviar (marca en metadata) → imposible duplicar.
  * Best-effort: un candidato que falla no frena a los demás.
@@ -485,11 +487,105 @@ export async function runPedirTelefono(env: Env, now = Date.now()): Promise<{ se
   return { sent };
 }
 
+// ─── 5. Pedir los datos que faltan para registrar en Zoho ──────────────────────
+
+const PIDE: Record<string, string> = {
+  apellido: "tu apellido",
+  correo: "tu correo electrónico",
+  "teléfono": "tu número de WhatsApp con el indicativo del país",
+  "ciudad donde quiere comprar": "la ciudad de Colombia donde te gustaría comprar",
+  "ciudad donde vive": "el país y la ciudad donde vives",
+};
+
+export function textoPedirDatos(nombre: string, faltan: string[]): string {
+  const items = faltan.map((f) => PIDE[f] ?? f);
+  const lista = items.length > 1 ? `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}` : items[0];
+  return (
+    `Hola${nombre ? ` ${nombre}` : ""} 😊 Para dejar registrada tu solicitud con el equipo comercial de Maricela ` +
+    `me falta confirmar ${lista}. ¿Me lo compartes por aquí, por favor?`
+  );
+}
+
+const MAX_POR_PASADA_DATOS = 5;
+/** Ventana de texto libre con margen: WhatsApp 24 h, Instagram 22 h. */
+const VENTANA_DATOS: Record<string, number> = { ycloud: 23 * H, zernio: 22 * H };
+
+export async function runPedirDatos(env: Env, now = Date.now()): Promise<{ sent: number }> {
+  const horaMadrid = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hour12: false }).format(new Date(now)),
+  );
+  const enHorario = horaMadrid >= 9 && horaMadrid < 21;
+
+  const db = new Db(env.DB);
+  const { leadsPendientes, faltantes, enlaceRegistro } = await import("./resumenDia");
+  const todos = (await leadsPendientes(db, now)).filter(({ conv }) => conv.channel === "ycloud" || conv.channel === "zernio");
+  const marca = (meta: string | null, k: string): boolean => {
+    try {
+      return Boolean(JSON.parse(meta ?? "{}")[k]);
+    } catch {
+      return false;
+    }
+  };
+
+  // Ya se les pidió y completaron lo que faltaba → aviso inmediato con el enlace listo.
+  for (const { conv, lead } of todos) {
+    if (!marca(conv.metadata, "viventa_pidedatos") || marca(conv.metadata, "viventa_completo")) continue;
+    if (faltantes(lead).length > 0) continue;
+    if (!(await claim(db, "conversations", conv.id, "viventa_completo", now))) continue;
+    await avisarEquipo(env, "✅ Cliente completó sus datos", `${lead.nombre} ya respondió. Listo para registrar.\n\n${await enlaceRegistro(env, db, conv.id)}`);
+  }
+
+  if (!enHorario) return { sent: 0 };
+  const pend = todos.filter(({ conv }) => !marca(conv.metadata, "viventa_pidedatos"));
+  if (pend.length === 0) return { sent: 0 };
+
+  const ids = pend.map((p) => p.conv.id);
+  const recientes = await db.all<{ conversation_id: string; role: string; created_at: number }>(
+    `SELECT conversation_id, role, created_at FROM messages WHERE created_at > ? AND conversation_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at ASC`,
+    [now - 30 * H, ...ids],
+  );
+  const ult = new Map<string, { user: number | null; owner: boolean }>();
+  for (const m of recientes) {
+    const e = ult.get(m.conversation_id) ?? { user: null, owner: false };
+    if (m.role === "user") e.user = m.created_at;
+    if (m.role === "owner") e.owner = true;
+    ult.set(m.conversation_id, e);
+  }
+
+  let sent = 0;
+  for (const { conv, lead } of pend) {
+    if (sent >= MAX_POR_PASADA_DATOS) break;
+    const u = ult.get(conv.id);
+    if (!u || u.user == null || u.owner) continue;
+    const idle = now - u.user;
+    if (idle < 45 * MIN || idle > VENTANA_DATOS[conv.channel]) continue;
+    let falta = faltantes(lead);
+    let yaPidioTel = false;
+    try {
+      yaPidioTel = Boolean(JSON.parse(conv.metadata ?? "{}").viventa_pidetel);
+    } catch { /* metadata rota */ }
+    if (yaPidioTel) falta = falta.filter((f) => f !== "teléfono");
+    if (falta.length === 0) continue;
+    if (!(await claim(db, "conversations", conv.id, "viventa_pidedatos", now))) continue;
+    try {
+      await enviarACliente(env, db, conv, textoPedirDatos(primerNombre(lead.nombre, conv.display_name), falta), null, u.user, now);
+      sent++;
+    } catch (e) {
+      console.error(`[sistemaViventa] pedir datos ${conv.id}:`, e);
+    }
+  }
+  if (sent > 0) {
+    await avisarEquipo(env, "📝 Pedí datos que faltaban", `Le escribí a ${sent} cliente(s) para completar lo que exige el formulario de Zoho. Cuando respondan, el aviso con el enlace listo les llega a Camila y Maricela.`);
+  }
+  return { sent };
+}
+
 export async function runSistemaViventa(env: Env, now = Date.now()): Promise<void> {
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
   await runRecordatoriosLlamada(env, now).catch((e) => console.error("[sistemaViventa] llamada:", e));
   await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
+  await runPedirDatos(env, now).catch((e) => console.error("[sistemaViventa] datos:", e));
   const { runResumenDia } = await import("./resumenDia");
   await runResumenDia(env, now).catch((e) => console.error("[sistemaViventa] resumen:", e));
 }

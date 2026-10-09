@@ -36,6 +36,8 @@ import {
   runSeguimientoProyectos,
   runRecordatoriosLlamada,
   runPedirTelefono,
+  runPedirDatos,
+  textoPedirDatos,
   TEXTO_PEDIR_TELEFONO,
   TPL_SEGUIMIENTO,
   TPL_RECORDATORIO,
@@ -307,5 +309,61 @@ describe("pedir el teléfono a Instagram", () => {
     await msgs.append(id, "user", "hola", { createdAt: NOW - 3 * H });
     await msgs.append(id, "assistant", "¿Me compartes tu número de WhatsApp?", { createdAt: NOW - 3 * H + 1000 });
     expect((await runPedirTelefono(env, NOW)).sent).toBe(0);
+  });
+});
+
+describe("pedir los datos que faltan para el formulario", () => {
+  async function seedCalificado(channel: string, userId: string, lead: { name: string; contact: string; meta: object }, idleMin = 120) {
+    const id = await seedConv(channel, userId, lead.name);
+    await msgs.append(id, "user", "ok", { createdAt: NOW - idleMin * 60_000 });
+    await msgs.append(id, "assistant", "gracias", { createdAt: NOW - idleMin * 60_000 + 1000 });
+    await db.run(
+      "INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      [crypto.randomUUID(), id, lead.name, lead.contact, "compra", JSON.stringify(lead.meta), "new", NOW - 3 * H, NOW - 3 * H],
+    );
+    await seedTicket(id, NOW - 2 * H);
+    return id;
+  }
+
+  it("el texto pide solo lo que falta", () => {
+    expect(textoPedirDatos("Ana", ["apellido", "correo"])).toContain("tu apellido y tu correo electrónico");
+    expect(textoPedirDatos("", ["ciudad donde vive"])).toContain("el país y la ciudad donde vives");
+  });
+
+  it("escribe una sola vez a quien le falta algo", async () => {
+    const id = await seedCalificado("ycloud", "34600000011", { name: "Ana", contact: "ana@x.com", meta: { ciudadResidencia: "España, Girona", ciudadCompra: "Cali" } });
+    expect((await runPedirDatos(env, NOW)).sent).toBe(1);
+    expect(sendOutboundMock.mock.calls[0][1]).toMatchObject({ conversationId: id, channel: "ycloud" });
+    expect(sendOutboundMock.mock.calls[0][1].text).toContain("tu apellido");
+    expect((await runPedirDatos(env, NOW)).sent).toBe(0);
+  });
+
+  it("no escribe si ya tiene todo, si ya está registrado o si pasaron las ventanas", async () => {
+    await seedCalificado("ycloud", "34600000012", { name: "Luis Pérez", contact: "l@x.com", meta: { ciudadResidencia: "España, Girona", ciudadCompra: "Cali" } });
+    const reg = await seedCalificado("ycloud", "34600000013", { name: "Eva", contact: "", meta: {} });
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viventa_registrado','x') WHERE id = ?", [reg]);
+    await seedCalificado("zernio", "ig-vieja", { name: "Zoe", contact: "", meta: {} }, 23 * 60);
+    expect((await runPedirDatos(env, NOW)).sent).toBe(0);
+  });
+
+  it("solo en horario de España", async () => {
+    await seedCalificado("ycloud", "34600000014", { name: "Ana", contact: "", meta: {} });
+    expect((await runPedirDatos(env, Date.UTC(2026, 9, 20, 23, 0))).sent).toBe(0);
+  });
+
+  it("si ya se le pidió el teléfono de Instagram, no se lo repite", async () => {
+    const id = await seedCalificado("zernio", "ig-tel", { name: "Marta Ruiz", contact: "m@x.com", meta: { ciudadResidencia: "España, Girona", ciudadCompra: "Cali" } });
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viventa_pidetel','x') WHERE id = ?", [id]);
+    expect((await runPedirDatos(env, NOW)).sent).toBe(0);
+  });
+
+  it("cuando completan lo pedido avisa al equipo con el enlace una sola vez", async () => {
+    const id = await seedCalificado("ycloud", "34600000015", { name: "Ana Gil", contact: "a@x.com", meta: { ciudadResidencia: "España, Girona", ciudadCompra: "Cali" } });
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viventa_pidedatos','x') WHERE id = ?", [id]);
+    await runPedirDatos(env, NOW);
+    expect(notifyCamilaMock).toHaveBeenCalledTimes(1);
+    expect(notifyCamilaMock.mock.calls[0][1].heading).toContain("completó");
+    await runPedirDatos(env, NOW);
+    expect(notifyCamilaMock).toHaveBeenCalledTimes(1);
   });
 });
