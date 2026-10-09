@@ -15,6 +15,7 @@ import { Db } from "../db/client";
 import { SettingsRepo } from "../db/settings";
 import { selfOrigin } from "../lib/self-origin";
 import { camilaConfigured, notifyCamila, notifyCamilaDocument } from "../lib/camila";
+import { buildXlsx, type Celda } from "../lib/xlsx";
 
 const H = 3600_000;
 const MAX_LINEAS = 15;
@@ -453,4 +454,94 @@ export async function comandoEquipo(env: Env, texto: string, now = Date.now()): 
     return pend.length ? `Faltan por registrar (${pend.length}):\n` + pend.map((p) => `• ${p.nombre}`).join("\n") : "No hay pendientes 🎉";
   }
   return AYUDA_EQUIPO;
+}
+
+// ─── Excel de clientes listos (6:00 y 14:00 de España) ─────────────────────────
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const HORAS_EXCEL = [6, 14];
+
+/** Clientes con todos los datos del formulario, sin registrar, que aún no iban en ningún Excel. */
+export async function leadsListos(db: Db, now: number): Promise<LeadResumen[]> {
+  const convs = await db.all<ConvInfo>(
+    `SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations
+      WHERE last_message_at > ?
+        AND json_extract(COALESCE(metadata, '{}'), '$.viventa_registrado') IS NULL
+        AND json_extract(COALESCE(metadata, '{}'), '$.viventa_existente') IS NULL
+        AND json_extract(COALESCE(metadata, '{}'), '$.viventa_excel') IS NULL`,
+    [now - 7 * 24 * H],
+  );
+  if (convs.length === 0) return [];
+  const ids = new Set(convs.map((c) => c.id));
+  const rows = (
+    await db.all<LeadRow>(
+      "SELECT conversation_id, name, contact, notes, metadata FROM leads WHERE updated_at > ? AND intent NOT LIKE 'Cita ·%' ORDER BY created_at ASC",
+      [now - 7 * 24 * H],
+    )
+  ).filter((l) => l.conversation_id && ids.has(l.conversation_id));
+  const orden = { caliente: 0, tibio: 1, frio: 2 } as const;
+  return armarLeads(convs, rows)
+    .filter((l) => faltantes(l).length === 0)
+    .sort((a, b) => orden[a.prioridad.nivel] - orden[b.prioridad.nivel] || b.prioridad.puntos - a.prioridad.puntos);
+}
+
+export function excelListos(leads: LeadResumen[], formUrl?: string): Uint8Array {
+  const head = ["#", "Prioridad", "Canal", "Nombres", "Apellidos", "Correo", "Teléfono", "Ciudad de interés", "País de residencia", "Ciudad de residencia", "Ahorro", "Ingresos mensuales", "Enlace del formulario"];
+  const icono = { caliente: "🔥 Caliente", tibio: "🟡 Tibio", frio: "⚪ Frío" } as const;
+  const rows: Celda[][] = [head];
+  leads.forEach((l, i) => {
+    const m = l.ficha.metadata;
+    const partes = l.nombre.trim().split(/\s+/);
+    const [pais, ...ciudad] = (m.ciudadResidencia ?? "").split(",").map((x) => x.trim());
+    rows.push([
+      i + 1, icono[l.prioridad.nivel], l.canal,
+      partes.length > 1 ? partes[0] : partes[0] ?? "", partes.length > 1 ? partes.slice(1).join(" ") : "",
+      l.correo.split(",")[0].trim(), l.telefono,
+      opcion(m.ciudadCompra, CIUDADES_FORM) || m.ciudadCompra || "",
+      opcion(pais, PAISES_FORM, { "estados unidos": "USA", eeuu: "USA", "ee.uu": "USA", usa: "USA" }) || pais || "",
+      ciudad.join(", "), m.ahorroDisponible ?? "", m.ingresosMensuales ?? "",
+      formUrl ? { text: "Abrir formulario", url: urlFormulario(formUrl, l) } : "",
+    ]);
+  });
+  return buildXlsx([{ name: "Listos para registrar", rows, widths: [4, 13, 11, 18, 22, 32, 17, 18, 18, 20, 24, 20, 20] }]);
+}
+
+/**
+ * A las 6:00 y 14:00 de España manda a Camila y Maricela el Excel con los clientes
+ * que ya están listos para el formulario (los nuevos desde el último envío). Si no
+ * hay nuevos, un aviso corto. Una vez por franja y día.
+ */
+export async function runExcelListos(env: Env, now = Date.now()): Promise<{ sent: boolean; leads: number }> {
+  const { hora, dia } = madridParts(now);
+  if (!HORAS_EXCEL.includes(hora) || !camilaConfigured(env)) return { sent: false, leads: 0 };
+
+  const db = new Db(env.DB);
+  const franja = `${dia}-${String(hora).padStart(2, "0")}h`;
+  const res = await db.run("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)", [`viventa_excel_${franja}`, "1", now]);
+  if ((res.meta?.changes ?? 0) === 0) return { sent: false, leads: 0 };
+
+  const leads = await leadsListos(db, now);
+  if (leads.length === 0) {
+    await notifyCamila(env, { heading: `📎 Excel de las ${hora}:00`, body: "Sin clientes nuevos listos para registrar desde el último envío ✅" });
+    return { sent: true, leads: 0 };
+  }
+  const formUrl = ((await new SettingsRepo(db).get(SETTING_FORM_URL)) ?? "").trim() || undefined;
+  // Se marcan antes de enviar: si algo falla a medias, no se repiten en el siguiente.
+  const enviados: LeadResumen[] = [];
+  for (const l of leads) {
+    const r = await db.run(
+      `UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_excel', ?)
+        WHERE id = ? AND json_extract(COALESCE(metadata, '{}'), '$.viventa_excel') IS NULL`,
+      [franja, l.convId],
+    );
+    if ((r.meta?.changes ?? 0) > 0) enviados.push(l);
+  }
+  const ok = await notifyCamilaDocument(env, {
+    filename: `clientes_listos_${franja}.xlsx`,
+    content: excelListos(enviados, formUrl),
+    mime: XLSX_MIME,
+    caption: `📎 ${enviados.length} cliente(s) listo(s) para registrar (nuevos desde el último envío). Abre el enlace de cada fila, revisa, marca los términos y envía. Después escribe «registrado Nombre» a este bot.`,
+  });
+  if (!ok) console.error("[resumenDia] el Excel de las", hora, "no llegó a ningún destinatario");
+  return { sent: ok, leads: enviados.length };
 }

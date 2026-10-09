@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import {
-  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes,
+  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos,
 } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -240,5 +240,61 @@ describe("existente", () => {
     await db.run("INSERT INTO tickets (id, conversation_id, category, summary, transcript, status, created_at) VALUES ('t','ycloud:1','other','[Lead calificado] x','','open',?)", [NOW - 1000]);
     expect(await comandoEquipo(env, "existente Pepe", NOW)).toContain("🔴");
     expect(await comandoEquipo(env, "pendientes", NOW)).toContain("No hay pendientes");
+  });
+});
+
+describe("Excel de clientes listos (6:00 y 14:00)", () => {
+  let env: Env;
+  let db: Db;
+  const fetchMock = vi.fn();
+  const A_LAS_6 = Date.UTC(2026, 9, 20, 4, 5); // 06:05 en Madrid
+  const A_LAS_14 = Date.UTC(2026, 9, 20, 12, 5); // 14:05 en Madrid
+  beforeEach(async () => {
+    const mf = await createTestMiniflare();
+    const d1 = (await mf.getD1Database("DB")) as any;
+    db = new Db(d1);
+    env = { DB: d1, TELEGRAM_BOT_TOKEN: "T", CAMILA_TELEGRAM_CHAT_ID: "1,2", BUSINESS_NAME: "Viventa" } as unknown as Env;
+    fetchMock.mockReset().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_form_url','https://forms.example/f',1)");
+    const completo = JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali" });
+    const filas: Array<[string, string, string, string, string]> = [
+      ["ycloud:34600000021", "34600000021", "Ana López", "ana@x.com", completo], // listo
+      ["ycloud:34600000022", "34600000022", "Luis", "luis@x.com", completo], // sin apellido
+      ["ycloud:34600000023", "34600000023", "Eva Gil", "eva@x.com", completo], // ya registrada
+    ];
+    for (const [id, user, name, mail, meta] of filas) {
+      await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", [id, "ycloud", user, name, A_LAS_6 - 5000, A_LAS_6 - 5000]);
+      await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", [`l-${id}`, id, name, mail, "x", meta, "new", A_LAS_6 - 4000, A_LAS_6 - 4000]);
+    }
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viventa_registrado','x') WHERE id = 'ycloud:34600000023'");
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("solo incluye a los completos, sin registrar y sin Excel previo", async () => {
+    const l = await leadsListos(db, A_LAS_6);
+    expect(l.map((x) => x.nombre)).toEqual(["Ana López"]);
+  });
+  it("a las 6:00 manda el .xlsx a los dos y no lo repite en la misma franja", async () => {
+    const r = await runExcelListos(env, A_LAS_6);
+    expect(r).toEqual({ sent: true, leads: 1 });
+    const docs = fetchMock.mock.calls.filter((c) => (c[0] as string).endsWith("/sendDocument"));
+    expect(docs.length).toBe(2);
+    const form = docs[0][1].body as FormData;
+    expect((form.get("document") as unknown as File).name).toBe("clientes_listos_2026-10-20-06h.xlsx");
+    expect((await runExcelListos(env, A_LAS_6 + 10 * 60_000)).sent).toBe(false);
+  });
+  it("a las 14:00 solo manda los nuevos; sin nuevos avisa en corto", async () => {
+    await runExcelListos(env, A_LAS_6);
+    fetchMock.mockClear();
+    const r = await runExcelListos(env, A_LAS_14);
+    expect(r).toEqual({ sent: true, leads: 0 });
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.filter((u) => u.endsWith("/sendDocument")).length).toBe(0);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).text).toContain("Sin clientes nuevos");
+  });
+  it("fuera de las 6:00 y 14:00 no hace nada", async () => {
+    expect((await runExcelListos(env, Date.UTC(2026, 9, 20, 9, 0))).sent).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

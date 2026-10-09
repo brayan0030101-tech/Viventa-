@@ -188,7 +188,7 @@ export async function origenCliente(db: Db, conversationId: string | null): Prom
  */
 export async function notifyCamilaDocument(
   env: Env,
-  doc: { filename: string; content: string; mime?: string; caption?: string },
+  doc: { filename: string; content: string | Uint8Array; mime?: string; caption?: string },
 ): Promise<boolean> {
   if (!env.TELEGRAM_BOT_TOKEN) return false;
   let delivered = false;
@@ -197,7 +197,7 @@ export async function notifyCamilaDocument(
       const form = new FormData();
       form.append("chat_id", chatId);
       if (doc.caption) form.append("caption", doc.caption.slice(0, 1000));
-      form.append("document", new Blob([doc.content], { type: doc.mime ?? "text/csv" }), doc.filename);
+      form.append("document", new Blob([doc.content as any], { type: doc.mime ?? "text/csv" }), doc.filename);
       const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
         method: "POST",
         body: form,
