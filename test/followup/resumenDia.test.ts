@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import {
-  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos,
+  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos, correoParaFormulario,
 } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -220,7 +220,7 @@ describe("registro por el equipo", () => {
 describe("datos que exige el formulario", () => {
   it("lista lo que falta", () => {
     const [l] = armarLeads([conv], [lead({ name: "Ana", contact: "", metadata: JSON.stringify({ ciudadResidencia: "España" }) })]);
-    expect(faltantes({ ...l, telefono: "", correo: "" })).toEqual(["apellido", "correo", "teléfono", "ciudad donde quiere comprar", "ciudad donde vive"]);
+    expect(faltantes({ ...l, telefono: "", correo: "" })).toEqual(["apellido", "teléfono", "ciudad donde quiere comprar", "ciudad donde vive"]);
   });
   it("completo = nada falta", () => {
     const [l] = armarLeads([conv], [lead({ metadata: JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali" }) })]);
@@ -296,5 +296,27 @@ describe("Excel de clientes listos (6:00 y 14:00)", () => {
   it("fuera de las 6:00 y 14:00 no hace nada", async () => {
     expect((await runExcelListos(env, Date.UTC(2026, 9, 20, 9, 0))).sent).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("correo inventado", () => {
+  it("sin correo se inventa uno con el nombre, en un dominio que no existe, y queda marcado", () => {
+    const [l] = armarLeads([conv], [lead({ name: "María José Pérez", contact: "" })]);
+    const r = correoParaFormulario(l);
+    expect(r).toEqual({ correo: "maria.jose.perez@correo-no-proporcionado.invalid", inventado: true });
+  });
+  it("con correo real no se toca", () => {
+    const [l] = armarLeads([conv], [lead()]);
+    expect(correoParaFormulario(l)).toEqual({ correo: "ana@correo.com", inventado: false });
+  });
+  it("el enlace del formulario lleva el correo inventado y el aviso lo advierte", () => {
+    const [l] = armarLeads([conv], [lead({ name: "Ana López", contact: "", metadata: JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali" }) })]);
+    const u = new URL(urlFormulario("https://forms.example/f", l));
+    expect(u.searchParams.get("Email")).toBe("ana.lopez@correo-no-proporcionado.invalid");
+    expect(mensajesResumen([l], "https://x/admin", "https://forms.example/f").join("\n")).toContain("correo inventado");
+  });
+  it("sin correo el cliente igual entra al Excel de listos (el teléfono y las ciudades sí son obligatorios)", () => {
+    const [l] = armarLeads([conv], [lead({ contact: "", metadata: JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali" }) })]);
+    expect(faltantes(l)).toEqual([]);
   });
 });

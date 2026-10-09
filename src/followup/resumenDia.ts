@@ -156,13 +156,29 @@ export function armarLeads(convs: ConvInfo[], leads: LeadRow[]): LeadResumen[] {
   return out;
 }
 
-/** Datos que exige el formulario y que aún no tenemos del cliente. */
+/** Dominio reservado (.invalid nunca existe): el correo inventado jamás le llega a nadie real. */
+const DOMINIO_SIN_CORREO = "correo-no-proporcionado.invalid";
+
+/**
+ * El formulario exige correo. Si el cliente no lo dio, por pedido de Maricela se
+ * usa uno inventado con su nombre, siempre en un dominio que no existe y marcado
+ * como tal en el Excel y en los avisos (nunca pasa por real).
+ */
+export function correoParaFormulario(l: LeadResumen): { correo: string; inventado: boolean } {
+  const real = l.correo.split(",")[0].trim();
+  if (real) return { correo: real, inventado: false };
+  const slug = l.nombre
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || "cliente";
+  return { correo: `${slug}@${DOMINIO_SIN_CORREO}`, inventado: true };
+}
+
+/** Datos que exige el formulario y que aún no tenemos del cliente (el correo no cuenta: se inventa). */
 export function faltantes(l: LeadResumen): string[] {
   const m = l.ficha.metadata;
   const partes = l.nombre.trim().split(/\s+/).filter(Boolean);
   const out: string[] = [];
   if (partes.length < 2) out.push("apellido");
-  if (!l.correo) out.push("correo");
   if (!l.telefono) out.push("teléfono");
   if (!m.ciudadCompra) out.push("ciudad donde quiere comprar");
   if (!m.ciudadResidencia || !m.ciudadResidencia.includes(",")) out.push("ciudad donde vive");
@@ -181,7 +197,7 @@ export function lineaLead(l: LeadResumen, formUrl?: string): string {
     formUrl
       ? faltantes(l).length
         ? `⚠️ Falta: ${faltantes(l).join(", ")} (el formulario los exige)\n📝 ${urlFormulario(formUrl, l)}`
-        : `✅ Listo para registrar: ${urlFormulario(formUrl, l)}`
+        : `✅ Listo para registrar${correoParaFormulario(l).inventado ? " (correo inventado: el cliente no lo dio)" : ""}: ${urlFormulario(formUrl, l)}`
       : "",
   ].filter(Boolean);
   return partes.join("\n");
@@ -241,7 +257,7 @@ export function urlFormulario(base: string, l: LeadResumen): string {
   const params: Array<[string, string]> = [
     ["Name_First", partes.length > 1 ? partes[0] : partes[0] ?? ""],
     ["Name_Last", partes.length > 1 ? partes.slice(1).join(" ") : ""],
-    ["Email", l.correo.split(",")[0].trim()],
+    ["Email", correoParaFormulario(l).correo],
     ["PhoneNumber", tel],
     ["Dropdown", opcion(l.ficha.metadata.ciudadCompra, CIUDADES_FORM)],
     ["Dropdown1", opcion(pais, PAISES_FORM, { "estados unidos": "USA", eeuu: "USA", "ee.uu": "USA", usa: "USA" })],
@@ -275,10 +291,11 @@ export function csvZoho(leads: LeadResumen[]): string {
       m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`,
       m.ingresosMensuales && `Ingresos mensuales: ${m.ingresosMensuales}`,
       m.antiguedadLaboral && `Antigüedad: ${m.antiguedadLaboral}`,
+      correoParaFormulario(l).inventado && "CORREO INVENTADO (el cliente no lo dio)",
       l.ficha.notas && `Notas: ${l.ficha.notas}`,
       `Prioridad: ${l.prioridad.nivel}`,
     ].filter(Boolean).join(" | ");
-    return [first, last, l.correo.split(",")[0].trim(), l.telefono, l.canal, viveEn[0] ?? "", viveEn[1] ?? "", desc].map(csvCell).join(",");
+    return [first, last, correoParaFormulario(l).correo, l.telefono, l.canal, viveEn[0] ?? "", viveEn[1] ?? "", desc].map(csvCell).join(",");
   });
   return "﻿" + [CSV_COLS.join(","), ...filas].join("\r\n") + "\r\n";
 }
@@ -372,7 +389,7 @@ export async function enlaceRegistro(env: Env, db: Db, conversationId: string | 
     const falta = faltantes(l);
     return falta.length
       ? `⚠️ Falta: ${falta.join(", ")} (el formulario los exige)\n📝 Registrar en Zoho: ${urlFormulario(formUrl, l)}`
-      : `✅ Listo para registrar en Zoho: ${urlFormulario(formUrl, l)}`;
+      : `✅ Listo para registrar en Zoho${correoParaFormulario(l).inventado ? " (correo inventado: el cliente no lo dio)" : ""}: ${urlFormulario(formUrl, l)}`;
   } catch (e) {
     console.error("[resumenDia] enlaceRegistro:", e);
     return "";
@@ -486,7 +503,7 @@ export async function leadsListos(db: Db, now: number): Promise<LeadResumen[]> {
 }
 
 export function excelListos(leads: LeadResumen[], formUrl?: string): Uint8Array {
-  const head = ["#", "Prioridad", "Canal", "Nombres", "Apellidos", "Correo", "Teléfono", "Ciudad de interés", "País de residencia", "Ciudad de residencia", "Ahorro", "Ingresos mensuales", "Enlace del formulario"];
+  const head = ["#", "Prioridad", "Canal", "Nombres", "Apellidos", "Correo", "Nota del correo", "Teléfono", "Ciudad de interés", "País de residencia", "Ciudad de residencia", "Ahorro", "Ingresos mensuales", "Enlace del formulario"];
   const icono = { caliente: "🔥 Caliente", tibio: "🟡 Tibio", frio: "⚪ Frío" } as const;
   const rows: Celda[][] = [head];
   leads.forEach((l, i) => {
@@ -496,14 +513,14 @@ export function excelListos(leads: LeadResumen[], formUrl?: string): Uint8Array 
     rows.push([
       i + 1, icono[l.prioridad.nivel], l.canal,
       partes.length > 1 ? partes[0] : partes[0] ?? "", partes.length > 1 ? partes.slice(1).join(" ") : "",
-      l.correo.split(",")[0].trim(), l.telefono,
+      correoParaFormulario(l).correo, correoParaFormulario(l).inventado ? "⚠️ Correo inventado: el cliente no lo dio" : "", l.telefono,
       opcion(m.ciudadCompra, CIUDADES_FORM) || m.ciudadCompra || "",
       opcion(pais, PAISES_FORM, { "estados unidos": "USA", eeuu: "USA", "ee.uu": "USA", usa: "USA" }) || pais || "",
       ciudad.join(", "), m.ahorroDisponible ?? "", m.ingresosMensuales ?? "",
       formUrl ? { text: "Abrir formulario", url: urlFormulario(formUrl, l) } : "",
     ]);
   });
-  return buildXlsx([{ name: "Listos para registrar", rows, widths: [4, 13, 11, 18, 22, 32, 17, 18, 18, 20, 24, 20, 20] }]);
+  return buildXlsx([{ name: "Listos para registrar", rows, widths: [4, 13, 11, 18, 22, 36, 30, 17, 18, 18, 20, 24, 20, 20] }]);
 }
 
 /**
