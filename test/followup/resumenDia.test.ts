@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import {
-  parseMonto, puntuarLead, armarLeads, csvZoho, textoResumen, runResumenDia,
+  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia,
 } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -62,9 +62,41 @@ describe("armarLeads / csvZoho / textoResumen", () => {
   it("el resumen ordena calientes primero y marca los sin teléfono", () => {
     const ig = { id: "zernio:1", channel: "zernio", channel_user_id: "1", display_name: "Luis", last_message_at: 1 };
     const ls = armarLeads([ig, conv], [lead({ conversation_id: "zernio:1", name: "Luis", contact: "" }), lead()]);
-    const txt = textoResumen(ls, ls.length, "https://x/admin");
+    const txt = mensajesResumen(ls, "https://x/admin").join("\n");
     expect(txt).toContain("SIN TELÉFONO");
     expect(txt).toContain("https://x/admin");
+  });
+});
+
+describe("formulario prellenado", () => {
+  const base = "https://forms.example/f";
+  it("rellena nombre, correo, teléfono, ciudad de interés, país y ciudad de residencia", () => {
+    const [l] = armarLeads([conv], [lead({ metadata: JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "medellin (Robledo)" }) })]);
+    const u = new URL(urlFormulario(base, l));
+    expect(u.searchParams.get("Name_First")).toBe("Ana");
+    expect(u.searchParams.get("Name_Last")).toBe("López Ruiz");
+    expect(u.searchParams.get("Email")).toBe("ana@correo.com");
+    expect(u.searchParams.get("PhoneNumber")).toBe("+34600000001");
+    expect(u.searchParams.get("Dropdown")).toBe("Medellín");
+    expect(u.searchParams.get("Dropdown1")).toBe("España");
+    expect(u.searchParams.get("SingleLine")).toBe("Girona");
+  });
+  it("país o ciudad fuera de las opciones del formulario se dejan en blanco", () => {
+    const [l] = armarLeads([conv], [lead({ metadata: JSON.stringify({ ciudadResidencia: "Colombia, Chaparral", ciudadCompra: "Ibagué" }) })]);
+    const u = new URL(urlFormulario(base, l));
+    expect(u.searchParams.has("Dropdown")).toBe(false);
+    expect(u.searchParams.has("Dropdown1")).toBe(false);
+  });
+  it("el resumen incluye el enlace y se parte en mensajes cortos", () => {
+    const muchos: ReturnType<typeof armarLeads> = [];
+    for (let i = 0; i < 15; i++) {
+      const c = { ...conv, id: `ycloud:3460000${i}`, channel_user_id: `3460000${i}` };
+      muchos.push(...armarLeads([c], [lead({ conversation_id: c.id })]));
+    }
+    const ms = mensajesResumen(muchos, "https://x/admin", base);
+    expect(ms.length).toBeGreaterThan(1);
+    expect(ms.every((m) => m.length <= 4096)).toBe(true);
+    expect(ms.join("\n")).toContain("📝 Registrar: https://forms.example/f?");
   });
 });
 
@@ -92,15 +124,27 @@ describe("runResumenDia", () => {
     expect(r).toEqual({ sent: true, leads: 1 });
     const urls = fetchMock.mock.calls.map((c) => c[0] as string);
     expect(urls.filter((u) => u.endsWith("/sendMessage")).length).toBe(2);
-    expect(urls.filter((u) => u.endsWith("/sendDocument")).length).toBe(2);
+    expect(urls.filter((u) => u.endsWith("/sendDocument")).length).toBe(0); // CSV opcional, apagado
     expect((await runResumenDia(env, A_LAS_8 + 10 * 60_000)).sent).toBe(false);
-    expect(fetchMock.mock.calls.length).toBe(4);
+    expect(fetchMock.mock.calls.length).toBe(2);
   });
   it("fuera de las 8 h de España no hace nada", async () => {
     expect((await runResumenDia(env, Date.UTC(2026, 9, 20, 12, 0))).sent).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it("con viventa_csv_activo=1 manda el CSV a los dos", async () => {
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_csv_activo','1',1)");
+    await runResumenDia(env, A_LAS_8);
+    expect(fetchMock.mock.calls.map((c) => c[0] as string).filter((u) => u.endsWith("/sendDocument")).length).toBe(2);
+  });
+  it("con viventa_form_url el resumen lleva el enlace del formulario", async () => {
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_form_url','https://forms.example/f',1)");
+    await runResumenDia(env, A_LAS_8);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.text).toContain("https://forms.example/f?Name_First=Ana");
+  });
   it("al día siguiente no repite un lead ya exportado al CSV", async () => {
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_csv_activo','1',1)");
     await runResumenDia(env, A_LAS_8);
     fetchMock.mockClear();
     const manana = A_LAS_8 + 24 * 3600_000;

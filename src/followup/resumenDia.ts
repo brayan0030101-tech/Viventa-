@@ -12,11 +12,15 @@
  */
 import type { Env } from "../env";
 import { Db } from "../db/client";
+import { SettingsRepo } from "../db/settings";
 import { selfOrigin } from "../lib/self-origin";
 import { camilaConfigured, notifyCamila, notifyCamilaDocument } from "../lib/camila";
 
 const H = 3600_000;
 const MAX_LINEAS = 15;
+/** Ajustes en D1 (no en el repo, que es público): enlace del formulario y CSV opcional. */
+export const SETTING_FORM_URL = "viventa_form_url";
+const SETTING_CSV = "viventa_csv_activo";
 
 // ─── Puntuación ────────────────────────────────────────────────────────────────
 
@@ -151,29 +155,80 @@ export function armarLeads(convs: ConvInfo[], leads: LeadRow[]): LeadResumen[] {
 
 const ICONO = { caliente: "🔥", tibio: "🟡", frio: "⚪" } as const;
 
-export function lineaLead(l: LeadResumen): string {
+export function lineaLead(l: LeadResumen, formUrl?: string): string {
   const m = l.ficha.metadata;
   const partes = [
     `${ICONO[l.prioridad.nivel]} ${l.nombre} · ${l.canal}${l.telefono ? ` · ${l.telefono}` : " · SIN TELÉFONO"}`,
     l.horaLlamada ? `📞 ${l.horaLlamada}` : "",
     [m.ciudadResidencia && `Vive: ${m.ciudadResidencia}`, m.ciudadCompra && `Quiere: ${m.ciudadCompra}`].filter(Boolean).join(" · "),
     [m.ahorroDisponible && `Ahorro: ${m.ahorroDisponible}`, m.capacidadMensual && `Mensual: ${m.capacidadMensual}`, m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`].filter(Boolean).join(" · "),
+    formUrl ? (l.correo && l.telefono ? `📝 Registrar: ${urlFormulario(formUrl, l)}` : `📝 Falta ${!l.telefono ? "teléfono" : "correo"} para el formulario: ${urlFormulario(formUrl, l)}`) : "",
   ].filter(Boolean);
   return partes.join("\n");
 }
 
-export function textoResumen(leads: LeadResumen[], total: number, panelUrl: string): string {
+const MAX_MENSAJE = 3600;
+
+/** Resumen listo para Telegram: cabecera + leads ordenados, partido en mensajes de ≤ 3600 caracteres. */
+export function mensajesResumen(leads: LeadResumen[], panelUrl: string, formUrl?: string): string[] {
   const orden = { caliente: 0, tibio: 1, frio: 2 } as const;
   const ord = [...leads].sort((a, b) => orden[a.prioridad.nivel] - orden[b.prioridad.nivel] || b.prioridad.puntos - a.prioridad.puntos);
   const n = (nivel: string) => leads.filter((l) => l.prioridad.nivel === nivel).length;
   const sinTel = leads.filter((l) => !l.telefono).length;
   const cab =
-    `☀️ Resumen del día — ${total} lead(s) en las últimas 24 h\n` +
+    `${leads.length} lead(s) en las últimas 24 h\n` +
     `🔥 ${n("caliente")} calientes · 🟡 ${n("tibio")} tibios · ⚪ ${n("frio")} fríos` +
     (sinTel ? ` · ${sinTel} sin teléfono` : "");
-  const cuerpo = ord.slice(0, MAX_LINEAS).map(lineaLead).join("\n\n");
-  const resto = ord.length > MAX_LINEAS ? `\n\n… y ${ord.length - MAX_LINEAS} más en el Excel / panel.` : "";
-  return `${cab}\n\n${cuerpo}${resto}\n\n${panelUrl}`;
+  const bloques = ord.slice(0, MAX_LINEAS).map((l) => lineaLead(l, formUrl));
+  const pie = (ord.length > MAX_LINEAS ? `… y ${ord.length - MAX_LINEAS} más en el panel.\n\n` : "") + panelUrl;
+
+  const out: string[] = [];
+  let actual = cab;
+  for (const b of bloques) {
+    if (actual.length + b.length + 2 > MAX_MENSAJE) {
+      out.push(actual);
+      actual = b;
+    } else actual += `\n\n${b}`;
+  }
+  out.push(`${actual}\n\n${pie}`);
+  return out;
+}
+
+// ─── Formulario de registro (Zoho Forms) ───────────────────────────────────────
+
+/** Opciones del desplegable «Ciudad de interés» del formulario. */
+const CIUDADES_FORM = ["Bogotá", "Cali", "Medellín", "Barranquilla", "Pereira", "Cartagena"];
+/** Opciones del desplegable «País de residencia» del formulario. */
+const PAISES_FORM = ["USA", "España", "Canadá", "Chile", "Reino Unido", "Francia", "Italia", "Alemania", "Suiza"];
+
+const sinTildes = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function opcion(texto: string | undefined, opciones: string[], alias: Record<string, string> = {}): string {
+  const t = sinTildes(texto ?? "");
+  for (const [k, v] of Object.entries(alias)) if (t.includes(k)) return v;
+  return opciones.find((o) => t.includes(sinTildes(o))) ?? "";
+}
+
+/**
+ * Enlace del formulario con los datos del cliente ya escritos (Zoho Forms admite
+ * valores iniciales por la URL). Maricela solo revisa, marca los términos y envía.
+ * Los campos fijos del formulario (fuente, canal, etc.) los pone el propio formulario.
+ */
+export function urlFormulario(base: string, l: LeadResumen): string {
+  const partes = l.nombre.trim().split(/\s+/).filter(Boolean);
+  const [pais, ...ciudad] = (l.ficha.metadata.ciudadResidencia ?? "").split(",").map((x) => x.trim());
+  const tel = l.telefono.replace(/[^\d+]/g, "");
+  const params: Array<[string, string]> = [
+    ["Name_First", partes.length > 1 ? partes[0] : partes[0] ?? ""],
+    ["Name_Last", partes.length > 1 ? partes.slice(1).join(" ") : ""],
+    ["Email", l.correo.split(",")[0].trim()],
+    ["PhoneNumber", tel],
+    ["Dropdown", opcion(l.ficha.metadata.ciudadCompra, CIUDADES_FORM)],
+    ["Dropdown1", opcion(pais, PAISES_FORM, { "estados unidos": "USA", eeuu: "USA", "ee.uu": "USA", usa: "USA" })],
+    ["SingleLine", ciudad.join(", ")],
+  ];
+  const qs = params.filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  return qs ? `${base}${base.includes("?") ? "&" : "?"}${qs}` : base;
 }
 
 // ─── CSV para Zoho ─────────────────────────────────────────────────────────────
@@ -241,25 +296,36 @@ export async function runResumenDia(env: Env, now = Date.now()): Promise<{ sent:
   if (leads.length === 0) return { sent: false, leads: 0 };
 
   const url = `${await selfOrigin(env)}/admin`;
-  await notifyCamila(env, { heading: "☀️ Resumen del día", body: textoResumen(leads, leads.length, url).replace(/^☀️ Resumen del día — /, "") });
-
-  // CSV con los que nunca se exportaron (se marcan al exportar).
-  const nuevos: LeadResumen[] = [];
-  for (const l of leads) {
-    if (!l.telefono && !l.correo) continue;
-    const r = await db.run(
-      `UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_csv', ?)
-        WHERE id = ? AND json_extract(COALESCE(metadata, '{}'), '$.viventa_csv') IS NULL`,
-      [dia, l.convId],
-    );
-    if ((r.meta?.changes ?? 0) > 0) nuevos.push(l);
-  }
-  if (nuevos.length > 0) {
-    await notifyCamilaDocument(env, {
-      filename: `leads_zoho_${dia}.csv`,
-      content: csvZoho(nuevos),
-      caption: `📎 ${nuevos.length} lead(s) nuevos para importar en Zoho (Leads → Importar). En duplicados elige «Omitir».`,
+  const settings = new SettingsRepo(db);
+  const formUrl = ((await settings.get(SETTING_FORM_URL)) ?? "").trim() || undefined;
+  const msgs = mensajesResumen(leads, url, formUrl);
+  for (let i = 0; i < msgs.length; i++) {
+    await notifyCamila(env, {
+      heading: i === 0 ? "☀️ Resumen del día" : `☀️ Resumen del día (${i + 1}/${msgs.length})`,
+      body: msgs[i],
     });
+  }
+
+  // CSV para importar en Zoho: opcional (settings viventa_csv_activo = 1). El camino
+  // normal de registro es el formulario, con los enlaces del propio resumen.
+  if (((await settings.get(SETTING_CSV)) ?? "") === "1") {
+    const nuevos: LeadResumen[] = [];
+    for (const l of leads) {
+      if (!l.telefono && !l.correo) continue;
+      const r = await db.run(
+        `UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_csv', ?)
+          WHERE id = ? AND json_extract(COALESCE(metadata, '{}'), '$.viventa_csv') IS NULL`,
+        [dia, l.convId],
+      );
+      if ((r.meta?.changes ?? 0) > 0) nuevos.push(l);
+    }
+    if (nuevos.length > 0) {
+      await notifyCamilaDocument(env, {
+        filename: `leads_zoho_${dia}.csv`,
+        content: csvZoho(nuevos),
+        caption: `📎 ${nuevos.length} lead(s) nuevos para importar en Zoho (Leads → Importar). En duplicados elige «Omitir».`,
+      });
+    }
   }
   return { sent: true, leads: leads.length };
 }
