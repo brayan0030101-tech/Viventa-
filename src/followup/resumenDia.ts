@@ -153,6 +153,19 @@ export function armarLeads(convs: ConvInfo[], leads: LeadRow[]): LeadResumen[] {
   return out;
 }
 
+/** Datos que exige el formulario y que aún no tenemos del cliente. */
+export function faltantes(l: LeadResumen): string[] {
+  const m = l.ficha.metadata;
+  const partes = l.nombre.trim().split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  if (partes.length < 2) out.push("apellido");
+  if (!l.correo) out.push("correo");
+  if (!l.telefono) out.push("teléfono");
+  if (!m.ciudadCompra) out.push("ciudad donde quiere comprar");
+  if (!m.ciudadResidencia || !m.ciudadResidencia.includes(",")) out.push("ciudad donde vive");
+  return out;
+}
+
 const ICONO = { caliente: "🔥", tibio: "🟡", frio: "⚪" } as const;
 
 export function lineaLead(l: LeadResumen, formUrl?: string): string {
@@ -162,7 +175,11 @@ export function lineaLead(l: LeadResumen, formUrl?: string): string {
     l.horaLlamada ? `📞 ${l.horaLlamada}` : "",
     [m.ciudadResidencia && `Vive: ${m.ciudadResidencia}`, m.ciudadCompra && `Quiere: ${m.ciudadCompra}`].filter(Boolean).join(" · "),
     [m.ahorroDisponible && `Ahorro: ${m.ahorroDisponible}`, m.capacidadMensual && `Mensual: ${m.capacidadMensual}`, m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`].filter(Boolean).join(" · "),
-    formUrl ? (l.correo && l.telefono ? `📝 Registrar: ${urlFormulario(formUrl, l)}` : `📝 Falta ${!l.telefono ? "teléfono" : "correo"} para el formulario: ${urlFormulario(formUrl, l)}`) : "",
+    formUrl
+      ? faltantes(l).length
+        ? `⚠️ Falta: ${faltantes(l).join(", ")} (el formulario los exige)\n📝 ${urlFormulario(formUrl, l)}`
+        : `✅ Listo para registrar: ${urlFormulario(formUrl, l)}`
+      : "",
   ].filter(Boolean);
   return partes.join("\n");
 }
@@ -281,7 +298,7 @@ export async function runResumenDia(env: Env, now = Date.now()): Promise<{ sent:
 
   const desde = now - 24 * H;
   const convs = await db.all<ConvInfo>(
-    "SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations WHERE last_message_at > ?",
+    "SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations WHERE last_message_at > ? AND json_extract(COALESCE(metadata, '{}'), '$.viventa_registrado') IS NULL AND json_extract(COALESCE(metadata, '{}'), '$.viventa_existente') IS NULL",
     [desde],
   );
   if (convs.length === 0) return { sent: false, leads: 0 };
@@ -328,4 +345,104 @@ export async function runResumenDia(env: Env, now = Date.now()): Promise<{ sent:
     }
   }
   return { sent: true, leads: leads.length };
+}
+
+// ─── Aviso inmediato y control de «registrado» ─────────────────────────────────
+
+/** Enlace de registro de UNA conversación, o "" si no hay formulario configurado. Nunca lanza. */
+export async function enlaceRegistro(env: Env, db: Db, conversationId: string | null): Promise<string> {
+  if (!conversationId) return "";
+  try {
+    const formUrl = ((await new SettingsRepo(db).get(SETTING_FORM_URL)) ?? "").trim();
+    if (!formUrl) return "";
+    const convs = await db.all<ConvInfo>(
+      "SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations WHERE id = ?",
+      [conversationId],
+    );
+    const leads = await db.all<LeadRow>(
+      "SELECT conversation_id, name, contact, notes, metadata FROM leads WHERE conversation_id = ? AND intent NOT LIKE 'Cita ·%' ORDER BY created_at ASC",
+      [conversationId],
+    );
+    const [l] = armarLeads(convs, leads);
+    if (!l) return "";
+    const falta = faltantes(l);
+    return falta.length
+      ? `⚠️ Falta: ${falta.join(", ")} (el formulario los exige)\n📝 Registrar en Zoho: ${urlFormulario(formUrl, l)}`
+      : `✅ Listo para registrar en Zoho: ${urlFormulario(formUrl, l)}`;
+  } catch (e) {
+    console.error("[resumenDia] enlaceRegistro:", e);
+    return "";
+  }
+}
+
+const norm = (t: string) => sinTildes(t).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+interface Pendiente {
+  convId: string;
+  nombre: string;
+}
+
+/** Leads calificados de los últimos 7 días que Maricela aún no marcó como registrados. */
+async function pendientesRegistro(db: Db, now: number): Promise<Pendiente[]> {
+  const tickets = await db.all<{ conversation_id: string }>(
+    "SELECT DISTINCT conversation_id FROM tickets WHERE created_at > ? AND summary LIKE '[Lead calificado%' AND conversation_id IS NOT NULL",
+    [now - 7 * 24 * H],
+  );
+  if (tickets.length === 0) return [];
+  const ids = tickets.map((t) => t.conversation_id);
+  const marks = ids.map(() => "?").join(",");
+  const convs = await db.all<ConvInfo>(
+    `SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations
+      WHERE id IN (${marks}) AND json_extract(COALESCE(metadata, '{}'), '$.viventa_registrado') IS NULL AND json_extract(COALESCE(metadata, '{}'), '$.viventa_existente') IS NULL`,
+    ids,
+  );
+  if (convs.length === 0) return [];
+  const leads = await db.all<LeadRow>(
+    `SELECT conversation_id, name, contact, notes, metadata FROM leads WHERE conversation_id IN (${convs.map(() => "?").join(",")}) AND intent NOT LIKE 'Cita ·%'`,
+    convs.map((c) => c.id),
+  );
+  return armarLeads(convs, leads).map((l) => ({ convId: l.convId, nombre: l.nombre }));
+}
+
+export const AYUDA_EQUIPO =
+  "Comandos:\n" +
+  "• registrado <nombre> — marca al cliente como ya registrado en Zoho\n" +
+  "• existente <nombre> — marca al que ya estaba creado en el sistema (no se vuelve a avisar)\n" +
+  "• pendientes — lista los que faltan por registrar\n\n" +
+  "Los avisos de clientes nuevos llegan solos, con el enlace del formulario ya rellenado.";
+
+/** Responde a un mensaje del equipo (Camila/Maricela). Devuelve el texto de respuesta. */
+export async function comandoEquipo(env: Env, texto: string, now = Date.now()): Promise<string> {
+  const db = new Db(env.DB);
+  const t = texto.trim();
+  const m = t.match(/^\/?(registrad[oa]s?|hecho|listo)\s+(.+)$/i);
+  if (m) {
+    const buscado = norm(m[2]);
+    const pend = await pendientesRegistro(db, now);
+    const coinc = pend.filter((p) => norm(p.nombre).includes(buscado) || buscado.includes(norm(p.nombre)));
+    if (coinc.length === 0) return `No encuentro a «${m[2].trim()}» entre los pendientes. Escribe «pendientes» para ver la lista.`;
+    if (coinc.length > 1) return `Hay varios: ${coinc.map((c) => c.nombre).join(", ")}. Escribe el nombre completo.`;
+    await db.run(
+      "UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_registrado', ?) WHERE id = ?",
+      [new Date(now).toISOString(), coinc[0].convId],
+    );
+    return `✅ Marcado como registrado: ${coinc[0].nombre}`;
+  }
+  const e = t.match(/^\/?(existente|duplicado|ya existe)\s+(.+)$/i);
+  if (e) {
+    const buscado = norm(e[2]);
+    const pend = await pendientesRegistro(db, now);
+    const coinc = pend.filter((p) => norm(p.nombre).includes(buscado) || buscado.includes(norm(p.nombre)));
+    if (coinc.length !== 1) return coinc.length ? `Hay varios: ${coinc.map((c) => c.nombre).join(", ")}. Escribe el nombre completo.` : `No encuentro a «${e[2].trim()}» entre los pendientes.`;
+    await db.run(
+      "UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_existente', ?) WHERE id = ?",
+      [new Date(now).toISOString(), coinc[0].convId],
+    );
+    return `🔴 Marcado como ya existente en el sistema (no se vuelve a avisar): ${coinc[0].nombre}`;
+  }
+  if (/^\/?pendientes?$/i.test(t)) {
+    const pend = await pendientesRegistro(db, now);
+    return pend.length ? `Faltan por registrar (${pend.length}):\n` + pend.map((p) => `• ${p.nombre}`).join("\n") : "No hay pendientes 🎉";
+  }
+  return AYUDA_EQUIPO;
 }

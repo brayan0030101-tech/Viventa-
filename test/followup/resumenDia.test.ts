@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import {
-  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia,
+  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes,
 } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -96,7 +96,7 @@ describe("formulario prellenado", () => {
     const ms = mensajesResumen(muchos, "https://x/admin", base);
     expect(ms.length).toBeGreaterThan(1);
     expect(ms.every((m) => m.length <= 4096)).toBe(true);
-    expect(ms.join("\n")).toContain("📝 Registrar: https://forms.example/f?");
+    expect(ms.join("\n")).toContain("https://forms.example/f?");
   });
 });
 
@@ -154,5 +154,91 @@ describe("runResumenDia", () => {
     const urls = fetchMock.mock.calls.map((c) => c[0] as string);
     expect(urls.filter((u) => u.endsWith("/sendDocument")).length).toBe(0);
     expect(urls.filter((u) => u.endsWith("/sendMessage")).length).toBe(2);
+  });
+});
+
+describe("registro por el equipo", () => {
+  let env: Env;
+  let db: Db;
+  const NOW = Date.UTC(2026, 9, 20, 6, 30);
+  beforeEach(async () => {
+    const mf = await createTestMiniflare();
+    const d1 = (await mf.getD1Database("DB")) as any;
+    db = new Db(d1);
+    env = { DB: d1, TELEGRAM_BOT_TOKEN: "T", CAMILA_TELEGRAM_CHAT_ID: "1", BUSINESS_NAME: "Viventa" } as unknown as Env;
+    for (const [id, user, name] of [["ycloud:34600000001", "34600000001", "Ana López Ruiz"], ["ycloud:34600000002", "34600000002", "Ana Gómez"], ["ycloud:34600000003", "34600000003", "Luis Pérez"]]) {
+      await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", [id, "ycloud", user, name, NOW - 5000, NOW - 5000]);
+      await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, notes, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        [`l-${id}`, id, name, `${user}@correo.com`, "compra", "", JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali" }), "new", NOW - 4000, NOW - 4000]);
+      await db.run("INSERT INTO tickets (id, conversation_id, category, summary, transcript, status, created_at) VALUES (?,?,?,?,?,?,?)",
+        [`t-${id}`, id, "other", "[Lead calificado: enviar proyectos] x", "", "open", NOW - 3000]);
+    }
+  });
+
+  it("pendientes lista los calificados sin registrar", async () => {
+    const r = await comandoEquipo(env, "pendientes", NOW);
+    expect(r).toContain("Faltan por registrar (3)");
+    expect(r).toContain("Luis Pérez");
+  });
+  it("registrado <nombre> lo marca y sale de pendientes", async () => {
+    expect(await comandoEquipo(env, "registrado Luis", NOW)).toContain("✅");
+    const r = await comandoEquipo(env, "pendientes", NOW);
+    expect(r).toContain("(2)");
+    expect(r).not.toContain("Luis");
+  });
+  it("si hay varias coincidencias pide el nombre completo", async () => {
+    expect(await comandoEquipo(env, "registrado Ana", NOW)).toContain("Hay varios");
+    expect(await comandoEquipo(env, "registrado Ana Gómez", NOW)).toContain("✅");
+  });
+  it("sin coincidencia lo dice, y cualquier otro texto da la ayuda", async () => {
+    expect(await comandoEquipo(env, "registrado Pedro", NOW)).toContain("No encuentro");
+    expect(await comandoEquipo(env, "hola", NOW)).toBe(AYUDA_EQUIPO);
+  });
+  it("el resumen de la mañana no incluye a los ya registrados", async () => {
+    await comandoEquipo(env, "registrado Luis", NOW);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    await db.run("UPDATE conversations SET last_message_at = ?", [NOW - 1000]);
+    await db.run("UPDATE leads SET updated_at = ?", [NOW - 1000]);
+    await runResumenDia(env, NOW);
+    const texto = JSON.parse(fetchMock.mock.calls[0][1].body as string).text as string;
+    expect(texto).toContain("2 lead(s)");
+    expect(texto).not.toContain("Luis");
+    vi.unstubAllGlobals();
+  });
+  it("enlaceRegistro devuelve el formulario rellenado, o vacío sin configurar", async () => {
+    expect(await enlaceRegistro(env, db, "ycloud:34600000003")).toBe("");
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_form_url','https://forms.example/f',1)");
+    const e = await enlaceRegistro(env, db, "ycloud:34600000003");
+    expect(e).toContain("https://forms.example/f?");
+    expect(e).toContain("✅ Listo para registrar");
+    expect(e).toContain("Dropdown=Cali");
+    expect(await enlaceRegistro(env, db, null)).toBe("");
+  });
+});
+
+describe("datos que exige el formulario", () => {
+  it("lista lo que falta", () => {
+    const [l] = armarLeads([conv], [lead({ name: "Ana", contact: "", metadata: JSON.stringify({ ciudadResidencia: "España" }) })]);
+    expect(faltantes({ ...l, telefono: "", correo: "" })).toEqual(["apellido", "correo", "teléfono", "ciudad donde quiere comprar", "ciudad donde vive"]);
+  });
+  it("completo = nada falta", () => {
+    const [l] = armarLeads([conv], [lead({ metadata: JSON.stringify({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali" }) })]);
+    expect(faltantes(l)).toEqual([]);
+  });
+});
+
+describe("existente", () => {
+  it("marca como ya existente y deja de salir en pendientes", async () => {
+    const mf = await createTestMiniflare();
+    const d1 = (await mf.getD1Database("DB")) as any;
+    const db = new Db(d1);
+    const env = { DB: d1 } as unknown as Env;
+    const NOW = Date.UTC(2026, 9, 20, 6, 30);
+    await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", ["ycloud:1", "ycloud", "1", "Pepe Mora", 1, 1]);
+    await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, status, created_at, updated_at) VALUES ('l','ycloud:1','Pepe Mora','','x','new',1,1)");
+    await db.run("INSERT INTO tickets (id, conversation_id, category, summary, transcript, status, created_at) VALUES ('t','ycloud:1','other','[Lead calificado] x','','open',?)", [NOW - 1000]);
+    expect(await comandoEquipo(env, "existente Pepe", NOW)).toContain("🔴");
+    expect(await comandoEquipo(env, "pendientes", NOW)).toContain("No hay pendientes");
   });
 });

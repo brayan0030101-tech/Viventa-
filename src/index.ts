@@ -293,7 +293,28 @@ app.post("/webhooks/telegram", (c) => {
   if (esperado && c.req.header("X-Telegram-Bot-Api-Secret-Token") !== esperado) {
     return c.text("forbidden", 403);
   }
-  return routeToAgent(c, telegramAdapter);
+  return (async () => {
+    // Camila y Maricela escriben al bot para sus comandos (registrado / pendientes),
+    // no para ser atendidas como clientes: se responden aquí y no pasan al agente.
+    try {
+      const upd = (await c.req.raw.clone().json()) as { message?: { from?: { id?: number }; chat?: { id?: number }; text?: string } };
+      const from = String(upd.message?.from?.id ?? "");
+      const { teamTelegramIds } = await import("./lib/camila");
+      if (from && teamTelegramIds(c.env).includes(from)) {
+        const { comandoEquipo } = await import("./followup/resumenDia");
+        const reply = await comandoEquipo(c.env, upd.message?.text ?? "");
+        await fetch(`https://api.telegram.org/bot${c.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: upd.message?.chat?.id ?? from, text: reply }),
+        });
+        return c.text("ok", 200);
+      }
+    } catch (e) {
+      console.error("[telegram] comando del equipo:", e);
+    }
+    return routeToAgent(c, telegramAdapter);
+  })();
 });
 app.post("/webhooks/manychat", (c) => routeToAgent(c, manychatAdapter));
 // WhatsApp (Twilio): si el mensaje viene del DUEÑO (su número) → agente-dueño

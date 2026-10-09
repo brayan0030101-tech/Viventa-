@@ -76,9 +76,11 @@ export async function createHandoffTicket(
     const { camilaConfigured, notifyCamila, leadFicha } = await import("../lib/camila");
     if (camilaConfigured(env)) {
       const ficha = await leadFicha(db, conversationId);
+      const { enlaceRegistro } = await import("../followup/resumenDia");
+      const enlace = await enlaceRegistro(env, db, conversationId);
       await notifyCamila(env, {
         heading: `📥 Traspaso [${reason}]`,
-        body: `${origen ? `${origen}\n` : ""}${summary}\n\n${ficha}`,
+        body: `${origen ? `${origen}\n` : ""}${summary}\n\n${ficha}${enlace ? `\n\n${enlace}` : ""}`,
         url: `${await selfOrigin(env)}/admin/tickets`,
       });
     }
