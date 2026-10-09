@@ -69,6 +69,8 @@ export function puntuarLead(f: FichaLead): Prioridad {
   if (/(contrato|indefinid|fijo|empleado|n[oó]mina|aut[oó]nomo|empresa|funcionari)/i.test(m.tipoEmpleo ?? "")) p += 1;
   if (/(inmediat|ya\b|ahora|pronto)/i.test(m.entregaInmediataOFutura ?? "")) p += 2;
   if (f.telefono) p += 1;
+  const ingresos = parseMonto(m.ingresosMensuales);
+  p += ingresos >= 2_000 ? 1 : 0;
   if (/hora de llamada/i.test(f.notas)) p += 1;
   if (CAMPOS_FICHA.filter((k) => m[k]).length >= 6) p += 1;
   return { puntos: p, nivel: p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio" };
@@ -174,7 +176,7 @@ export function lineaLead(l: LeadResumen, formUrl?: string): string {
     `${ICONO[l.prioridad.nivel]} ${l.nombre} · ${l.canal}${l.telefono ? ` · ${l.telefono}` : " · SIN TELÉFONO"}`,
     l.horaLlamada ? `📞 ${l.horaLlamada}` : "",
     [m.ciudadResidencia && `Vive: ${m.ciudadResidencia}`, m.ciudadCompra && `Quiere: ${m.ciudadCompra}`].filter(Boolean).join(" · "),
-    [m.ahorroDisponible && `Ahorro: ${m.ahorroDisponible}`, m.capacidadMensual && `Mensual: ${m.capacidadMensual}`, m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`].filter(Boolean).join(" · "),
+    [m.ahorroDisponible && `Ahorro: ${m.ahorroDisponible}`, m.capacidadMensual && `Mensual: ${m.capacidadMensual}`, m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`, m.ingresosMensuales && `Ingresos: ${m.ingresosMensuales}`].filter(Boolean).join(" · "),
     formUrl
       ? faltantes(l).length
         ? `⚠️ Falta: ${faltantes(l).join(", ")} (el formulario los exige)\n📝 ${urlFormulario(formUrl, l)}`
@@ -270,6 +272,7 @@ export function csvZoho(leads: LeadResumen[]): string {
       m.ahorroDisponible && `Ahorro: ${m.ahorroDisponible}`,
       m.capacidadMensual && `Pago mensual: ${m.capacidadMensual}`,
       m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`,
+      m.ingresosMensuales && `Ingresos mensuales: ${m.ingresosMensuales}`,
       m.antiguedadLaboral && `Antigüedad: ${m.antiguedadLaboral}`,
       l.ficha.notas && `Notas: ${l.ficha.notas}`,
       `Prioridad: ${l.prioridad.nivel}`,
