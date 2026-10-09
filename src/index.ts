@@ -730,6 +730,8 @@ export default {
       // console.log con tiempos se sacan apenas se confirme dónde está.
       const t0 = Date.now();
       const { checkStuckConversations, checkBotHealth } = await import("./watchdog");
+      const { runReintentosIA } = await import("./followup/reintentosIA");
+      await runReintentosIA(env).catch((e) => console.error("reintentosIA:", e));
       await checkStuckConversations(env).catch((e) => console.error("watchdog:stuck:", e));
       console.log(`[cron5] checkStuckConversations: ${Date.now() - t0}ms`);
       const t1 = Date.now();

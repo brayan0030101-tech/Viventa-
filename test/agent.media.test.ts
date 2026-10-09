@@ -36,6 +36,16 @@ vi.mock("../src/tools/handoffHuman", async (importOriginal) => {
   return { ...mod, createHandoffTicket: handoffTicketMock };
 });
 
+// Reintento automático: el registro del fallo toca D1 (aquí es un {} falso), así que se simula.
+const { registrarMock, limpiarMock } = vi.hoisted(() => ({
+  registrarMock: vi.fn(),
+  limpiarMock: vi.fn(),
+}));
+vi.mock("../src/followup/reintentosIA", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../src/followup/reintentosIA")>();
+  return { ...mod, registrarFalloIA: registrarMock, limpiarFalloIA: limpiarMock };
+});
+
 import { SupportAgent } from "../src/agent";
 import { Db } from "../src/db/client";
 import { ConversationsRepo } from "../src/db/conversations";
@@ -353,6 +363,89 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     expect(first.providerOptions).toEqual({ anthropic: { effort: "medium" } });
     expect(second.model).toEqual({ modelId: "claude-sonnet-5" });
     expect(second.providerOptions).toBeUndefined();
+  });
+
+  it("si el proveedor falla del todo: guarda el fallo y NO abre ticket mientras queden reintentos", async () => {
+    vi.useFakeTimers();
+    try {
+      const { agent } = makeAgent({ tier: "pro" });
+      streamTextMock.mockReset();
+      streamTextMock.mockImplementation(() => {
+        throw Object.assign(new Error("overloaded"), { statusCode: 529 });
+      });
+      registrarMock.mockReset().mockResolvedValue({ final: false, n: 1 });
+      handoffTicketMock.mockReset();
+      vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue(undefined as any);
+      vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "user", content: "hola" }] as any);
+      vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+      const sendReply = vi.fn(async () => {});
+      vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply } as any);
+      agent.state.pendingMessages = [{ text: "hola", receivedAt: Date.now() }];
+
+      const p = agent.processBuffer();
+      await vi.runAllTimersAsync();
+      await p;
+
+      expect(registrarMock).toHaveBeenCalledTimes(1);
+      expect(registrarMock.mock.calls[0][4]).toBe(false); // no es un reintento
+      expect(handoffTicketMock).not.toHaveBeenCalled();
+      expect(sendReply).not.toHaveBeenCalled(); // al cliente nunca se le manda un error
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("si el proveedor falla y ya no quedan reintentos: avisa a una persona", async () => {
+    vi.useFakeTimers();
+    try {
+      const { agent } = makeAgent({ tier: "pro" });
+      streamTextMock.mockReset();
+      streamTextMock.mockImplementation(() => {
+        throw Object.assign(new Error("overloaded"), { statusCode: 529 });
+      });
+      registrarMock.mockReset().mockResolvedValue({ final: true, n: 3 });
+      handoffTicketMock.mockReset();
+      vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue(undefined as any);
+      vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "user", content: "hola" }] as any);
+      vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+      vi.spyOn(ConversationsRepo.prototype, "getById").mockResolvedValue({ display_name: "Ana" } as any);
+      vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply: vi.fn(async () => {}) } as any);
+      agent.state.pendingMessages = [{ text: "hola", receivedAt: Date.now() }];
+
+      const p = agent.processBuffer();
+      await vi.runAllTimersAsync();
+      await p;
+
+      expect(handoffTicketMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retryFailedTurn responde al último mensaje SIN guardarlo otra vez y limpia el fallo", async () => {
+    const { agent } = makeAgent({ tier: "pro" });
+    streamTextMock.mockReset();
+    streamTextMock.mockImplementation(() => makeStreamResult("¡Hola! ¿En qué te ayudo?"));
+    limpiarMock.mockReset().mockResolvedValue(undefined);
+    const append = vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue(undefined as any);
+    vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "user", content: "hola" }] as any);
+    const sendReply = vi.fn(async () => {});
+    vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply } as any);
+
+    await agent.retryFailedTurn();
+
+    expect(sendReply).toHaveBeenCalled();
+    expect(limpiarMock).toHaveBeenCalledTimes(1);
+    const roles = append.mock.calls.map((c) => c[1]);
+    expect(roles).not.toContain("user");
+  });
+
+  it("retryFailedTurn no hace nada si el último mensaje ya no es del cliente", async () => {
+    const { agent } = makeAgent({ tier: "pro" });
+    streamTextMock.mockReset();
+    vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "assistant", content: "ya respondí" }] as any);
+    await agent.retryFailedTurn();
+    expect(streamTextMock).not.toHaveBeenCalled();
   });
 
   it("si el modelo escribe antes y después de una tool, se envía SOLO el texto del último paso (sin repetir)", async () => {

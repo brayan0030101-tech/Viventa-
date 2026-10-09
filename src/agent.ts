@@ -602,6 +602,20 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
   }
 
   /**
+   * Reintento automático de un turno que falló por el proveedor de IA (lo llama
+   * el cron, ver followup/reintentosIA.ts). Vuelve a responder al último mensaje
+   * del cliente SIN guardarlo otra vez. Si falla de nuevo, registrarFalloIA decide
+   * si hay otro reintento o si ya toca avisar a una persona.
+   */
+  async retryFailedTurn(): Promise<void> {
+    try {
+      await this.processBufferTurn(true);
+    } catch (e) {
+      await this.notifyOwnerTurnFailed("el turno falló de forma inesperada", e);
+    }
+  }
+
+  /**
    * Camino único para "el turno falló y el bot se queda mudo a propósito": lo
    * usa tanto un fallo del proveedor de IA (más abajo) como el catch-all de
    * processBuffer(). Nunca se le manda un error al cliente (decisión del
@@ -632,20 +646,21 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     }
   }
 
-  private async processBufferTurn(): Promise<void> {
+  private async processBufferTurn(retry = false): Promise<void> {
     // Despertó por alarm del DO (sin middleware): refresca el tier efectivo para
     // que el Blindaje (Pro) y el gating de la respuesta usen el valor real.
     const { applyTier } = await import("./tier");
     await applyTier(this.env);
     await applyLanguage(this.env);
 
-    const buffered = [...this.state.pendingMessages];
-    const bufferedMediaIds = [...(this.state.pendingMediaIds ?? [])];
-    this.setState({ ...this.state, pendingMessages: [], pendingMediaIds: [] });
-    if (buffered.length === 0) return;
+    // En un reintento no hay mensajes en el buffer: el mensaje del cliente ya está guardado.
+    const buffered = retry ? [] : [...this.state.pendingMessages];
+    const bufferedMediaIds = retry ? [] : [...(this.state.pendingMediaIds ?? [])];
+    if (!retry) this.setState({ ...this.state, pendingMessages: [], pendingMediaIds: [] });
+    if (!retry && buffered.length === 0) return;
 
-    const combined = buffered.map((m) => m.text).join("\n").trim();
-    if (!combined) return;
+    let combined = buffered.map((m) => m.text).join("\n").trim();
+    if (!retry && !combined) return;
 
     const db = new Db(this.env.DB);
     const msgs = new MessagesRepo(db);
@@ -656,6 +671,12 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       return;
     }
 
+    if (retry) {
+      // Reintento: se responde al último mensaje ya guardado, y solo si sigue sin respuesta.
+      const last = (await msgs.lastN(convId, 1))[0];
+      if (!last || last.role !== "user") return;
+      combined = last.content;
+    } else {
     // Persist user message
     const userMsgId = await msgs.append(convId, "user", combined);
     // Liga los archivos de este turno al mensaje recién creado: sin esto el hilo
@@ -666,6 +687,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       await attachMediaToMessage(db, bufferedMediaIds, userMsgId);
     }
     await convs.touchLastMessage(convId);
+    }
 
     // Load history (last 80) — 20 se quedaba corto en conversaciones largas:
     // un cliente que vuelve semanas después y menciona algo hablado antes se
@@ -1010,6 +1032,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       // intento). El jitter des-sincroniza mensajes que llegaron en el mismo
       // segundo. El bot no puede quedarse mudo el día del evento.
       console.error("[SupportAgent.processBuffer] streamText failed:", describeApiError(e));
+      let lastErr: unknown = e;
       const backoff = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const { fallbackModel } = await import("./llm/provider");
 
@@ -1043,6 +1066,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         }
       } catch (e1: any) {
         console.error("[SupportAgent.processBuffer] primary retry failed:", describeApiError(e1));
+        lastErr = e1;
       }
 
       if (!ok && fb) {
@@ -1055,6 +1079,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
           ok = true;
         } catch (e2: any) {
           console.error("[SupportAgent.processBuffer] fallback failed:", describeApiError(e2));
+          lastErr = e2;
           await backoff(2500 + Math.floor(Math.random() * 1500));
           try {
             await attempt(fb.model, fb.modelId);
@@ -1062,6 +1087,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
             ok = true;
           } catch (e3: any) {
             console.error("[SupportAgent.processBuffer] fallback retry failed:", describeApiError(e3));
+            lastErr = e3;
           }
         }
       }
@@ -1081,6 +1107,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
           ok = true;
         } catch (e4: any) {
           console.error("[SupportAgent.processBuffer] segundo reintento del primario falló:", describeApiError(e4));
+          lastErr = e4;
         }
       }
 
@@ -1121,12 +1148,23 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         // respuesta en messages — exactamente lo que checkStuckConversations
         // vigila) Y avisarle al dueño YA, sin esperar el próximo tick del
         // cron de 5 min, porque acá ya sabemos con certeza que falló.
-        await this.notifyOwnerTurnFailed(
-          `el proveedor de IA falló por completo (${primary.provider}${fb ? ` + ${fb.provider}` : ""})`,
-          { primary: primary.provider, fallback: fb?.provider },
-        );
+        // Reintento automático (cron): se guarda el error real y solo se avisa a una
+        // persona cuando ya se agotaron los reintentos.
+        const { registrarFalloIA } = await import("./followup/reintentosIA");
+        const r = await registrarFalloIA(this.env, db, convId, lastErr, retry).catch(() => ({ final: true }));
+        if (r.final) {
+          await this.notifyOwnerTurnFailed(
+            `el proveedor de IA falló por completo (${primary.provider}${fb ? ` + ${fb.provider}` : ""})`,
+            { primary: primary.provider, fallback: fb?.provider },
+          );
+        }
         return;
       }
+    }
+
+    if (retry) {
+      const { limpiarFalloIA } = await import("./followup/reintentosIA");
+      await limpiarFalloIA(db, convId).catch(() => {});
     }
 
     // ── Blindaje anti-invento (Pro): verificación pre-envío ──────────────────

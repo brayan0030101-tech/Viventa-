@@ -104,7 +104,8 @@ export async function checkStuckConversations(
        AND m.created_at < ?
        AND m.created_at > ?
        AND (c.paused_until IS NULL OR c.paused_until <= ?)
-       AND c.open_ticket_id IS NULL`,
+       AND c.open_ticket_id IS NULL
+       AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_fallo.n') IS NULL`,
     [now - STUCK_THRESHOLD_MS, now - STUCK_LOOKBACK_MS, now],
   );
 
