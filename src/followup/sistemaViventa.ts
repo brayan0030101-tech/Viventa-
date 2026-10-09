@@ -490,4 +490,6 @@ export async function runSistemaViventa(env: Env, now = Date.now()): Promise<voi
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
   await runRecordatoriosLlamada(env, now).catch((e) => console.error("[sistemaViventa] llamada:", e));
   await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
+  const { runResumenDia } = await import("./resumenDia");
+  await runResumenDia(env, now).catch((e) => console.error("[sistemaViventa] resumen:", e));
 }

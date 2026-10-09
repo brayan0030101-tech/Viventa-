@@ -181,3 +181,32 @@ export async function origenCliente(db: Db, conversationId: string | null): Prom
     return "";
   }
 }
+
+/**
+ * Manda un archivo (p. ej. el CSV para Zoho) al equipo por Telegram. Best-effort:
+ * nunca lanza; devuelve si algún destinatario lo recibió.
+ */
+export async function notifyCamilaDocument(
+  env: Env,
+  doc: { filename: string; content: string; mime?: string; caption?: string },
+): Promise<boolean> {
+  if (!env.TELEGRAM_BOT_TOKEN) return false;
+  let delivered = false;
+  for (const chatId of teamTelegramIds(env)) {
+    try {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      if (doc.caption) form.append("caption", doc.caption.slice(0, 1000));
+      form.append("document", new Blob([doc.content], { type: doc.mime ?? "text/csv" }), doc.filename);
+      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
+        method: "POST",
+        body: form,
+      });
+      if (res.ok) delivered = true;
+      else console.error(`[camila] documento ${chatId} http_${res.status}`);
+    } catch (e) {
+      console.error(`[camila] documento ${chatId} failed:`, e);
+    }
+  }
+  return delivered;
+}
