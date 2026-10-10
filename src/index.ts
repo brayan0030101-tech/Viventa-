@@ -750,6 +750,12 @@ export default {
       // resumen para Maricela. Cada uno reclama antes de enviar (sin duplicados).
       // Cada 15 min (no cada 5): ahorra lecturas de D1 y las ventanas de los
       // recordatorios (≥ 1 h) lo toleran de sobra.
+      // Confirmación de videollamada: red de seguridad cada 5 min (un cliente que agendó
+      // y no recibió el mensaje no puede esperar a la pasada de 15 min).
+      {
+        const { runConfirmacionesCitas } = await import("./followup/sistemaViventa");
+        await runConfirmacionesCitas(env).catch((e) => console.error("confirmacionesCitas:", e));
+      }
       if (new Date().getUTCMinutes() % 15 < 5) {
         const { runSistemaViventa } = await import("./followup/sistemaViventa");
         await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));

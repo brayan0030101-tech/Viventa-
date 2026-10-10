@@ -52,6 +52,8 @@ export interface FichaLead {
 export interface Prioridad {
   nivel: "caliente" | "tibio" | "frio";
   puntos: number;
+  /** Por qué sumó (para el CRM): «Ahorro 20.000 € (+3)». */
+  razones: string[];
 }
 
 const CAMPOS_FICHA = [
@@ -62,19 +64,25 @@ const CAMPOS_FICHA = [
 export function puntuarLead(f: FichaLead): Prioridad {
   const m = f.metadata;
   let p = 0;
+  const razones: string[] = [];
+  const suma = (n: number, motivo: string) => {
+    if (n <= 0) return;
+    p += n;
+    razones.push(`${motivo} (+${n})`);
+  };
   const ahorro = parseMonto(m.ahorroDisponible);
   const dijoSi = /(s[ií]\s+(tiene|cuenta|dispone)|tiene\s+ahorro|ahorro\s+disponible)/i.test(m.ahorroDisponible ?? "") && !/\bno\b/i.test((m.ahorroDisponible ?? "").slice(0, 12));
-  p += ahorro >= 15_000 ? 3 : ahorro >= 5_000 ? 2 : ahorro > 0 || dijoSi ? 1 : 0;
+  suma(ahorro >= 15_000 ? 3 : ahorro >= 5_000 ? 2 : ahorro > 0 || dijoSi ? 1 : 0, `Ahorro ${m.ahorroDisponible ?? ""}`.trim());
   const mes = parseMonto(m.capacidadMensual);
-  p += mes >= 800 ? 2 : mes >= 300 ? 1 : 0;
-  if (/(contrato|indefinid|fijo|empleado|n[oó]mina|aut[oó]nomo|empresa|funcionari)/i.test(m.tipoEmpleo ?? "")) p += 1;
-  if (/(inmediat|ya\b|ahora|pronto)/i.test(m.entregaInmediataOFutura ?? "")) p += 2;
-  if (f.telefono) p += 1;
+  suma(mes >= 800 ? 2 : mes >= 300 ? 1 : 0, `Cuota mensual ${m.capacidadMensual ?? ""}`.trim());
+  if (/(contrato|indefinid|fijo|empleado|n[oó]mina|aut[oó]nomo|empresa|funcionari)/i.test(m.tipoEmpleo ?? "")) suma(1, `Empleo: ${m.tipoEmpleo}`);
+  if (/(inmediat|ya\b|ahora|pronto)/i.test(m.entregaInmediataOFutura ?? "")) suma(2, "Quiere entrega inmediata");
+  if (f.telefono) suma(1, "Dejó su teléfono");
   const ingresos = parseMonto(m.ingresosMensuales);
-  p += ingresos >= 2_000 ? 1 : 0;
-  if (/hora de llamada/i.test(f.notas)) p += 1;
-  if (CAMPOS_FICHA.filter((k) => m[k]).length >= 6) p += 1;
-  return { puntos: p, nivel: p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio" };
+  if (ingresos >= 2_000) suma(1, `Ingresos ${m.ingresosMensuales}`);
+  if (/hora de llamada/i.test(f.notas)) suma(1, "Pidió hora de llamada");
+  if (CAMPOS_FICHA.filter((k) => m[k]).length >= 6) suma(1, "Ficha casi completa");
+  return { puntos: p, nivel: p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
 }
 
 // ─── Datos de los leads ────────────────────────────────────────────────────────

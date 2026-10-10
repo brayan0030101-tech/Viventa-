@@ -956,6 +956,11 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     // inventado — antes se bloqueaban listados válidos por no verlas.
     let turnToolResults: { tool: string; output: string }[] = [];
     let usedModelId = modelId;
+    // ¿Se reservó una videollamada de verdad en este turno? Esa confirmación sale de la
+    // salida de la herramienta (día, hora, enlace): el Blindaje no la puede frenar (ya
+    // la silenció una vez por «te llegó la invitación a tu correo» y el cliente se quedó
+    // sin confirmación).
+    let reservaEnTurno = false;
 
     // Corre el loop del LLM con un modelo dado; deja los resultados en las vars.
     const attempt = async (m: any, mId: string = modelId) => {
@@ -1012,7 +1017,9 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         assistantText = soloConfirma && conPregunta ? conPregunta : ultimo;
       }
       // Videollamada reservada: el cliente siempre recibe confirmación + enlace.
-      assistantText = (await import("./lib/confirmacionLlamada")).aseguraConfirmacionLlamada(assistantText, steps as any[]);
+      const confirmacion = await import("./lib/confirmacionLlamada");
+      reservaEnTurno = confirmacion.huboReserva(steps as any[]);
+      assistantText = confirmacion.aseguraConfirmacionLlamada(assistantText, steps as any[]);
       toolCallCount = steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0);
       // Persist what the agent DID (not just what it said): tool name + input,
       // feeding the dashboard's thread chips, stats and the Mi Agente counters.
@@ -1184,7 +1191,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     // Sin respaldo → sale un "déjame confirmarlo" y se avisa al dueño (ticket,
     // misma maquinaria del handoff). FAIL-OPEN: cualquier error/timeout del
     // verificador manda la respuesta original intacta — jamás bloquea un envío.
-    if (assistantText && cfg.blindajeEnabled) {
+    if (assistantText && cfg.blindajeEnabled && !reservaEnTurno) {
       try {
         const { guardReply } = await import("./blindaje/verify");
         const guard = await guardReply(this.env, {

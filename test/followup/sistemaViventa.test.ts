@@ -46,6 +46,7 @@ import {
   runPedirDatos,
   runAvisoLlamadas,
   runOfertaLlamada,
+  runConfirmacionesCitas,
   textoPedirDatos,
   TEXTO_PEDIR_TELEFONO,
   TPL_SEGUIMIENTO,
@@ -456,3 +457,35 @@ describe("oferta de videollamada a clientes calificados", () => {
     expect((await runOfertaLlamada(env, Date.UTC(2026, 9, 20, 2, 0))).sent).toBe(0);
   });
 });
+
+describe("confirmación de la videollamada (red de seguridad)", () => {
+  async function seedReserva(userId: string, hace: number, conMensaje: boolean) {
+    const convId = await seedConv("ycloud", userId);
+    await msgs.append(convId, "user", "10:00", { createdAt: NOW - hace - 15_000 });
+    const meta = JSON.stringify({ servicio: "Videollamada Viventa", calStart: "2026-10-22T08:00:00.000Z", estado: "Reservada (Cal.com)", calMeetingUrl: "https://meet.google.com/abc-defg-hij" });
+    await db.run(
+      "INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, created_at, updated_at) VALUES (?, ?, 'Ana', ?, 'Cita · Videollamada Viventa · 2026-10-22 10:00', ?, ?, ?)",
+      [crypto.randomUUID(), convId, userId, meta, NOW - hace, NOW - hace],
+    );
+    if (conMensaje) await msgs.append(convId, "assistant", "¡Listo, quedó agendada! https://meet.google.com/abc-defg-hij", { createdAt: NOW - hace + 5000 });
+    return convId;
+  }
+
+  it("si el cliente agendó y no recibió nada, le manda la confirmación con el enlace, una sola vez", async () => {
+    await seedReserva("34600000201", 5 * MIN_T, false);
+    const r = await runConfirmacionesCitas(env, NOW);
+    expect(r.sent).toBe(1);
+    const text = sendOutboundMock.mock.calls[0][1].text as string;
+    expect(text).toContain("https://meet.google.com/abc-defg-hij");
+    expect(text).toContain("quedó agendada");
+    expect((await runConfirmacionesCitas(env, NOW + 5 * MIN_T)).sent).toBe(0);
+  });
+
+  it("no hace nada si ya recibió la confirmación, ni antes de 2 minutos", async () => {
+    await seedReserva("34600000202", 5 * MIN_T, true);
+    await seedReserva("34600000203", 30_000, false);
+    expect((await runConfirmacionesCitas(env, NOW)).sent).toBe(0);
+    expect(sendOutboundMock).not.toHaveBeenCalled();
+  });
+});
+const MIN_T = 60_000;

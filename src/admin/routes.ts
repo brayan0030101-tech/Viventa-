@@ -964,6 +964,34 @@ adminApp.post("/agente/node/brain/tools/:name/toggle", async (c) => {
 
 adminApp.get("/leads", async (c) => c.html(await renderLeads(c.env)));
 
+// CRM de Viventa (member/crm.local.ts): leads por prioridad, ficha del cliente y conversaciones.
+adminApp.get("/crm", async (c) => {
+  const { renderCrmLista } = await import("../../member/crm.local");
+  return c.html(await renderCrmLista(c.env, { nivel: c.req.query("nivel"), canal: c.req.query("canal"), estado: c.req.query("estado"), q: c.req.query("q") }));
+});
+adminApp.get("/crm/export.xlsx", async (c) => {
+  const { excelCrm } = await import("../../member/crm.local");
+  const data = await excelCrm(c.env, { nivel: c.req.query("nivel"), canal: c.req.query("canal"), estado: c.req.query("estado"), q: c.req.query("q") });
+  return new Response(data as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="crm-leads-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    },
+  });
+});
+adminApp.get("/crm/c/:id", async (c) => {
+  const { renderCrmFicha } = await import("../../member/crm.local");
+  const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1" });
+  return html ? c.html(html) : c.text("Cliente no encontrado", 404);
+});
+adminApp.post("/crm/c/:id/nota", async (c) => {
+  const { guardarNota } = await import("../../member/crm.local");
+  const id = decodeURIComponent(c.req.param("id"));
+  const body = await c.req.parseBody();
+  await guardarNota(c.env, id, String(body["nota"] ?? ""));
+  return c.redirect(`/admin/crm/c/${encodeURIComponent(id)}?guardado=1`);
+});
+
 adminApp.get("/tickets", async (c) => c.html(await renderTickets(c.env)));
 
 adminApp.get("/cobros", async (c) => c.html(await renderCobros(c.env)));

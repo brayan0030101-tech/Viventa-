@@ -722,6 +722,66 @@ async function llamadasAgendadasDe(db: Db, now: number): Promise<Set<string>> {
   return new Set((await llamadasAgendadas(db, now)).keys());
 }
 
+// ─── 6. Confirmación de la videollamada: red de seguridad ─────────────────────
+
+/**
+ * Si un cliente agendó su videollamada y el bot NO le mandó la confirmación (el
+ * Blindaje la silenció, el modelo cerró sin texto, un error…), se la manda aquí,
+ * con el día, la hora y el enlace. Corre en cada cron de 5 min. Una sola vez por
+ * cita (marca `viventa_confirmada` en la cita); no actúa hasta 2 min después de
+ * reservar para no pisar la respuesta normal del bot.
+ */
+export async function runConfirmacionesCitas(env: Env, now = Date.now()): Promise<{ sent: number }> {
+  const db = new Db(env.DB);
+  const rows = await db.all<{ id: string; conversation_id: string | null; created_at: number; metadata: string | null }>(
+    `SELECT id, conversation_id, created_at, metadata FROM leads
+      WHERE intent LIKE 'Cita · Videollamada%' AND created_at > ? AND created_at < ?
+        AND json_extract(COALESCE(metadata, '{}'), '$.estado') = 'Reservada (Cal.com)'
+        AND json_extract(COALESCE(metadata, '{}'), '$.viventa_confirmada') IS NULL`,
+    [now - 12 * H, now - 2 * MIN],
+  );
+  let sent = 0;
+  const { textoConfirmacion } = await import("../lib/confirmacionLlamada");
+  for (const r of rows) {
+    if (!r.conversation_id) continue;
+    let m: Record<string, string> = {};
+    try {
+      m = r.metadata ? JSON.parse(r.metadata) : {};
+    } catch {
+      continue;
+    }
+    if (!m.calMeetingUrl || !m.calStart) continue;
+    if (!(await claim(db, "leads", r.id, "viventa_confirmada", now))) continue;
+    // ¿Ya le llegó la confirmación (o el enlace) después de reservar?
+    const ya = await db.first<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'assistant' AND created_at > ? AND (content LIKE ? OR content LIKE '%agendada%')",
+      [r.conversation_id, r.created_at - 60_000, `%${m.calMeetingUrl}%`],
+    );
+    if ((ya?.n ?? 0) > 0) continue;
+    const conv = await new ConversationsRepo(db).getById(r.conversation_id);
+    if (!conv) continue;
+    const lastUser = (await db.first<{ t: number | null }>(
+      "SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'",
+      [conv.id],
+    ))?.t ?? null;
+    const local = m.zonaCliente && m.zonaCliente !== "Europe/Madrid" && m.zonaEtiqueta
+      ? `${new Intl.DateTimeFormat("es-ES", { timeZone: m.zonaCliente, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(m.calStart))} en ${m.zonaEtiqueta}`
+      : undefined;
+    const ref: ConvRef = { id: conv.id, channel: conv.channel, channel_user_id: conv.channel_user_id, display_name: conv.display_name };
+    try {
+      await enviarACliente(env, db, ref, textoConfirmacion({ startTime: m.calStart, enlace: m.calMeetingUrl, horaLocal: local }), null, lastUser, now);
+      sent++;
+    } catch (e) {
+      console.error(`[sistemaViventa] confirmación cita ${r.id}:`, e);
+      await avisarEquipo(env, "⚠️ No pude confirmarle la videollamada a un cliente", `${conv.display_name || conv.channel_user_id} agendó su llamada pero no se le pudo enviar la confirmación (¿pasó la ventana de 24 h de WhatsApp?). Escríbele con el enlace: ${m.calMeetingUrl}`);
+    }
+  }
+  if (sent > 0) {
+    await avisarEquipo(env, "✅ Confirmación enviada", `Le mandé la confirmación de la videollamada a ${sent} cliente(s) que ya habían agendado y no la habían recibido.`);
+  }
+  return { sent };
+}
+
 export async function runSistemaViventa(env: Env, now = Date.now()): Promise<void> {
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));

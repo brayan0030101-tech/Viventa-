@@ -31,7 +31,7 @@ export function isToolAvailable(env: Env, toolName: string): boolean {
 // CSV de ids del NAV de admin/views/layout.ts). "overview" no está a propósito:
 // siempre debe quedar una tab de aterrizaje (el guard de rutas redirige ahí).
 export const HIDEABLE_TABS = [
-  "conversations", "boveda", "leads", "cobros", "tickets", "reviews", "campanas",
+  "conversations", "crm", "boveda", "leads", "cobros", "tickets", "reviews", "campanas",
   "plantillas", "agente", "kb", "mejoras", "conexiones", "config",
   "insights", "stats", "costs", "equipo",
 ] as const;
