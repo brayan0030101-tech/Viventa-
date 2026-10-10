@@ -200,3 +200,14 @@ describe("más horarios por día", () => {
     expect(tandasMasHoras(libres.slice(0, 3), ["10:00", "10:30", "11:00"])).toEqual([]);
   });
 });
+
+describe("horario nocturno", () => {
+  it("solo martes y jueves, de 18:00 a 19:30, y no mezcla horas de día", async () => {
+    const { armarDias, VENTANA_NOCHE } = await import("../../member/llamada.local");
+    const noche = (f: string) => ["10:00", "18:00", "18:30", "19:00", "19:30", "20:00"].map((h) => `${f}T${h}:00.000+02:00`);
+    // 2026-10-12 lunes, 13 martes, 14 miércoles, 15 jueves
+    const dias = armarDias({ "2026-10-12": noche("2026-10-12"), "2026-10-13": noche("2026-10-13"), "2026-10-14": noche("2026-10-14"), "2026-10-15": noche("2026-10-15") }, [], Date.parse("2026-10-10T08:00:00Z"), VENTANA_NOCHE);
+    expect(dias.map((d) => d.fecha)).toEqual(["2026-10-13", "2026-10-15"]);
+    expect(dias[0].libres.map((o) => o.hora)).toEqual(["18:00", "18:30", "19:00", "19:30"]);
+  });
+});

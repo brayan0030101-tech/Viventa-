@@ -98,15 +98,39 @@ export interface DiaLlamada {
  * horas de ese día que ya están reservadas DE VERDAD en Cal.com (máx. 2 por día).
  * Nunca se inventan horarios ocupados.
  */
-export function armarDias(byDate: Record<string, string[]>, reservadas: Array<{ fecha: string; hora: string }>, now: number): DiaLlamada[] {
+export interface VentanaHorario {
+  desde: string;
+  hasta: string;
+  dia: (fecha: string) => boolean;
+}
+
+/** Horario de día: lunes a viernes, de 10:00 a 15:30 (hora de España). */
+export const VENTANA_DIA: VentanaHorario = { desde: DESDE, hasta: HASTA, dia: esDiaHabil };
+
+/** Horario nocturno (solo martes y jueves, de 18:00 a 19:30): para quien no puede de día. */
+export const VENTANA_NOCHE: VentanaHorario = {
+  desde: "18:00",
+  hasta: "19:30",
+  dia: (fecha) => {
+    const d = new Date(`${fecha}T12:00:00Z`).getUTCDay();
+    return d === 2 || d === 4;
+  },
+};
+
+export function armarDias(
+  byDate: Record<string, string[]>,
+  reservadas: Array<{ fecha: string; hora: string }>,
+  now: number,
+  ventana: VentanaHorario = VENTANA_DIA,
+): DiaLlamada[] {
   const out: DiaLlamada[] = [];
   for (const fecha of Object.keys(byDate).sort()) {
     if (out.length >= MAX_DIAS) break;
-    if (!esDiaHabil(fecha)) continue;
+    if (!ventana.dia(fecha)) continue;
     const validos = (byDate[fecha] ?? [])
       .filter((iso) => {
         const hh = iso.slice(11, 16);
-        return hh >= DESDE && hh <= HASTA && Date.parse(iso) - now >= 2 * H;
+        return hh >= ventana.desde && hh <= ventana.hasta && Date.parse(iso) - now >= 2 * H;
       })
       .sort();
     if (!validos.length) continue;
@@ -115,7 +139,7 @@ export function armarDias(byDate: Record<string, string[]>, reservadas: Array<{ 
     }));
     const todos: OpcionLlamada[] = validos.map((iso) => ({ fecha, dia: DIAS.format(new Date(iso)), hora: iso.slice(11, 16), startTime: iso }));
     const libres = new Set(validos.map((iso) => iso.slice(11, 16)));
-    const ocupadas = [...new Set(reservadas.filter((r) => r.fecha === fecha && r.hora >= DESDE && r.hora <= HASTA && !libres.has(r.hora)).map((r) => r.hora))]
+    const ocupadas = [...new Set(reservadas.filter((r) => r.fecha === fecha && r.hora >= ventana.desde && r.hora <= ventana.hasta && !libres.has(r.hora)).map((r) => r.hora))]
       .sort()
       .slice(0, MAX_TACHADOS_POR_DIA);
     const items = [...opciones.map((o) => ({ hora: o.hora, ocupada: false })), ...ocupadas.map((h) => ({ hora: h, ocupada: true }))].sort((x, y) => (x.hora < y.hora ? -1 : 1));
@@ -144,9 +168,15 @@ function aFechaHoraMadrid(iso: string): { fecha: string; hora: string } | null {
 export function proponerLlamadaTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:
-      "Úsala UNA vez, justo después de guardar con captureLead los datos del cliente al terminar el guion. Dice si al cliente le toca que se le ofrezca una videollamada con Maricela (clientes calientes o tibios) y, si es así, devuelve los horarios libres reales (hora de España, llamadas de 30 min) para ofrecérselos. Si ofrecerLlamada es false, cierra con el mensaje normal de despedida.",
-    inputSchema: z.object({}),
-    execute: async () => {
+      "Úsala UNA vez, justo después de guardar con captureLead los datos del cliente al terminar el guion. Dice si al cliente le toca que se le ofrezca una videollamada con Maricela (clientes calientes o tibios) y, si es así, devuelve los horarios libres reales (hora de España, llamadas de 30 min) para ofrecérselos. Si ofrecerLlamada es false, cierra con el mensaje normal de despedida. Si el cliente dice que no puede de día, vuelve a llamarla con horario «noche».",
+    inputSchema: z.object({
+      horario: z
+        .enum(["dia", "noche"])
+        .optional()
+        .describe("«dia» (por defecto) o «noche»: solo si el cliente dice que no puede de día (martes y jueves, 18:00 a 20:00)."),
+    }),
+    execute: async ({ horario }) => {
+      const ventana = horario === "noche" ? VENTANA_NOCHE : VENTANA_DIA;
       const convId = getConversationId();
       if (!convId) return { ofrecerLlamada: false as const, motivo: "sin_conversacion" };
       const db = new Db(env.DB);
@@ -184,12 +214,12 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         if (!eventTypeId) return { ofrecerLlamada: false as const, motivo: "sin_tipo_de_evento" };
         const tz = calcomTimeZone(env);
         const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
-        const res = await getAvailableSlotsRange(env, eventTypeId, hoy, sumarDias(hoy, 6), tz);
+        const res = await getAvailableSlotsRange(env, eventTypeId, hoy, sumarDias(hoy, horario === "noche" ? 20 : 6), tz);
         if (!res.ok) return { ofrecerLlamada: true as const, prioridad: nivel, opciones: [], error: res.reason, message: "No pude consultar la agenda: usa el comodín para que Maricela coordine la llamada." };
 
         const bk = await getUpcomingBookingStarts(env, eventTypeId);
         const reservadas = bk.ok ? bk.starts.map(aFechaHoraMadrid).filter((x): x is { fecha: string; hora: string } => !!x) : [];
-        const dias = armarDias(res.byDate, reservadas, now);
+        const dias = armarDias(res.byDate, reservadas, now, ventana);
         const opciones = dias.flatMap((d) => d.opciones);
         return {
           ofrecerLlamada: true as const,
@@ -211,7 +241,9 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           opciones,
           message: opciones.length
             ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día. Siempre 'hora de España'."
-            : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",
+            : horario === "noche"
+              ? "No hay horarios nocturnos libres: usa el comodín para que Maricela coordine la llamada."
+              : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",
         };
       } catch (e) {
         console.error("[proponerLlamada]", e);
