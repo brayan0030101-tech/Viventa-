@@ -49,7 +49,7 @@ Lección: antes de conectar un canal nuevo, presentar las opciones (Meta directo
 - Las citas reservadas son leads "Cita ·" con `metadata.calStart` (instante exacto) y `estado = "Reservada (Cal.com)"`.
 
 ## Sistema de atención (fases) y automatismos
-- **Fase 1–2 (bot):** guion de 12 mensajes **como plantilla flexible**, no libreto: autorización de datos → nombre y apellido → correo → país y ciudad donde vive → ciudad de interés → para quién → ahora o a futuro → ahorro → valor mensual → situación laboral → situación de residencia → cierre. Una pregunta por mensaje, sin precios. Datos delicados (ahorro, migración) solo con confianza.
+- **Fase 1–2 (bot):** guion de 13 mensajes **como plantilla flexible**, no libreto: autorización de datos → nombre y apellido → correo → país y ciudad donde vive → ciudad de interés → para quién → ahora o a futuro → ahorro → valor mensual → situación laboral (empleado/autónomo) → **ingresos mensuales** (pregunta añadida el 9 oct a pedido de Maricela) → situación de residencia → cierre. Una pregunta por mensaje, sin precios. Datos delicados (ahorro, ingresos, migración) solo con confianza.
 - **Cierre del guion:** `captureLead` + `handoffHuman` con motivo "Lead calificado: enviar proyectos". Estatus migratorio y autorización van en `notes` del lead (aún no hay campos propios; temporal).
 - **Fase 3 (Camila):** envía máximo 3 proyectos desde la app de WhatsApp (queda como mensaje `owner` tras el traspaso). Seguimiento del bot a las 48 h sin respuesta.
 - **Fase 4 (Maricela):** videollamada. Recordatorios al cliente 24 h y 1 h antes (hora de España) y resumen del lead para Maricela ~1 h antes.
