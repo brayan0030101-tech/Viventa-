@@ -229,7 +229,7 @@ export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mens
       <span>${badgeNivel(l.prioridad.nivel, l.prioridad.puntos)}</span>
       <span class="text-muted">${esc(l.telefono) || "—"}</span>
       <span class="text-muted" style="word-break:break-all">${esc(l.correo.split(",")[0]) || "—"}${f.correoInventado ? '<br><span style="color:var(--accent-2);font-size:11px">⚠ correo inventado</span>' : ""}</span>
-      <span class="text-muted">${esc([m.ciudadCompra, m.ciudadResidencia].filter(Boolean).join(" · ")) || "—"}${f.faltan.length ? `<br><span style="color:var(--bad);font-size:11px">Falta: ${esc(f.faltan.join(", "))}</span>` : ""}</span>
+      <span class="text-muted crm-clamp">${esc([m.ciudadCompra, m.ciudadResidencia].filter(Boolean).join(" · ")) || "—"}${f.faltan.length ? `<br><span style="color:var(--bad);font-size:11px">Falta: ${esc(f.faltan.join(", "))}</span>` : ""}</span>
       <span class="text-dim" style="font-size:11.5px">${f.estado === "subido" || f.estado === "existia" ? `${f.cuando ? esc(fechaHora(f.cuando)) : "—"}${f.por ? `<br>por ${esc(f.por)}` : ""}` : `lista ${esc(hace(f.listoDesde, now))}`}</span>
       <span>${acciones}</span>
     </div>`;

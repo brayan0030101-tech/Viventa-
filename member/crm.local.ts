@@ -186,8 +186,10 @@ export const ESTILO_CRM = `<style>
   .crm-kpi{display:block;padding:14px 16px;border:1px solid var(--line);background:var(--panel);transition:all .12s ease;color:inherit}
   .crm-kpi:hover{border-color:var(--accent);transform:translateY(-1px)}
   .crm-kpi.on{border-color:var(--accent);background:var(--accent-soft)}
-  .crm-row{display:grid;grid-template-columns:130px minmax(170px,1.3fr) minmax(150px,1fr) minmax(150px,1fr) 110px 130px 110px;gap:12px;padding:12px 16px;font-size:12.5px;align-items:center;border-top:1px solid var(--line);color:inherit}
+  .crm-row{display:grid;grid-template-columns:118px minmax(140px,1.2fr) minmax(150px,1fr) minmax(130px,1fr) 88px 112px 92px;gap:10px;padding:12px 14px;font-size:12.5px;align-items:center;border-top:1px solid var(--line);color:inherit}
   .crm-row:hover{background:var(--panel2)}
+  .crm-row>span,.zh-row>span{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+  .crm-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .crm-head{border-top:0;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
   .crm-head:hover{background:transparent}
   .crm-in{background:var(--bg);border:1px solid var(--line);color:var(--cream);padding:8px 10px;font-size:12.5px;outline:none}
@@ -252,7 +254,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
         <span>${badgeNivel(l.prioridad.nivel, l.prioridad.puntos)}</span>
         <span><span style="color:var(--cream);font-weight:600">${esc(l.nombre)}</span><br><span class="text-dim" style="font-size:11px">${esc(l.canal)}${r.perfil ? ` · @${esc(r.perfil)}` : ""}${r.ticketAbierto ? " · 🔔 ticket" : ""}</span></span>
         <span class="text-muted">${contacto}</span>
-        <span class="text-muted">${interes}</span>
+        <span class="text-muted crm-clamp" title="${interes}">${interes}</span>
         <span class="text-dim" title="${esc(fechaHora(r.ultimo))}">${hace(r.ultimo, now)}</span>
         <span>${l.llamada ? `📞 ${esc(l.llamada)}` : `<span class="text-dim">—</span>`}</span>
         <span>${reg}</span>
@@ -271,7 +273,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
     ${kpis}
     ${filtros}
     <div class="crm-card" style="overflow-x:auto">
-      <div style="min-width:900px">
+      <div style="min-width:820px">
         <div class="crm-row crm-head"><span>Prioridad</span><span>Cliente</span><span>Contacto</span><span>Interés</span><span>Último mensaje</span><span>Llamada</span><span>Zoho</span></div>
         ${filtradas.length ? filas : vacio}
       </div>
