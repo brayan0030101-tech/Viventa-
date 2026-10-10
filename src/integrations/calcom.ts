@@ -200,10 +200,11 @@ export async function createBooking(
     };
     const d = body.data;
     if (!d?.id) return { ok: false, reason: "no_booking_id" };
-    // Enlace para entrar a la llamada: el que devuelve Cal.com; si no viene,
-    // el de Cal Video, que se arma con el uid de la reserva.
+    // Enlace para entrar a la llamada: el que devuelve Cal.com (Google Meet o
+    // Cal Video). Solo si la reserva es de Cal Video se arma con el uid; con
+    // otra ubicación, un enlace armado sería falso.
     const esUrl = (v?: string) => (typeof v === "string" && /^https?:\/\//.test(v) ? v : undefined);
-    const meetingUrl = esUrl(d.meetingUrl) ?? esUrl(d.location) ?? (d.uid ? `https://app.cal.com/video/${d.uid}` : undefined);
+    const meetingUrl = esUrl(d.meetingUrl) ?? esUrl(d.location) ?? (d.uid && /cal-?video/i.test(d.location ?? "") ? `https://app.cal.com/video/${d.uid}` : undefined);
     return { ok: true, bookingId: d.id, uid: d.uid, status: d.status, start: d.start, meetingUrl };
   } catch (e: any) {
     return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
