@@ -94,7 +94,7 @@ describe("día con muchas llamadas", () => {
   it("muestra todas las llamadas del día (sin «+N más»)", async () => {
     for (let i = 0; i < 6; i++) {
       await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-        [`m${i}`, "ycloud:34600000002", "x", "", "Cita · Videollamada Viventa · x", JSON.stringify({ calStart: `2026-10-20T0${i + 6}:00:00.000Z`, estado: "Reservada (Cal.com)" }), "new", NOW - 1000, NOW - 1000]);
+        [`m${i}`, "ycloud:34600000002", "x", "", "Cita · Videollamada Viventa · x", JSON.stringify({ calStart: `2026-10-20T${String(i + 6).padStart(2, "0")}:00:00.000Z`, estado: "Reservada (Cal.com)" }), "new", NOW - 1000, NOW - 1000]);
     }
     const html = await renderCrmCalendario(env, "2026-10", NOW);
     for (let i = 0; i < 6; i++) expect(html).toContain(`hx-get="/crm/llamada/m${i}"`);
