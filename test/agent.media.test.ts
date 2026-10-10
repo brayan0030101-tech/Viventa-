@@ -365,6 +365,37 @@ describe("SupportAgent.alarm — multimodal last message (Task 6.3)", () => {
     expect(second.providerOptions).toBeUndefined();
   });
 
+  it("si tras guardar el dato el modelo solo escribe «Listo, ya quedó guardado», se manda la pregunta del paso anterior", async () => {
+    const { agent } = makeAgent({ tier: "pro" });
+    const pregunta = "Qué bueno, un hogar para ti. ¿Buscas comprar próximamente o prefieres un proyecto a futuro?";
+    streamTextMock.mockReset();
+    streamTextMock.mockImplementation(() => {
+      async function* gen() {
+        yield pregunta;
+        yield "Listo, ya quedó guardado.";
+      }
+      return {
+        textStream: gen(),
+        usage: Promise.resolve({ inputTokens: 10, outputTokens: 5, cachedInputTokens: 0 }),
+        steps: Promise.resolve([
+          { text: pregunta, toolCalls: [{ toolName: "captureLead", input: {} }] },
+          { text: "Listo, ya quedó guardado.", toolCalls: [] },
+        ]),
+      };
+    });
+    const sendReply = vi.fn(async () => {});
+    vi.spyOn(MessagesRepo.prototype, "append").mockResolvedValue(undefined as any);
+    vi.spyOn(MessagesRepo.prototype, "lastN").mockResolvedValue([{ role: "user", content: "Para vivir yo" }] as any);
+    vi.spyOn(ConversationsRepo.prototype, "touchLastMessage").mockResolvedValue(undefined as any);
+    vi.spyOn(senderMod, "pickAdapter").mockReturnValue({ sendReply } as any);
+    agent.state.pendingMessages = [{ text: "Para vivir yo", receivedAt: Date.now() }];
+
+    await agent.processBuffer();
+
+    const enviado = (sendReply.mock.calls as any[]).flatMap((c) => c[0].chunks).join(" ");
+    expect(enviado).toBe(pregunta);
+  });
+
   it("si el proveedor falla del todo: guarda el fallo y NO abre ticket mientras queden reintentos", async () => {
     vi.useFakeTimers();
     try {

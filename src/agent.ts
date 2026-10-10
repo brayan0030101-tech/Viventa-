@@ -1001,7 +1001,16 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       const textosPorPaso = steps
         .map((s: any) => (typeof s?.text === "string" ? s.text.trim() : ""))
         .filter(Boolean);
-      if (textosPorPaso.length > 1) assistantText = textosPorPaso[textosPorPaso.length - 1];
+      if (textosPorPaso.length > 1) {
+        const ultimo = textosPorPaso[textosPorPaso.length - 1];
+        // Si el último paso es solo una confirmación corta de que guardó algo
+        // («Listo, ya quedó guardado.») y un paso anterior traía la pregunta, se
+        // manda esa pregunta: quedarse con la confirmación dejaba al cliente sin
+        // su siguiente pregunta (visto en vivo con captureLead a mitad del guion).
+        const soloConfirma = !ultimo.includes("?") && ultimo.length <= 80;
+        const conPregunta = [...textosPorPaso.slice(0, -1)].reverse().find((t) => t.includes("?"));
+        assistantText = soloConfirma && conPregunta ? conPregunta : ultimo;
+      }
       toolCallCount = steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0);
       // Persist what the agent DID (not just what it said): tool name + input,
       // feeding the dashboard's thread chips, stats and the Mi Agente counters.
