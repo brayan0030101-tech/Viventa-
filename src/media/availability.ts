@@ -107,7 +107,7 @@ export function buildAvailabilitySvg(
     `<rect width="${width}" height="${height}" fill="#FFFFFF"/>`,
     `<rect width="${width}" height="${HEAD_H}" fill="#12343B"/>`,
     `<text x="${PAD}" y="52" font-size="27" font-weight="700" fill="#FFFFFF">Horarios para tu videollamada</text>`,
-    `<text x="${PAD}" y="86" font-size="17" fill="#BFD9D4">${mode === "noche" ? "Horarios nocturnos · " : ""}Videollamada de 15 min · ${esc(tzLabel)}</text>`,
+    `<text x="${PAD}" y="86" font-size="17" fill="#BFD9D4">${mode === "noche" ? "Horarios nocturnos · " : ""}Videollamada de 30 min · ${esc(tzLabel)}</text>`,
   );
   days.forEach((d, i) => {
     const x = PAD + i * COL_W;
