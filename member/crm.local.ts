@@ -16,7 +16,7 @@ const H = 3600_000;
 const DIAS_VISIBLES = 90;
 const MAX_CONVERSACIONES = 800;
 
-const esc = (v: string | null | undefined): string =>
+export const esc = (v: string | null | undefined): string =>
   (v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // ─── Datos ───────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ interface ConvRow {
   metadata: string | null;
 }
 
-function metaConv(c: ConvRow): Record<string, string> {
+export function metaConv(c: ConvRow): Record<string, string> {
   try {
     return c.metadata ? (JSON.parse(c.metadata) as Record<string, string>) : {};
   } catch {
@@ -86,18 +86,18 @@ export async function cargarCrm(env: Env, now = Date.now()): Promise<FilaCrm[]> 
 
 // ─── Utilidades de presentación ──────────────────────────────────────────────
 
-const NIVEL = {
+export const NIVEL = {
   caliente: { icono: "🔥", nombre: "Caliente", color: "#E60D6F", orden: 0 },
   tibio: { icono: "🟡", nombre: "Tibio", color: "#F5A623", orden: 1 },
   frio: { icono: "⚪", nombre: "Frío", color: "#8FA3D9", orden: 2 },
 } as const;
 
-function badgeNivel(n: LeadResumen["prioridad"]["nivel"], puntos?: number): string {
+export function badgeNivel(n: LeadResumen["prioridad"]["nivel"], puntos?: number): string {
   const v = NIVEL[n];
   return `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid ${v.color};color:${v.color};font-size:11px;font-weight:600;letter-spacing:.04em;white-space:nowrap">${v.icono} ${v.nombre}${puntos != null ? ` · ${puntos}` : ""}</span>`;
 }
 
-function hace(ms: number, now = Date.now()): string {
+export function hace(ms: number, now = Date.now()): string {
   const m = Math.max(0, Math.round((now - ms) / 60_000));
   if (m < 1) return "ahora";
   if (m < 60) return `hace ${m} min`;
@@ -106,7 +106,7 @@ function hace(ms: number, now = Date.now()): string {
   return `hace ${Math.round(h / 24)} días`;
 }
 
-function fechaHora(ms: number): string {
+export function fechaHora(ms: number): string {
   return new Intl.DateTimeFormat("es-ES", {
     timeZone: "Europe/Madrid", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(new Date(ms));
@@ -128,9 +128,20 @@ const ETIQUETAS: Record<string, string> = {
   autorizacion: "Autorización de datos",
 };
 
+export function etiquetaCampo(k: string): string {
+  return etiqueta(k);
+}
+
 function etiqueta(k: string): string {
   if (ETIQUETAS[k]) return ETIQUETAS[k];
   return k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+/** Pestañas del CRM: Leads | Calendario. */
+export function subnav(activo: "leads" | "calendario"): string {
+  const tab = (id: string, href: string, texto: string) =>
+    `<a href="${href}" style="padding:9px 16px;font-size:12.5px;font-weight:600;letter-spacing:.04em;border-bottom:2px solid ${activo === id ? "var(--accent)" : "transparent"};color:${activo === id ? "var(--cream)" : "var(--muted)"}">${texto}</a>`;
+  return `<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", "/admin/crm", "👥 Leads")}${tab("calendario", "/admin/crm/calendario", "📅 Calendario de llamadas")}</div>`;
 }
 
 // ─── Lista de leads ──────────────────────────────────────────────────────────
@@ -171,7 +182,7 @@ function ordenarCrm(filas: FilaCrm[]): FilaCrm[] {
   );
 }
 
-const ESTILO_CRM = `<style>
+export const ESTILO_CRM = `<style>
   .crm-card{background:var(--panel);border:1px solid var(--line)}
   .crm-kpi{display:block;padding:14px 16px;border:1px solid var(--line);background:var(--panel);transition:all .12s ease;color:inherit}
   .crm-kpi:hover{border-color:var(--accent);transform:translateY(-1px)}
@@ -252,6 +263,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
 
   const vacio = `<div style="padding:44px 18px;text-align:center;color:var(--dim)">No hay leads con estos filtros.</div>`;
   const body = `${ESTILO_CRM}
+    ${subnav("leads")}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:14px 18px;border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--panel)">
       <div><div style="font-weight:700;font-size:16px;color:var(--cream)">Clientes de Maricela Naranjo</div>
       <div style="font-size:12px;color:var(--muted);margin-top:2px">Viventa · compra de vivienda en Colombia desde el exterior</div></div>
@@ -322,7 +334,7 @@ export function mensajeHtml(texto: string): string {
   return `${esc(limpio)}${chips}`;
 }
 
-function burbujas(msgs: Array<{ role: string; content: string; created_at: number }>): string {
+export function burbujas(msgs: Array<{ role: string; content: string; created_at: number }>): string {
   if (msgs.length === 0) return `<div class="text-dim" style="padding:30px;text-align:center">Sin mensajes.</div>`;
   let diaPrevio = "";
   return msgs

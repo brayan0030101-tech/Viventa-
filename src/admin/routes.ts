@@ -979,6 +979,26 @@ adminApp.get("/crm/export.xlsx", async (c) => {
     },
   });
 });
+adminApp.get("/crm/calendario", async (c) => {
+  const { renderCrmCalendario } = await import("../../member/crm-calendario.local");
+  return c.html(await renderCrmCalendario(c.env, c.req.query("mes")));
+});
+adminApp.get("/crm/llamada/:id", async (c) => {
+  const { renderLlamadaDetalle } = await import("../../member/crm-calendario.local");
+  const html = await renderLlamadaDetalle(c.env, decodeURIComponent(c.req.param("id")));
+  return html ? c.html(html) : c.text("Llamada no encontrada", 404);
+});
+adminApp.get("/crm/c/:id/ficha.xlsx", async (c) => {
+  const { excelFicha } = await import("../../member/crm-calendario.local");
+  const data = await excelFicha(c.env, decodeURIComponent(c.req.param("id")));
+  if (!data) return c.text("Cliente no encontrado", 404);
+  return new Response(data as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="ficha-cliente-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    },
+  });
+});
 adminApp.get("/crm/c/:id", async (c) => {
   const { renderCrmFicha } = await import("../../member/crm.local");
   const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1" });
