@@ -528,6 +528,21 @@ app.post("/webhooks/zernio", async (c) => {
 // Webhook de eventos de YCloud. Firma tipo Stripe (anti-replay):
 // YCloud-Signature: t=<unix>,s=HMAC-SHA256(YCLOUD_WEBHOOK_SECRET,"<t>.<body>") — se
 // valida contra los bytes crudos + tolerancia de timestamp (fail-closed).
+// Fathom: transcripción de la videollamada → resultado + pendientes + pipeline (member/crm-fathom.local.ts).
+app.post("/webhooks/fathom", async (c) => {
+  const secreto = c.env.FATHOM_WEBHOOK_SECRET;
+  if (!secreto) return c.text("not configured", 503);
+  const cuerpo = await c.req.text();
+  const { verificarFirmaFathom, procesarReunionFathom } = await import("../member/crm-fathom.local");
+  const ok = await verificarFirmaFathom(secreto, { id: c.req.header("webhook-id") ?? "", timestamp: c.req.header("webhook-timestamp") ?? "", firma: c.req.header("webhook-signature") ?? "" }, cuerpo);
+  if (!ok) return c.text("forbidden", 403);
+  let reunion: unknown;
+  try { reunion = JSON.parse(cuerpo); } catch { return c.text("bad json", 400); }
+  // El análisis con IA tarda ~20 s: se responde ya y se procesa en segundo plano.
+  c.executionCtx.waitUntil(procesarReunionFathom(c.env, reunion as never).catch((e) => console.error("fathom:", e)));
+  return c.text("ok");
+});
+
 app.post("/webhooks/ycloud", async (c) => {
   const raw = await c.req.text();
   const sig = c.req.header("ycloud-signature");

@@ -114,6 +114,8 @@ export interface Env {
   ZERNIO_API_KEY?: string;
   ZERNIO_WEBHOOK_SECRET?: string;
   ZERNIO_API_BASE?: string; // default https://zernio.com/api/v1
+  // Fathom (transcripción de las videollamadas): secreto «whsec_…» del webhook. Ver member/crm-fathom.local.ts.
+  FATHOM_WEBHOOK_SECRET?: string;
   MANYCHAT_API_KEY?: string;
   MANYCHAT_CONTENT_TYPE?: "instagram" | "whatsapp" | "telegram" | "messenger"; // ManyChat channel for sendContent; defaults to "instagram"
   // Tool de soporte de Forja (solo la instancia de Horizontes; inerte sin ambos).
