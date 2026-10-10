@@ -37,6 +37,7 @@ import {
   runRecordatoriosLlamada,
   runPedirTelefono,
   runPedirDatos,
+  runAvisoLlamadas,
   textoPedirDatos,
   TEXTO_PEDIR_TELEFONO,
   TPL_SEGUIMIENTO,
@@ -365,5 +366,28 @@ describe("pedir los datos que faltan para el formulario", () => {
     expect(notifyCamilaMock.mock.calls[0][1].heading).toContain("completó");
     await runPedirDatos(env, NOW);
     expect(notifyCamilaMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("aviso de llamadas agendadas", () => {
+  async function seedCita(estado: string, startOffsetH: number) {
+    const id = await seedConv("ycloud", `3460000${Math.floor(Math.random() * 9000 + 1000)}`, "Ana López");
+    await db.run(
+      "INSERT INTO leads (id, conversation_id, name, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      [crypto.randomUUID(), id, "Ana López", "Cita · Videollamada · x", JSON.stringify({ estado, calStart: new Date(NOW + startOffsetH * H).toISOString() }), "new", NOW - H, NOW - H],
+    );
+    return id;
+  }
+  it("avisa al equipo una sola vez de cada llamada reservada", async () => {
+    await seedCita("Reservada (Cal.com)", 30);
+    expect((await runAvisoLlamadas(env, NOW)).sent).toBe(1);
+    expect(notifyCamilaMock.mock.calls[0][1].heading).toContain("Llamada agendada");
+    expect(notifyCamilaMock.mock.calls[0][1].body).toContain("hora de España");
+    expect((await runAvisoLlamadas(env, NOW)).sent).toBe(0);
+  });
+  it("no avisa de citas que fallaron en Cal.com ni de las que ya pasaron", async () => {
+    await seedCita("Por confirmar (falló Cal.com)", 30);
+    await seedCita("Reservada (Cal.com)", -5);
+    expect((await runAvisoLlamadas(env, NOW)).sent).toBe(0);
   });
 });

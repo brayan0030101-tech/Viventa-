@@ -103,6 +103,8 @@ export interface LeadResumen {
   ficha: FichaLead;
   prioridad: Prioridad;
   horaLlamada: string;
+  /** Videollamada ya agendada en Cal.com (fecha y hora de España), si la hay. */
+  llamada: string;
 }
 
 function canalDe(channel: string): string {
@@ -110,7 +112,7 @@ function canalDe(channel: string): string {
 }
 
 /** Junta los leads de cada conversación (el dato más reciente de cada campo gana). */
-export function armarLeads(convs: ConvInfo[], leads: LeadRow[]): LeadResumen[] {
+export function armarLeads(convs: ConvInfo[], leads: LeadRow[], llamadas: Map<string, number> = new Map()): LeadResumen[] {
   const porConv = new Map<string, LeadRow[]>();
   for (const l of leads) {
     if (!l.conversation_id) continue;
@@ -151,6 +153,7 @@ export function armarLeads(convs: ConvInfo[], leads: LeadRow[]): LeadResumen[] {
       ficha,
       prioridad: puntuarLead(ficha),
       horaLlamada: hora,
+      llamada: llamadas.has(c.id) ? formatoLlamada(llamadas.get(c.id)!) : "",
     });
   }
   return out;
@@ -173,6 +176,31 @@ export function correoParaFormulario(l: LeadResumen): { correo: string; inventad
   return { correo: `${slug}@${DOMINIO_SIN_CORREO}`, inventado: true };
 }
 
+/** «mar 14 oct, 10:00» en hora de España. */
+export function formatoLlamada(ms: number): string {
+  return new Intl.DateTimeFormat("es-ES", {
+    timeZone: "Europe/Madrid", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(ms));
+}
+
+/** Videollamadas reservadas en Cal.com que aún no pasaron: conversación → instante de inicio. */
+export async function llamadasAgendadas(db: Db, now: number): Promise<Map<string, number>> {
+  const rows = await db.all<{ conversation_id: string | null; metadata: string | null }>(
+    "SELECT conversation_id, metadata FROM leads WHERE intent LIKE 'Cita ·%' AND updated_at > ?",
+    [now - 30 * 24 * H],
+  );
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.conversation_id || !r.metadata) continue;
+    try {
+      const m = JSON.parse(r.metadata) as { calStart?: string; estado?: string };
+      const t = m.calStart ? Date.parse(m.calStart) : NaN;
+      if (m.estado === "Reservada (Cal.com)" && Number.isFinite(t) && t > now) out.set(r.conversation_id, t);
+    } catch { /* metadata rota */ }
+  }
+  return out;
+}
+
 /** Datos que exige el formulario y que aún no tenemos del cliente (el correo no cuenta: se inventa). */
 export function faltantes(l: LeadResumen): string[] {
   const m = l.ficha.metadata;
@@ -191,7 +219,7 @@ export function lineaLead(l: LeadResumen, formUrl?: string): string {
   const m = l.ficha.metadata;
   const partes = [
     `${ICONO[l.prioridad.nivel]} ${l.nombre} · ${l.canal}${l.telefono ? ` · ${l.telefono}` : " · SIN TELÉFONO"}`,
-    l.horaLlamada ? `📞 ${l.horaLlamada}` : "",
+    l.llamada ? `📞 Llamada agendada: ${l.llamada} (hora de España)` : l.horaLlamada ? `📞 ${l.horaLlamada}` : "",
     [m.ciudadResidencia && `Vive: ${m.ciudadResidencia}`, m.ciudadCompra && `Quiere: ${m.ciudadCompra}`].filter(Boolean).join(" · "),
     [m.ahorroDisponible && `Ahorro: ${m.ahorroDisponible}`, m.capacidadMensual && `Mensual: ${m.capacidadMensual}`, m.tipoEmpleo && `Trabajo: ${m.tipoEmpleo}`, m.ingresosMensuales && `Ingresos: ${m.ingresosMensuales}`].filter(Boolean).join(" · "),
     formUrl
@@ -330,7 +358,7 @@ export async function runResumenDia(env: Env, now = Date.now()): Promise<{ sent:
       [now - 14 * 24 * H],
     )
   ).filter((l) => l.conversation_id && ids.has(l.conversation_id));
-  const leads = armarLeads(convs, leadsRows);
+  const leads = armarLeads(convs, leadsRows, await llamadasAgendadas(db, now));
   if (leads.length === 0) return { sent: false, leads: 0 };
 
   const url = `${await selfOrigin(env)}/admin`;
@@ -497,13 +525,13 @@ export async function leadsListos(db: Db, now: number): Promise<LeadResumen[]> {
     )
   ).filter((l) => l.conversation_id && ids.has(l.conversation_id));
   const orden = { caliente: 0, tibio: 1, frio: 2 } as const;
-  return armarLeads(convs, rows)
+  return armarLeads(convs, rows, await llamadasAgendadas(db, now))
     .filter((l) => faltantes(l).length === 0)
     .sort((a, b) => orden[a.prioridad.nivel] - orden[b.prioridad.nivel] || b.prioridad.puntos - a.prioridad.puntos);
 }
 
 export function excelListos(leads: LeadResumen[], formUrl?: string): Uint8Array {
-  const head = ["#", "Prioridad", "Canal", "Nombres", "Apellidos", "Correo", "Nota del correo", "Teléfono", "Ciudad de interés", "País de residencia", "Ciudad de residencia", "Ahorro", "Ingresos mensuales", "Enlace del formulario"];
+  const head = ["#", "Prioridad", "Canal", "Nombres", "Apellidos", "Correo", "Nota del correo", "Teléfono", "Ciudad de interés", "País de residencia", "Ciudad de residencia", "Ahorro", "Ingresos mensuales", "Llamada agendada", "Enlace del formulario"];
   const icono = { caliente: "🔥 Caliente", tibio: "🟡 Tibio", frio: "⚪ Frío" } as const;
   const rows: Celda[][] = [head];
   leads.forEach((l, i) => {
@@ -516,11 +544,11 @@ export function excelListos(leads: LeadResumen[], formUrl?: string): Uint8Array 
       correoParaFormulario(l).correo, correoParaFormulario(l).inventado ? "⚠️ Correo inventado: el cliente no lo dio" : "", l.telefono,
       opcion(m.ciudadCompra, CIUDADES_FORM) || m.ciudadCompra || "",
       opcion(pais, PAISES_FORM, { "estados unidos": "USA", eeuu: "USA", "ee.uu": "USA", usa: "USA" }) || pais || "",
-      ciudad.join(", "), m.ahorroDisponible ?? "", m.ingresosMensuales ?? "",
+      ciudad.join(", "), m.ahorroDisponible ?? "", m.ingresosMensuales ?? "", l.llamada,
       formUrl ? { text: "Abrir formulario", url: urlFormulario(formUrl, l) } : "",
     ]);
   });
-  return buildXlsx([{ name: "Listos para registrar", rows, widths: [4, 13, 11, 18, 22, 36, 30, 17, 18, 18, 20, 24, 20, 20] }]);
+  return buildXlsx([{ name: "Listos para registrar", rows, widths: [4, 13, 11, 18, 22, 36, 30, 17, 18, 18, 20, 24, 20, 22, 20] }]);
 }
 
 /**

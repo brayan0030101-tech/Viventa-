@@ -19,6 +19,8 @@
  *     la ventana de 24 h de Instagram y en horario de España.
  *  5. Datos que faltan para el formulario de Zoho: a quien ya terminó el guion y le
  *     falta apellido, correo, teléfono o ciudades, UN mensaje pidiendo solo eso.
+ *  6. Aviso de llamada agendada: cuando el bot reserva una videollamada en Cal.com,
+ *     Camila y Maricela reciben un aviso con quién es y cuándo (hora de España).
  *
  * Todos reclaman antes de enviar (marca en metadata) → imposible duplicar.
  * Best-effort: un candidato que falla no frena a los demás.
@@ -580,12 +582,45 @@ export async function runPedirDatos(env: Env, now = Date.now()): Promise<{ sent:
   return { sent };
 }
 
+// ─── 6. Avisar al equipo de las llamadas que el bot agenda ─────────────────────
+
+export async function runAvisoLlamadas(env: Env, now = Date.now()): Promise<{ sent: number }> {
+  const db = new Db(env.DB);
+  const rows = await db.all<{ id: string; conversation_id: string | null; name: string | null; metadata: string | null }>(
+    "SELECT id, conversation_id, name, metadata FROM leads WHERE intent LIKE 'Cita ·%' AND updated_at > ? AND json_extract(COALESCE(metadata, '{}'), '$.viventa_avisada') IS NULL",
+    [now - 2 * 24 * H],
+  );
+  const { formatoLlamada, origenCliente } = await import("./resumenDia").then(async (m) => ({
+    formatoLlamada: m.formatoLlamada,
+    origenCliente: (await import("../lib/camila")).origenCliente,
+  }));
+  let sent = 0;
+  for (const r of rows) {
+    let m: { calStart?: string; estado?: string } = {};
+    try {
+      m = JSON.parse(r.metadata ?? "{}");
+    } catch { /* metadata rota */ }
+    const t = m.calStart ? Date.parse(m.calStart) : NaN;
+    if (m.estado !== "Reservada (Cal.com)" || !Number.isFinite(t) || t <= now) continue;
+    if (!(await claim(db, "leads", r.id, "viventa_avisada", now))) continue;
+    const origen = await origenCliente(db, r.conversation_id);
+    await avisarEquipo(
+      env,
+      "📞 Llamada agendada",
+      `${origen ? `${origen}\n` : ""}${r.name ?? "Cliente"}: ${formatoLlamada(t)} (hora de España). Ya está en el Google Calendar de Maricela.\n\n${await leadFicha(db, r.conversation_id)}`,
+    );
+    sent++;
+  }
+  return { sent };
+}
+
 export async function runSistemaViventa(env: Env, now = Date.now()): Promise<void> {
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
   await runRecordatoriosLlamada(env, now).catch((e) => console.error("[sistemaViventa] llamada:", e));
   await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
   await runPedirDatos(env, now).catch((e) => console.error("[sistemaViventa] datos:", e));
+  await runAvisoLlamadas(env, now).catch((e) => console.error("[sistemaViventa] aviso llamadas:", e));
   const { runResumenDia, runExcelListos } = await import("./resumenDia");
   await runResumenDia(env, now).catch((e) => console.error("[sistemaViventa] resumen:", e));
   await runExcelListos(env, now).catch((e) => console.error("[sistemaViventa] excel:", e));

@@ -16,6 +16,7 @@
 import type { MemberToolCtx } from "../src/tools/member";
 import { calcomConfigured } from "../src/integrations/calcom";
 import { verDisponibilidadTool, agendarCitaTool, cancelarCitaTool } from "../src/tools/servicios";
+import { proponerLlamadaTool } from "./llamada.local";
 
 // El giro "inmobiliaria" no trae agendarCita/verDisponibilidad de fábrica (esas
 // tools son de los giros de cita — barbería, spa, dentista…). Viventa SÍ agenda
@@ -27,5 +28,6 @@ export function memberTools(ctx: MemberToolCtx): Record<string, unknown> {
     verDisponibilidad: verDisponibilidadTool(ctx.env, ctx.getConversationId),
     agendarCita: agendarCitaTool(ctx.env, ctx.getConversationId),
     cancelarCita: cancelarCitaTool(ctx.env, ctx.getConversationId),
+    proponerLlamada: proponerLlamadaTool(ctx.env, ctx.getConversationId),
   };
 }
