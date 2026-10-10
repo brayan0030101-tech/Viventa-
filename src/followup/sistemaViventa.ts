@@ -332,6 +332,10 @@ export async function runRecordatoriosLlamada(
       : null;
     const nombre = primerNombre(lead.name, conv?.display_name);
     const hora = horaEs(inicio, tz);
+    // Cliente fuera de España: se le dice también su hora local.
+    const local = meta.zonaCliente && meta.zonaCliente !== "Europe/Madrid" && meta.zonaEtiqueta
+      ? `; ${new Intl.DateTimeFormat("es-ES", { timeZone: meta.zonaCliente, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(inicio))} en ${meta.zonaEtiqueta}`
+      : "";
 
     // Resumen del lead para Maricela, ~1 h antes (entre 70 y 10 min).
     if (falta <= 70 * MIN && falta > 10 * MIN && (await claim(db, "leads", lead.id, "viventa_resumen", now))) {
@@ -358,7 +362,7 @@ export async function runRecordatoriosLlamada(
     // Recordatorio 24 h: solo si la cita se agendó con ≥ 24 h de antelación.
     if (falta <= 24 * H && falta > 2 * H && lead.created_at <= inicio - 24 * H && (await claim(db, "leads", lead.id, "viventa_r24", now))) {
       const text =
-        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Te recuerdo que mañana tienes tu videollamada con Maricela a las ${hora} (hora de España). ` +
+        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Te recuerdo que mañana tienes tu videollamada con Maricela a las ${hora} (hora de España${local}). ` +
         `¿Sigue en pie, o prefieres reprogramarla?` +
         (meta.calMeetingUrl ? `\n\nEste es tu enlace para entrar: ${meta.calMeetingUrl}` : "");
       try {
@@ -375,7 +379,7 @@ export async function runRecordatoriosLlamada(
     // Recordatorio 1 h antes.
     if (falta <= H && lead.created_at <= inicio - H && (await claim(db, "leads", lead.id, "viventa_r1", now))) {
       const text =
-        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 En una hora, a las ${hora} (hora de España), es tu videollamada con Maricela. ¡Te esperamos!` +
+        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 En una hora, a las ${hora} (hora de España${local}), es tu videollamada con Maricela. ¡Te esperamos!` +
         (meta.calMeetingUrl ? `\n\nEntra aquí: ${meta.calMeetingUrl}` : "");
       try {
         await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", hora] }, lastUser, now);

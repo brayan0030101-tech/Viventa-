@@ -25,12 +25,14 @@ function cuando(iso: string | undefined): string | null {
 export function aseguraConfirmacionLlamada(text: string, steps: any[]): string {
   let enlace: string | undefined;
   let startTime: string | undefined;
+  let horaLocal: string | undefined;
   for (const s of steps ?? []) {
     for (const tr of s?.toolResults ?? []) {
       if (tr?.toolName !== "agendarCita") continue;
       const out = tr.output ?? tr.result;
       if (out?.booked !== true) continue;
       enlace = typeof out.enlace === "string" ? out.enlace : undefined;
+      horaLocal = typeof out.horaLocal === "string" ? out.horaLocal : undefined;
       const call = (s.toolCalls ?? []).find((c: any) => c?.toolCallId === tr.toolCallId);
       startTime = typeof call?.input?.startTime === "string" ? call.input.startTime : startTime;
     }
@@ -39,7 +41,7 @@ export function aseguraConfirmacionLlamada(text: string, steps: any[]): string {
   if (text.trim()) return `${text.trim()}\n\nEste es tu enlace para entrar:\n${enlace}`;
   const fechaHora = cuando(startTime);
   return (
-    `¡Listo, quedó agendada tu videollamada${fechaHora ? ` para ${fechaHora} (hora de España)` : ""}! 🙌 ` +
+    `¡Listo, quedó agendada tu videollamada${fechaHora ? ` para ${fechaHora} (hora de España${horaLocal ? `; ${horaLocal}` : ""})` : ""}! 🙌 ` +
     `Maricela te espera en la llamada y estará a tu disposición para darte toda la información que necesitas y aclarar todas tus dudas. ` +
     `Cada vez estás más cerca de cumplir tu sueño de tener tu casa en Colombia 🏡✨ También te llegó la invitación a tu correo.\n\n` +
     `Este es tu enlace para entrar:\n${enlace}`

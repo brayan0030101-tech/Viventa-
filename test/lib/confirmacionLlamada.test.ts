@@ -38,3 +38,24 @@ describe("nota de hora de España en la reserva", () => {
     expect(notaHoraEspana("no es fecha")).toBe("");
   });
 });
+
+describe("zona horaria del cliente", () => {
+  it("deduce la zona de «País, Ciudad» y muestra la hora local", async () => {
+    const { zonaDeResidencia, horaEn, esEspana } = await import("../../src/lib/zonaCliente");
+    expect(esEspana(zonaDeResidencia("España, Madrid"))).toBe(true);
+    const co = zonaDeResidencia("Colombia, Medellín");
+    expect(co?.tz).toBe("America/Bogota");
+    expect(horaEn("2026-10-15T17:00:00.000Z", co!.tz)).toBe("12:00");
+    expect(zonaDeResidencia("Estados Unidos, Miami")?.tz).toBe("America/New_York");
+    expect(zonaDeResidencia("Estados Unidos, Los Ángeles")?.tz).toBe("America/Los_Angeles");
+    expect(zonaDeResidencia("")).toBeNull();
+    expect(zonaDeResidencia("Narnia")).toBeNull();
+  });
+  it("la confirmación de respaldo incluye la hora local", () => {
+    const pasos = [{
+      toolCalls: [{ toolCallId: "t1", toolName: "agendarCita", input: { startTime: "2026-10-15T17:00:00.000Z" } }],
+      toolResults: [{ toolCallId: "t1", toolName: "agendarCita", output: { booked: true, enlace: "https://meet.google.com/x", horaLocal: "12:00 en Colombia" } }],
+    }];
+    expect(aseguraConfirmacionLlamada("", pasos)).toContain("hora de España; 12:00 en Colombia");
+  });
+});

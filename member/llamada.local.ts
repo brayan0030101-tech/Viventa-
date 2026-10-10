@@ -13,6 +13,7 @@ import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
 import { calcomConfigured, calcomTimeZone, getAvailableSlotsRange, getUpcomingBookingStarts, resolveEventTypeId } from "../src/integrations/calcom";
 import { armarLeads, llamadasAgendadas, formatoLlamada } from "../src/followup/resumenDia";
+import { zonaDeResidencia, horaEn, esEspana } from "../src/lib/zonaCliente";
 
 const H = 3600_000;
 /** Primer inicio permitido y último inicio (la llamada dura 30 min: termina a las 16:00). */
@@ -238,6 +239,7 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         const reservadas = bk.ok ? bk.starts.map(aFechaHoraMadrid).filter((x): x is { fecha: string; hora: string } => !!x) : [];
         const dias = armarDias(res.byDate, reservadas, now, ventana);
         const opciones = dias.flatMap((d) => d.opciones);
+        const zona = zonaDeResidencia(lead.ficha.metadata.ciudadResidencia);
         return {
           ofrecerLlamada: true as const,
           prioridad: nivel,
@@ -246,10 +248,14 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           necesitaCorreo: !lead.correo,
           correoDelCliente: lead.correo || undefined,
           telefono: lead.telefono || undefined,
+          zonaCliente: esEspana(zona) ? undefined : zona!.etiqueta,
           dias: dias.map((d) => ({
             dia: d.dia,
             boton: botonDia(d.opciones[0].startTime),
-            linea: d.linea,
+            // Cliente fuera de España: la línea ya trae su hora local entre paréntesis.
+            linea: esEspana(zona)
+              ? d.linea
+              : `${d.linea} (hora de España; en ${zona!.etiqueta}: ${d.opciones.map((o) => horaEn(o.startTime, zona!.tz)).join(" · ")})`,
             marcadorHoras: `[[botones: ${botonesHoras(d.opciones).join(" | ")}]]`,
             masHoras: tandasMasHoras(d.libres, botonesHoras(d.opciones)),
             opciones: d.libres.map((o) => ({ hora: o.hora, startTime: o.startTime })),
@@ -259,7 +265,7 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           ...(dias.length > 3 ? { marcadorMasDias: `[[botones: ${dias.slice(3, 6).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]` } : {}),
           opciones,
           message: opciones.length
-            ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día; si no dice cuál y existe `marcadorMasDias`, envíalo (son más días con horarios). Siempre 'hora de España'."
+            ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día; si no dice cuál y existe `marcadorMasDias`, envíalo (son más días con horarios). Siempre 'hora de España'. Si trae `zonaCliente`, cada `linea` YA incluye la hora local del cliente entre paréntesis: cópiala tal cual y no repitas «hora de España»."
             : horario === "noche"
               ? "No hay horarios nocturnos libres: usa el comodín para que Maricela coordine la llamada."
               : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",

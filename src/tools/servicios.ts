@@ -5,6 +5,7 @@ import { Db } from "../db/client";
 import { LeadsRepo } from "../db/leads";
 import { calcomConfigured, calcomTimeZone, resolveEventTypeId, getAvailableSlots, createBooking, cancelBooking } from "../integrations/calcom";
 import { leadMetadata } from "../db/leads";
+import { zonaDeResidencia, horaEn, esEspana, type ZonaCliente } from "../lib/zonaCliente";
 
 // Tools de los nichos de SERVICIOS POR CITA (barbería, salón, dentista, gimnasio,
 // coach). Método base: agendarCita registra la cita como lead para que el dueño la
@@ -115,6 +116,10 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
       // Método adicional: reservar en Cal.com si está conectado y tenemos slot + email.
       let calMessage = "El negocio la confirma.";
       let enlace: string | undefined;
+      // Zona horaria del cliente (por su ficha): si no vive en España, se le dice también su hora local.
+      const zona = await zonaDelCliente(db0(env), getConversationId());
+      const zonaTxt = !esEspana(zona);
+      let horaLocal: string | undefined;
       let booked = false;
       if (calcomConfigured(env)) {
         // Si el modelo no arrastró el startTime ISO, lo busca el CÓDIGO casando
@@ -140,7 +145,7 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
               // La reserva guarda el instante exacto; cada pantalla (Cal.com, Gmail, el
               // calendario de Maricela) lo muestra en SU zona horaria. Esta nota deja
               // escrita la hora acordada con el cliente, en hora de España.
-              notes: [notas, notaHoraEspana(slot)].filter(Boolean).join(" · "),
+              notes: [notas, notaHoraEspana(slot), zonaTxt ? `Cliente en ${zona!.etiqueta}: ${horaEn(slot, zona!.tz)} hora local` : ""].filter(Boolean).join(" · "),
             });
             if (b.ok) {
               booked = true;
@@ -161,6 +166,12 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
               }
               metadata.estado = "Reservada (Cal.com)";
               calMessage = "Quedó reservada en la agenda.";
+              if (zonaTxt) {
+                horaLocal = `${horaEn(slot, zona!.tz)} en ${zona!.etiqueta}`;
+                metadata.zonaCliente = zona!.tz;
+                metadata.zonaEtiqueta = zona!.etiqueta;
+                calMessage += ` En la confirmación di también su hora local: ${horaLocal}.`;
+              }
               if (b.meetingUrl) {
                 metadata.calMeetingUrl = b.meetingUrl;
                 enlace = b.meetingUrl;
@@ -200,7 +211,7 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
         notes: [profesional ? `Con: ${profesional}` : "", notas ?? ""].filter(Boolean).join(" · ") || undefined,
         metadata,
       });
-      return { citaId: id, booked, ...(enlace ? { enlace } : {}), message: `Cita registrada. ${calMessage}` };
+      return { citaId: id, booked, ...(enlace ? { enlace } : {}), ...(horaLocal ? { horaLocal } : {}), message: `Cita registrada. ${calMessage}` };
     },
   });
 }
@@ -215,6 +226,28 @@ export function notaHoraEspana(iso: string): string {
       .map((x) => [x.type, x.value]),
   );
   return `Hora acordada con el cliente: ${p.weekday} ${p.day} de ${p.month}, ${p.hour}:${p.minute} (hora de España)`;
+}
+
+function db0(env: Env): Db {
+  return new Db(env.DB);
+}
+
+/** Zona horaria del cliente según la «ciudadResidencia» de su ficha (null si no se sabe). */
+async function zonaDelCliente(db: Db, convId: string | null): Promise<ZonaCliente | null> {
+  if (!convId) return null;
+  const rows = await db.all<{ metadata: string | null }>(
+    "SELECT metadata FROM leads WHERE conversation_id = ? AND intent NOT LIKE 'Cita ·%' ORDER BY created_at DESC LIMIT 5",
+    [convId],
+  );
+  for (const r of rows) {
+    try {
+      const z = zonaDeResidencia((JSON.parse(r.metadata ?? "{}") as { ciudadResidencia?: string }).ciudadResidencia);
+      if (z) return z;
+    } catch {
+      /* ficha ilegible: sigue con la siguiente */
+    }
+  }
+  return null;
 }
 
 export function cancelarCitaTool(env: Env, getConversationId: () => string | null) {
