@@ -210,8 +210,8 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           const esPrueba = modo === "prueba" && ids.some((x) => convId === x || convId.endsWith(`:${x.replace(/^\+/, "")}`));
           if (!esPrueba) return { ofrecerLlamada: false as const, motivo: "apagado" };
         }
-        const convs = await db.all<{ id: string; channel: string; channel_user_id: string; display_name: string | null; last_message_at: number }>(
-          "SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations WHERE id = ?",
+        const convs = await db.all<{ id: string; channel: string; channel_user_id: string; display_name: string | null; last_message_at: number; metadata: string | null }>(
+          "SELECT id, channel, channel_user_id, display_name, last_message_at, metadata FROM conversations WHERE id = ?",
           [convId],
         );
         const leads = await db.all<{ conversation_id: string | null; name: string | null; contact: string | null; notes: string | null; metadata: string | null }>(
@@ -225,7 +225,14 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           return { ofrecerLlamada: false as const, motivo: "ya_tiene_llamada", llamada: lead.llamada };
         }
         const nivel = lead.prioridad.nivel;
-        if (nivel === "frio") return { ofrecerLlamada: false as const, prioridad: nivel };
+        // Un cliente frío solo recibe la oferta si el equipo se la ofreció a mano (marca viventa_oferta).
+        let ofrecidaPorEquipo = false;
+        try {
+          ofrecidaPorEquipo = !!(convs[0]?.metadata && JSON.parse(convs[0].metadata).viventa_oferta);
+        } catch {
+          /* metadata ilegible: se trata como no ofrecida */
+        }
+        if (nivel === "frio" && !ofrecidaPorEquipo) return { ofrecerLlamada: false as const, prioridad: nivel };
 
         if (!calcomConfigured(env)) return { ofrecerLlamada: false as const, motivo: "agenda_no_configurada" };
         const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");

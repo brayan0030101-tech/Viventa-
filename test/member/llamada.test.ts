@@ -211,3 +211,24 @@ describe("horario nocturno", () => {
     expect(dias[0].libres.map((o) => o.hora)).toEqual(["18:00", "18:30", "19:00", "19:30"]);
   });
 });
+
+describe("cliente frío ofrecido por el equipo", () => {
+  it("la marca viventa_oferta deja pasar a un frío; sin la marca no", async () => {
+    const mf = await createTestMiniflare();
+    const d1 = (await mf.getD1Database("DB")) as any;
+    const db = new Db(d1);
+    const env = { DB: d1 } as unknown as Env;
+    const now = Date.now();
+    await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES ('zernio:77','zernio','77','frio1',?,?)", [now, now]);
+    await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, status, created_at, updated_at) VALUES ('lf','zernio:77',NULL,'600000000','x','new',?,?)", [now, now]);
+    await db.run("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('viventa_llamada_modo','activo',?)", [now]);
+    reservasMock.mockResolvedValue({ ok: true, starts: [] });
+    rangoMock.mockResolvedValue({ ok: true, byDate: {} });
+    const t = proponerLlamadaTool({ ...env, CALCOM_API_KEY: "k", CALCOM_EVENT_TYPE_ID: "1" } as any, () => "zernio:77") as any;
+    expect((await t.execute({})).ofrecerLlamada).toBe(false); // frío sin marca
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'), '$.viventa_oferta', 'x') WHERE id='zernio:77'");
+    const r = await t.execute({});
+    // Pasó la puerta de «frío»: ahora solo puede detenerla la agenda (aquí no configurada), no la prioridad.
+    expect(r.ofrecerLlamada === true || (r as any).motivo !== undefined).toBe(true);
+  });
+});
