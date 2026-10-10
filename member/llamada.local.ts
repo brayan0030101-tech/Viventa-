@@ -148,7 +148,7 @@ export function armarDias(
     const items = [...opciones.map((o) => ({ hora: o.hora, ocupada: false })), ...ocupadas.map((h) => ({ hora: h, ocupada: true }))].sort((x, y) => (x.hora < y.hora ? -1 : 1));
     out.push({
       fecha, dia: opciones[0].dia, opciones, libres: todos, ocupadas,
-      linea: `${opciones[0].dia}: ${items.map((i) => (i.ocupada ? tachar(i.hora) : i.hora)).join(" · ")}`,
+      linea: `${opciones[0].dia.charAt(0).toUpperCase()}${opciones[0].dia.slice(1)}: ${items.map((i) => (i.ocupada ? tachar(i.hora) : i.hora)).join(" · ")}`,
     });
   }
   return out;
