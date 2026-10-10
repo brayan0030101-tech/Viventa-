@@ -207,7 +207,7 @@ const ESTILO_INF = `<style>
   @keyframes col-in{from{transform:scaleY(0)}to{transform:scaleY(1)}}
   .inf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
   .inf-kpi{padding:14px 16px;border:1px solid var(--line);background:var(--panel)}
-  .inf-kpi b{display:block;font-family:'Space Grotesk';font-size:26px;margin-top:2px}
+  .inf-kpi b{display:block;font-size:26px;margin-top:2px}
   .inf-kpi small{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
   .inf-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px}
   .inf-barra{height:22px;background:var(--accent);transform-origin:left;animation:barra-in .6s cubic-bezier(.16,1,.3,1) both}

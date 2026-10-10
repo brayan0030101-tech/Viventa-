@@ -327,7 +327,7 @@ export function mdHtml(md: string): string {
     const ln = raw.trimEnd();
     if (/^#{2,3}\s+/.test(ln)) {
       cerrar();
-      out.push(`<h4 style="font-family:'Space Grotesk';font-weight:700;font-size:14px;color:var(--accent);margin:16px 0 6px">${inline(ln.replace(/^#{2,3}\s+/, ""))}</h4>`);
+      out.push(`<h4 style="font-weight:700;font-size:14px;color:var(--accent);margin:16px 0 6px">${inline(ln.replace(/^#{2,3}\s+/, ""))}</h4>`);
     } else if (/^\s*[-*]\s+/.test(ln)) {
       if (!lista) { out.push('<ul style="margin:0 0 6px;padding-left:20px">'); lista = true; }
       out.push(`<li style="margin-bottom:4px">${inline(ln.replace(/^\s*[-*]\s+/, ""))}</li>`);

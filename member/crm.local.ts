@@ -206,7 +206,7 @@ export const ESTILO_CRM = `<style>
 function kpiLink(href: string, titulo: string, n: number, activo: boolean, color?: string): string {
   return `<a class="crm-kpi${activo ? " on" : ""}" href="${href}">
     <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">${titulo}</div>
-    <div style="font-family:'Space Grotesk';font-weight:700;font-size:26px;${color ? `color:${color}` : ""}">${n}</div>
+    <div style="font-weight:700;font-size:26px;${color ? `color:${color}` : ""}">${n}</div>
   </a>`;
 }
 
@@ -467,7 +467,7 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
   const body = `${ESTILO_CRM}
     <div style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <a href="/crm" style="font-size:12px">← Volver a los leads</a>
-      <h2 style="font-family:'Space Grotesk';font-weight:700;font-size:20px;margin:0">${esc(nombre)}</h2>
+      <h2 style="font-weight:700;font-size:20px;margin:0">${esc(nombre)}</h2>
       ${prioridad ? badgeNivel(prioridad.nivel, prioridad.puntos) : ""}
       <span class="text-dim" style="font-size:12px">Último mensaje ${esc(hace(conv.last_message_at, now))}</span>
     </div>

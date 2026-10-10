@@ -170,12 +170,10 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
     const clave = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
     const dentro = d.getUTCMonth() === m - 1;
     const ll = porDia.get(clave) ?? [];
-    const visibles = ll.slice(0, 4);
-    const extra = ll.length - visibles.length;
+    // Se muestran TODAS las llamadas del día: la casilla crece lo que haga falta.
     celdas.push(`<div class="cal-dia${dentro ? "" : " fuera"}${clave === hoy ? " hoy" : ""}" style="animation-delay:${Math.min(i, 20) * 12}ms">
       <div class="cal-num"><span>${d.getUTCDate()}</span>${ll.length ? `<span style="font-size:10px;color:var(--accent)">${ll.length} 📞</span>` : ""}</div>
-      ${visibles.map((l, j) => chip(l, j)).join("")}
-      ${extra > 0 ? `<div class="text-dim" style="font-size:10.5px">+${extra} más</div>` : ""}
+      ${ll.map((l, j) => chip(l, j)).join("")}
     </div>`);
   }
 
@@ -183,7 +181,7 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
   const sig = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
   const navMes = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
     <a class="ghostbtn" href="/crm/calendario?mes=${prev}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">←</a>
-    <h2 style="font-family:'Space Grotesk';font-weight:700;font-size:20px;margin:0;min-width:190px;text-align:center;text-transform:capitalize">${MESES[m - 1]} ${y}</h2>
+    <h2 style="font-weight:700;font-size:20px;margin:0;min-width:190px;text-align:center;text-transform:capitalize">${MESES[m - 1]} ${y}</h2>
     <a class="ghostbtn" href="/crm/calendario?mes=${sig}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">→</a>
     <a class="ghostbtn" href="/crm/calendario" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted);margin-left:6px">Hoy</a>
     <span class="text-dim" style="margin-left:auto;font-size:11px">Horas en hora de España</span>
@@ -317,7 +315,7 @@ export async function renderLlamadaDetalle(env: Env, leadId: string, now = Date.
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
         <div>
           <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)">Videollamada · ${esc(estadoTxt)}</div>
-          <h3 style="font-family:'Space Grotesk';font-weight:700;font-size:21px;margin:3px 0 6px">${esc(ll.nombre)}</h3>
+          <h3 style="font-weight:700;font-size:21px;margin:3px 0 6px">${esc(ll.nombre)}</h3>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${ll.nivel ? badgeNivel(ll.nivel, lead?.prioridad.puntos) : ""}<span style="font-size:12.5px;color:var(--cream)">📅 ${esc(formatoLlamada(ll.inicio))} (hora de España)</span>${local ? `<span style="font-size:12px;color:var(--muted)">· ${esc(local)} en ${esc(etq)}</span>` : ""}</div>
         </div>
         <button onclick="this.closest('.modal-backdrop').remove()" style="background:none;border:1px solid var(--line);color:var(--muted);padding:4px 10px;cursor:pointer;font-family:inherit">✕</button>
