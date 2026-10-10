@@ -44,6 +44,7 @@ const WINDOW_MS = 24 * H - 5 * MIN;
 
 export const TPL_SEGUIMIENTO = "viventa_tpl_seguimiento";
 export const TPL_RECORDATORIO = "viventa_tpl_recordatorio";
+export const TPL_OFERTA = "viventa_tpl_oferta";
 const TPL_LANG = "viventa_tpl_lang";
 
 interface ConvRef {
@@ -683,7 +684,11 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
          FROM messages WHERE conversation_id = ? AND created_at > ?`,
       [now - 30 * H, c.id, now - 30 * H],
     );
-    if (!ult?.t || now - ult.t >= 22 * H || ult.owner) continue;
+    if (ult?.owner) continue;
+    const ventanaAbierta = !!ult?.t && now - ult.t < 22 * H;
+    // WhatsApp fuera de ventana: solo con la plantilla aprobada (setting viventa_tpl_oferta).
+    const porPlantilla = !ventanaAbierta && c.channel === "ycloud" && !!((await settings.get(TPL_OFERTA)) ?? "").trim();
+    if (!ventanaAbierta && !porPlantilla) continue;
     if (!(await claim(db, "conversations", c.id, "viventa_oferta", now))) continue;
     const nombre = primerNombre(c.display_name);
     const text =
@@ -692,7 +697,15 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
     try {
       // La conversación quedó pausada al pasar al equipo: se reactiva para que el bot atienda la respuesta.
       await db.run("UPDATE conversations SET paused_until = NULL WHERE id = ?", [c.id]);
-      await enviarACliente(env, db, c, text, null, ult.t, now, botones);
+      if (porPlantilla) {
+        await enviarACliente(
+          env, db, c,
+          `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Maricela puede llamarte en una videollamada de 30 minutos para orientarte con tu caso. ¿Te gustaría agendarla? Responde SÍ y te muestro los horarios.`,
+          { setting: TPL_OFERTA, params: [nombre || "hola"] }, null, now,
+        );
+      } else {
+        await enviarACliente(env, db, c, text, null, ult!.t, now, botones);
+      }
       sent++;
     } catch (e) {
       console.error(`[sistemaViventa] oferta llamada ${c.id}:`, e);

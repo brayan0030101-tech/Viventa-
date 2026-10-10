@@ -435,6 +435,18 @@ describe("oferta de videollamada a clientes calificados", () => {
     expect((await runOfertaLlamada(env, A_LAS_11 + 15 * 60_000)).sent).toBe(0);
   });
 
+  it("WhatsApp fuera de ventana: usa la plantilla aprobada; Instagram fuera de ventana no recibe nada", async () => {
+    const wa = await seedOferta("34600000105", 30);
+    const ig = await seedOferta("1234567890", 30, "zernio");
+    await activar([wa, ig]);
+    await settings.set("viventa_tpl_oferta", "viventa_oferta_llamada");
+    const r = await runOfertaLlamada(env, A_LAS_11);
+    expect(r.sent).toBe(1);
+    expect(sendTemplateMock).toHaveBeenCalledTimes(1);
+    expect(sendTemplateMock.mock.calls[0][2]).toBe("viventa_oferta_llamada");
+    expect(sendOutboundMock).not.toHaveBeenCalled();
+  });
+
   it("no escribe fuera de ventana (más de 22 h), de madrugada, ni a quien una persona atiende", async () => {
     const vieja = await seedOferta("34600000103", 30);
     const humana = await seedOferta("34600000104", 3);
