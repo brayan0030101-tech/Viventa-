@@ -29,7 +29,7 @@ const esc = (v: string | null | undefined): string =>
 /** Marcador que cada ruta reemplaza con el usuario que tiene la sesión (sin tocar el env compartido). */
 export const MARCA_USUARIO = "<!--CRM_USUARIO-->";
 
-export type Seccion = "leads" | "calendario" | "informes" | "recomendaciones" | "zoho" | "usuarios" | "modo";
+export type Seccion = "leads" | "pipeline" | "calendario" | "informes" | "recomendaciones" | "zoho" | "usuarios" | "modo";
 
 const ESTILO_BASE = `<style>
   :root{
@@ -105,6 +105,7 @@ const FUENTES = `<link rel="preconnect" href="https://fonts.googleapis.com"><lin
 
 const ITEMS: Array<{ id: Seccion; href: string; icono: string; texto: string; soloAdmin?: boolean }> = [
   { id: "leads", href: BASE, icono: "👥", texto: "Leads" },
+  { id: "pipeline", href: `${BASE}/pipeline`, icono: "🧭", texto: "Pipeline" },
   { id: "calendario", href: `${BASE}/calendario`, icono: "📅", texto: "Calendario de llamadas" },
   { id: "informes", href: `${BASE}/informes`, icono: "📊", texto: "Informes" },
   { id: "recomendaciones", href: `${BASE}/recomendaciones`, icono: "🧠", texto: "Recomendaciones" },
@@ -115,6 +116,7 @@ const ITEMS: Array<{ id: Seccion; href: string; icono: string; texto: string; so
 
 const TITULOS: Record<Seccion, string> = {
   leads: "Leads",
+  pipeline: "Pipeline de ventas",
   calendario: "Calendario de llamadas",
   informes: "Informes",
   recomendaciones: "Recomendaciones",
@@ -127,7 +129,7 @@ const TITULOS: Record<Seccion, string> = {
 function tabsEmbebidas(activa: Seccion): string {
   const tab = (id: Seccion, href: string, texto: string) =>
     `<a href="${href}" style="padding:9px 16px;font-size:12.5px;font-weight:600;border-bottom:2px solid ${activa === id ? "var(--accent)" : "transparent"};color:${activa === id ? "var(--cream)" : "var(--muted)"}">${texto}</a>`;
-  return `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", `${BASE}`, "👥 Leads")}${tab("calendario", `${BASE}/calendario`, "📅 Calendario")}${tab("informes", `${BASE}/informes`, "📊 Informes")}${tab("recomendaciones", `${BASE}/recomendaciones`, "🧠 Recomendaciones")}${tab("zoho", `${BASE}/zoho`, "📤 Subir a Zoho")}${tab("modo", `${BASE}/modo`, "⚙️ Vista")}</div>`;
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", `${BASE}`, "👥 Leads")}${tab("pipeline", `${BASE}/pipeline`, "🧭 Pipeline")}${tab("calendario", `${BASE}/calendario`, "📅 Calendario")}${tab("informes", `${BASE}/informes`, "📊 Informes")}${tab("recomendaciones", `${BASE}/recomendaciones`, "🧠 Recomendaciones")}${tab("zoho", `${BASE}/zoho`, "📤 Subir a Zoho")}${tab("modo", `${BASE}/modo`, "⚙️ Vista")}</div>`;
 }
 
 export function crmLayout(opts: { title: string; activa: Seccion; body: string; env?: Env }): string {

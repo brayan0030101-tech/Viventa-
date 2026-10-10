@@ -43,7 +43,7 @@ export interface ResultadoGuardado {
   chars: number;
 }
 
-async function asegurarTablas(db: Db): Promise<void> {
+export async function asegurarTablas(db: Db): Promise<void> {
   await db.run(
     `CREATE TABLE IF NOT EXISTS crm_llamada_resultado (
        id TEXT PRIMARY KEY, lead_id TEXT NOT NULL, conversation_id TEXT NOT NULL, creado INTEGER NOT NULL,
@@ -171,6 +171,11 @@ Interpreta la llamada para Maricela (no es técnica). No inventes nada que no se
     await db.run("INSERT INTO crm_pendientes (id, conversation_id, lead_id, texto, responsable, cuando, creado) VALUES (?,?,?,?,?,?,?)", [
       crypto.randomUUID(), ll.convId, leadId, p.tarea, p.responsable, p.cuando, now,
     ]);
+  }
+  try {
+    await (await import("./crm-pipeline.local")).avanzarPorResultado(env, ll.convId, analisis.resultado);
+  } catch (e) {
+    console.error("[crm-resultados] avanzar etapa:", e);
   }
   return { ok: true, resultado: { id, leadId, convId: ll.convId, creado: now, analisis, modelo, chars: trans.length } };
 }

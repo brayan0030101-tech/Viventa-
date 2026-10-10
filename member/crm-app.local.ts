@@ -333,6 +333,18 @@ export function crmApp(): Hono<Vars> {
     return data ? xlsx(data, "ficha-cliente") : c.text("Cliente no encontrado", 404);
   });
 
+  // Pipeline
+  app.get("/pipeline", async (c) => {
+    const { renderCrmPipeline } = await import("./crm-pipeline.local");
+    return pagina(c, await renderCrmPipeline(c.env));
+  });
+  app.post("/etapa", async (c) => {
+    const { fijarEtapa } = await import("./crm-pipeline.local");
+    const f = await c.req.parseBody();
+    const ok = await fijarEtapa(c.env, String(f["conv"] ?? ""), String(f["etapa"] ?? ""));
+    return ok ? c.text("ok") : c.text("Etapa no válida", 400);
+  });
+
   // Calendario
   app.get("/calendario", async (c) => {
     const { renderCrmCalendario } = await import("./crm-calendario.local");
