@@ -69,3 +69,5 @@
 3. Aprobación de la plantilla `viventa_oferta_llamada` y envío a los 11 de WhatsApp; verificar cuántas llamadas agenda el bot; nota de voz de Maricela tras cada llamada.
 4. Seguridad: restablecer claves de Instagram en Meta y de Cal.com, y cerrar sesiones de Forja desconocidas.
 5. Medir costo con Sonnet 5.5, lecturas de la base de datos y fallos de IA (`ai_fallos`); reconectar el permiso de Zernio antes del 5 de diciembre de 2026.
+
+- **CRM · Resultado de la llamada (10 oct 2026):** en la ventana de cada videollamada del calendario, Maricela pega o sube (.txt/.vtt/.srt) la transcripción; la IA devuelve resultado (se concretó / parcial / no / sin respuesta), resumen, qué se concretó y qué no, objeciones, interés 1-5, próximo paso y pendientes (checklist, también visible en la ficha del cliente). Archivo `member/crm-resultados.local.ts`; tablas `crm_llamada_resultado` y `crm_pendientes`. Nombres/teléfonos/correos se anonimizan antes de enviar a la IA.

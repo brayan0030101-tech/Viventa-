@@ -344,6 +344,27 @@ export function crmApp(): Hono<Vars> {
     return html ? c.html(html) : c.text("Llamada no encontrada", 404);
   });
 
+  app.post("/llamada/:id/transcripcion", async (c) => {
+    const { analizarLlamada } = await import("./crm-resultados.local");
+    const { renderLlamadaDetalle } = await import("./crm-calendario.local");
+    const id = decodeURIComponent(c.req.param("id"));
+    const f = await c.req.parseBody();
+    let texto = String(f["transcripcion"] ?? "").trim();
+    const archivo = f["archivo"];
+    if (!texto && archivo && typeof archivo !== "string" && archivo.size > 0) {
+      if (archivo.size > 400_000) return c.html(await renderLlamadaDetalle(c.env, id, Date.now(), { errorResultado: "Ese archivo es muy grande. Pega solo el texto de la llamada." }) ?? "");
+      texto = await archivo.text();
+    }
+    const r = await analizarLlamada(c.env, id, texto);
+    const html = await renderLlamadaDetalle(c.env, id, Date.now(), r.ok ? {} : { errorResultado: r.error });
+    return html ? c.html(html) : c.text("Llamada no encontrada", 404);
+  });
+  app.post("/pendiente/:id", async (c) => {
+    const { alternarPendiente, filaPendiente } = await import("./crm-resultados.local");
+    const p = await alternarPendiente(c.env, decodeURIComponent(c.req.param("id")));
+    return p ? c.html(filaPendiente(p)) : c.text("No encontrado", 404);
+  });
+
   // Informes
   app.get("/informes", async (c) => {
     const { renderCrmInformes, periodoValido } = await import("./crm-informes.local");

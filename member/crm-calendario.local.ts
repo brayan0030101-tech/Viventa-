@@ -267,7 +267,7 @@ export function resumenContexto(l: LeadResumen): string[] {
   return out;
 }
 
-export async function renderLlamadaDetalle(env: Env, leadId: string, now = Date.now()): Promise<string | null> {
+export async function renderLlamadaDetalle(env: Env, leadId: string, now = Date.now(), opts: { errorResultado?: string } = {}): Promise<string | null> {
   const llamadas = await cargarLlamadas(env, now);
   const ll = llamadas.find((x) => x.id === leadId);
   if (!ll) return null;
@@ -325,6 +325,7 @@ export async function renderLlamadaDetalle(env: Env, leadId: string, now = Date.
         <a class="ghostbtn" href="/crm/c/${cid}" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">Ver ficha completa</a>
         <a class="ghostbtn" href="/crm/c/${cid}/ficha.xlsx" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">⬇ Ficha + conversación (Excel)</a>
       </div>
+      <div style="margin-bottom:18px;padding:14px;border:1px solid var(--line);background:var(--panel2)">${await (await import("./crm-resultados.local")).seccionResultado(env, leadId, { error: opts.errorResultado })}</div>
       <div class="crm-sec">Resumen para la llamada</div>
       <div style="margin-bottom:16px">${resumen}</div>
       ${datos ? `<div class="crm-sec">Datos de la ficha</div><div style="margin-bottom:16px">${datos}</div>` : ""}
