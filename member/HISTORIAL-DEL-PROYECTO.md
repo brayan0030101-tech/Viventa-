@@ -1,4 +1,4 @@
-# Historial del proyecto Viventa (28 de septiembre – 8 de octubre de 2026)
+# Historial del proyecto Viventa (28 de septiembre – 10 de octubre de 2026)
 
 > Bitácora de todo lo que se hizo, en orden. Para saber **cómo está hoy** el bot, lee `ESTADO-DEL-BOT.md`.
 > Aquí no hay llaves, ids de Telegram ni números de clientes: el repo es público.
@@ -55,9 +55,17 @@
 ## 10 de octubre
 - **Excel de clientes listos a las 6:00 y 14:00 de España** por Telegram (con enlace del formulario por fila). Sin correo, se usa uno inventado con dominio inexistente y marcado como tal (pedido de Maricela).
 
+- **Videollamada agendada por el bot:** Maricela pidió que el bot agende solo las llamadas con calientes y tibios (10:00–16:00 España, 30 min, 4 horarios por día, otro horario → comodín). Se conectó Cal.com al Google Calendar de Maricela y se construyó el flujo completo con **botones tocables** (día → hora, más horarios, otro día, horario nocturno martes y jueves 18:00–20:00), confirmación con enlace de Google Meet y hora local del cliente si vive fuera de España. Se probó con una cuenta de Instagram de prueba y se activó el mismo día; el primer cliente real agendó esa tarde.
+- **Errores encontrados y arreglados el mismo día:** el bot a veces mandaba solo «Listo, ya quedó guardado» a mitad del guion (regresión; solo 2 casos, ya calificados); el bot recordaba el idioma equivocado por datos viejos del cliente; el modelo cerró un turno sin escribir tras reservar (ahora la confirmación con el enlace está garantizada en código); ticket duplicado tras agendar; la imagen de horarios decía 15 min en lugar de 30.
+- **Recordatorios:** 24 h con botones «Confirmo / Reprogramar», 1 h antes; ambos con el enlace y la hora local.
+- **Resumen de las 8:00** con la línea «llamadas que agendó el bot vs. comodín».
+- **Oferta a clientes ya calificados:** mensaje único con botones de día a 12 clientes con ventana abierta; plantilla de WhatsApp `viventa_oferta_llamada` enviada a Meta para otros 11 que ya pasaron de 24 h. Excel con los 21 sin ventana entregado a Brayan.
+- **Costo medido:** ~1,6 centavos de dólar por respuesta (≈25 centavos por cliente que completa el guion); 97 % del prompt va en caché.
+- **Cal.com:** cuenta renombrada a «Maricela Naranjo», ubicación Google Meet; pendiente que Maricela verifique su correo como principal.
+
 ## Pendiente (resumen; el detalle está en `ESTADO-DEL-BOT.md`)
 1. Revisar que llegaron los primeros Excel de las 6:00/14:00 y cómo contestan los clientes a los pedidos de datos.
 2. Plantillas de WhatsApp aprobadas en YCloud (seguimientos y recordatorios fuera de 24 h).
-3. Cerrar la llamada con fecha y hora reales en Cal.com (zonas horarias) y nota de voz de Maricela tras cada llamada.
+3. Aprobación de la plantilla `viventa_oferta_llamada` y envío a los 11 de WhatsApp; verificar cuántas llamadas agenda el bot; nota de voz de Maricela tras cada llamada.
 4. Seguridad: restablecer claves de Instagram en Meta y de Cal.com, y cerrar sesiones de Forja desconocidas.
 5. Medir costo con Sonnet 5.5, lecturas de la base de datos y fallos de IA (`ai_fallos`); reconectar el permiso de Zernio antes del 5 de diciembre de 2026.
