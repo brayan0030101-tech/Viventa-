@@ -4,14 +4,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const rangoMock = vi.fn();
+const reservasMock = vi.fn();
 vi.mock("../../src/integrations/calcom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/integrations/calcom")>();
-  return { ...actual, getAvailableSlotsRange: (...a: unknown[]) => rangoMock(...a) };
+  return { ...actual, getAvailableSlotsRange: (...a: unknown[]) => rangoMock(...a), getUpcomingBookingStarts: (...a: unknown[]) => reservasMock(...a) };
 });
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { elegirOpciones, proponerLlamadaTool } from "../../member/llamada.local";
+import { elegirOpciones, armarDias, tachar, proponerLlamadaTool } from "../../member/llamada.local";
 import { llamadasAgendadas } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -21,7 +22,7 @@ const NOW = Date.UTC(2026, 9, 12, 6, 0);
 const slot = (fecha: string, hhmm: string) => `${fecha}T${hhmm}:00.000+02:00`;
 
 describe("elegirOpciones", () => {
-  it("2 horarios por día (mañana y tarde) en los primeros 3 días hábiles, solo 10:00–15:30", () => {
+  it("hasta 4 horarios por día repartidos, en los primeros 3 días hábiles, solo 10:00–15:30", () => {
     const byDate = {
       "2026-10-12": [slot("2026-10-12", "09:30"), slot("2026-10-12", "10:00"), slot("2026-10-12", "10:30"), slot("2026-10-12", "13:00"), slot("2026-10-12", "16:00")],
       "2026-10-13": [slot("2026-10-13", "10:00"), slot("2026-10-13", "14:00"), slot("2026-10-13", "14:30")],
@@ -30,8 +31,8 @@ describe("elegirOpciones", () => {
     };
     const o = elegirOpciones(byDate, NOW);
     expect(o.map((x) => `${x.fecha} ${x.hora}`)).toEqual([
-      "2026-10-12 10:00", "2026-10-12 13:00", // hoy: >= 2 h desde las 08:00 → 10:00 ok
-      "2026-10-13 10:00", "2026-10-13 14:00",
+      "2026-10-12 10:00", "2026-10-12 10:30", "2026-10-12 13:00", // 09:30 y 16:00 quedan fuera
+      "2026-10-13 10:00", "2026-10-13 14:00", "2026-10-13 14:30",
       "2026-10-14 11:00",
     ]);
   });
@@ -52,7 +53,9 @@ describe("proponerLlamada", () => {
     const d1 = (await mf.getD1Database("DB")) as any;
     env = { DB: d1, CALCOM_API_KEY: "k", CALCOM_EVENT_TYPE_ID: "1", CALCOM_TIMEZONE: "Europe/Madrid" } as unknown as Env;
     db = new Db(d1);
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_llamada_modo','activo',1)");
     rangoMock.mockReset().mockResolvedValue({ ok: true, byDate: { "2099-01-05": [slot("2099-01-05", "10:00"), slot("2099-01-05", "13:30")] } });
+    reservasMock.mockReset().mockResolvedValue({ ok: true, starts: [] });
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
   });
@@ -115,5 +118,62 @@ describe("llamadasAgendadas", () => {
     await ins("c", { estado: "Por confirmar (falló Cal.com)", calStart: "2026-10-14T10:00:00.000+02:00" });
     const m = await llamadasAgendadas(db, NOW);
     expect([...m.keys()]).toEqual(["c-a"]);
+  });
+});
+
+describe("armarDias: 4 por día y tachados REALES", () => {
+  const dia = (f: string) => ["10:00", "10:30", "11:00", "11:30", "12:00", "13:00", "14:00", "15:00"].map((h) => slot(f, h));
+  it("reparte 4 horarios a lo largo del día", () => {
+    const [d] = armarDias({ "2026-10-13": dia("2026-10-13") }, [], NOW);
+    expect(d.opciones.map((o) => o.hora)).toEqual(["10:00", "11:00", "13:00", "15:00"]);
+  });
+  it("tacha solo las horas ya reservadas de verdad (máx. 2 por día) y nunca inventa", () => {
+    const libres = dia("2026-10-13").filter((s) => !s.includes("T12:00") && !s.includes("T10:30"));
+    const [d] = armarDias(
+      { "2026-10-13": libres },
+      [{ fecha: "2026-10-13", hora: "10:30" }, { fecha: "2026-10-13", hora: "12:00" }, { fecha: "2026-10-13", hora: "09:00" }, { fecha: "2026-10-14", hora: "11:00" }],
+      NOW,
+    );
+    expect(d.ocupadas).toEqual(["10:30", "12:00"]);
+    expect(d.linea).toContain(tachar("10:30"));
+    expect(d.linea).toContain(tachar("12:00"));
+    expect(d.linea).not.toContain(tachar("09:00")); // fuera de 10–16
+  });
+  it("sin reservas reales no hay nada tachado", () => {
+    const [d] = armarDias({ "2026-10-13": dia("2026-10-13") }, [], NOW);
+    expect(d.ocupadas).toEqual([]);
+    expect(d.linea).not.toContain("\u0336");
+  });
+});
+
+describe("interruptor de la oferta de llamada", () => {
+  let env: Env;
+  let db: Db;
+  const COMPLETO = { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora" };
+  beforeEach(async () => {
+    const mf = await createTestMiniflare();
+    const d1 = (await mf.getD1Database("DB")) as any;
+    env = { DB: d1, CALCOM_API_KEY: "k", CALCOM_EVENT_TYPE_ID: "1", CALCOM_TIMEZONE: "Europe/Madrid" } as unknown as Env;
+    db = new Db(d1);
+    rangoMock.mockReset().mockResolvedValue({ ok: true, byDate: { "2099-01-05": [slot("2099-01-05", "10:00")] } });
+    reservasMock.mockReset().mockResolvedValue({ ok: true, starts: [] });
+    for (const [id, user] of [["ycloud:34600000001", "34600000001"], ["ycloud:34600000002", "34600000002"]]) {
+      await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", [id, "ycloud", user, "Ana López", 1, NOW]);
+      await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", [`l-${user}`, id, "Ana López", "a@x.com", "x", JSON.stringify(COMPLETO), "new", NOW, NOW]);
+    }
+  });
+  const correr = (id: string) => (proponerLlamadaTool(env, () => id) as any).execute({});
+
+  it("sin configurar, la oferta está apagada", async () => {
+    expect((await correr("ycloud:34600000001")).motivo).toBe("apagado");
+  });
+  it("en modo prueba solo se ofrece a las conversaciones de la lista", async () => {
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_llamada_modo','prueba',1), ('viventa_llamada_ids','+34600000002',1)");
+    expect((await correr("ycloud:34600000001")).ofrecerLlamada).toBe(false);
+    expect((await correr("ycloud:34600000002")).ofrecerLlamada).toBe(true);
+  });
+  it("en modo activo se ofrece a todos los calientes/tibios", async () => {
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_llamada_modo','activo',1)");
+    expect((await correr("ycloud:34600000001")).ofrecerLlamada).toBe(true);
   });
 });

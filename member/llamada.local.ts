@@ -2,7 +2,7 @@
 // calientes o tibios. Vive en member/ (el `forjabot update` no la pisa).
 //
 // La tool `proponerLlamada` decide SI toca ofrecer la llamada (prioridad del
-// cliente) y, de ser así, devuelve hasta 6 horarios reales de Cal.com: 2 por día
+// cliente) y, de ser así, devuelve hasta 12 horarios reales de Cal.com: 4 por día
 // en los próximos 3 días hábiles, de 10:00 a 16:00 (hora de España, llamadas de
 // 30 min). Reservar lo hace agendarCita; si ninguno le sirve, el bot usa el
 // comodín (reglas en las instrucciones del bot).
@@ -10,7 +10,8 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { calcomConfigured, calcomTimeZone, getAvailableSlotsRange, resolveEventTypeId } from "../src/integrations/calcom";
+import { SettingsRepo } from "../src/db/settings";
+import { calcomConfigured, calcomTimeZone, getAvailableSlotsRange, getUpcomingBookingStarts, resolveEventTypeId } from "../src/integrations/calcom";
 import { armarLeads, llamadasAgendadas, formatoLlamada } from "../src/followup/resumenDia";
 
 const H = 3600_000;
@@ -40,15 +41,42 @@ function sumarDias(fecha: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const POR_DIA = 4;
+const MAX_TACHADOS_POR_DIA = 2;
+
+/** «13:00» → «1̶3̶:̶0̶0̶»: texto tachado que se ve igual en WhatsApp e Instagram. */
+export function tachar(hhmm: string): string {
+  return [...hhmm].map((c) => `${c}\u0336`).join("");
+}
+
+/** Reparte hasta `n` horarios a lo largo del día (no los primeros pegados). */
+function repartir<T>(lista: T[], n: number): T[] {
+  if (lista.length <= n) return lista;
+  const out: T[] = [];
+  for (let i = 0; i < n; i++) out.push(lista[Math.round((i * (lista.length - 1)) / (n - 1))]);
+  return out;
+}
+
+export interface DiaLlamada {
+  fecha: string;
+  dia: string;
+  opciones: OpcionLlamada[];
+  /** Horas de ese día que YA tienen una llamada reservada por otro cliente (reales). */
+  ocupadas: string[];
+  /** Línea lista para el mensaje: libres normales, ocupadas tachadas. */
+  linea: string;
+}
+
 /**
- * Elige hasta 2 horarios por día (uno de mañana y otro de tarde) en los primeros
- * `MAX_DIAS` días hábiles con huecos, ignorando lo que queda a menos de 2 h.
+ * Elige hasta 4 horarios por día en los primeros `MAX_DIAS` días hábiles con huecos
+ * (de 10:00 a 15:30, ignorando lo que queda a menos de 2 h) y añade, tachadas, las
+ * horas de ese día que ya están reservadas DE VERDAD en Cal.com (máx. 2 por día).
+ * Nunca se inventan horarios ocupados.
  */
-export function elegirOpciones(byDate: Record<string, string[]>, now: number): OpcionLlamada[] {
-  const out: OpcionLlamada[] = [];
-  let dias = 0;
+export function armarDias(byDate: Record<string, string[]>, reservadas: Array<{ fecha: string; hora: string }>, now: number): DiaLlamada[] {
+  const out: DiaLlamada[] = [];
   for (const fecha of Object.keys(byDate).sort()) {
-    if (dias >= MAX_DIAS) break;
+    if (out.length >= MAX_DIAS) break;
     if (!esDiaHabil(fecha)) continue;
     const validos = (byDate[fecha] ?? [])
       .filter((iso) => {
@@ -57,14 +85,34 @@ export function elegirOpciones(byDate: Record<string, string[]>, now: number): O
       })
       .sort();
     if (!validos.length) continue;
-    const manana = validos.find((iso) => iso.slice(11, 16) < "13:00") ?? validos[0];
-    const tarde = validos.find((iso) => iso.slice(11, 16) >= "13:00" && iso !== manana);
-    for (const iso of [manana, tarde]) {
-      if (iso) out.push({ fecha, dia: DIAS.format(new Date(iso)), hora: iso.slice(11, 16), startTime: iso });
-    }
-    dias++;
+    const opciones: OpcionLlamada[] = repartir(validos, POR_DIA).map((iso) => ({
+      fecha, dia: DIAS.format(new Date(iso)), hora: iso.slice(11, 16), startTime: iso,
+    }));
+    const libres = new Set(validos.map((iso) => iso.slice(11, 16)));
+    const ocupadas = [...new Set(reservadas.filter((r) => r.fecha === fecha && r.hora >= DESDE && r.hora <= HASTA && !libres.has(r.hora)).map((r) => r.hora))]
+      .sort()
+      .slice(0, MAX_TACHADOS_POR_DIA);
+    const items = [...opciones.map((o) => ({ hora: o.hora, ocupada: false })), ...ocupadas.map((h) => ({ hora: h, ocupada: true }))].sort((x, y) => (x.hora < y.hora ? -1 : 1));
+    out.push({
+      fecha, dia: opciones[0].dia, opciones, ocupadas,
+      linea: `${opciones[0].dia}: ${items.map((i) => (i.ocupada ? tachar(i.hora) : i.hora)).join(" · ")}`,
+    });
   }
   return out;
+}
+
+/** Compatibilidad: solo los horarios libres elegidos, en una lista plana. */
+export function elegirOpciones(byDate: Record<string, string[]>, now: number): OpcionLlamada[] {
+  return armarDias(byDate, [], now).flatMap((d) => d.opciones);
+}
+
+const FECHA_HORA_ES = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+
+function aFechaHoraMadrid(iso: string): { fecha: string; hora: string } | null {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const p = Object.fromEntries(FECHA_HORA_ES.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+  return { fecha: `${p.year}-${p.month}-${p.day}`, hora: `${String(Number(p.hour) % 24).padStart(2, "0")}:${p.minute}` };
 }
 
 export function proponerLlamadaTool(env: Env, getConversationId: () => string | null) {
@@ -78,6 +126,16 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
       const db = new Db(env.DB);
       const now = Date.now();
       try {
+        // Interruptor (en la base de datos, sin desplegar): viventa_llamada_modo =
+        // «activo» (todos los calientes/tibios), «prueba» (solo las conversaciones de
+        // viventa_llamada_ids, separadas por coma) o cualquier otra cosa = apagado.
+        const settings = new SettingsRepo(db);
+        const modo = ((await settings.get("viventa_llamada_modo")) ?? "").trim().toLowerCase();
+        if (modo !== "activo") {
+          const ids = ((await settings.get("viventa_llamada_ids")) ?? "").split(/[,;\s]+/).filter(Boolean);
+          const esPrueba = modo === "prueba" && ids.some((x) => convId === x || convId.endsWith(`:${x.replace(/^\+/, "")}`));
+          if (!esPrueba) return { ofrecerLlamada: false as const, motivo: "apagado" };
+        }
         const convs = await db.all<{ id: string; channel: string; channel_user_id: string; display_name: string | null; last_message_at: number }>(
           "SELECT id, channel, channel_user_id, display_name, last_message_at FROM conversations WHERE id = ?",
           [convId],
@@ -103,7 +161,10 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         const res = await getAvailableSlotsRange(env, eventTypeId, hoy, sumarDias(hoy, 6), tz);
         if (!res.ok) return { ofrecerLlamada: true as const, prioridad: nivel, opciones: [], error: res.reason, message: "No pude consultar la agenda: usa el comodín para que Maricela coordine la llamada." };
 
-        const opciones = elegirOpciones(res.byDate, now);
+        const bk = await getUpcomingBookingStarts(env, eventTypeId);
+        const reservadas = bk.ok ? bk.starts.map(aFechaHoraMadrid).filter((x): x is { fecha: string; hora: string } => !!x) : [];
+        const dias = armarDias(res.byDate, reservadas, now);
+        const opciones = dias.flatMap((d) => d.opciones);
         return {
           ofrecerLlamada: true as const,
           prioridad: nivel,
@@ -112,9 +173,10 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           necesitaCorreo: !lead.correo,
           correoDelCliente: lead.correo || undefined,
           telefono: lead.telefono || undefined,
+          dias: dias.map((d) => ({ dia: d.dia, linea: d.linea, opciones: d.opciones.map((o) => ({ hora: o.hora, startTime: o.startTime })) })),
           opciones,
           message: opciones.length
-            ? "Ofrece estas opciones en UN solo mensaje, diciendo 'hora de España'."
+            ? "Ofrece estas opciones en UN solo mensaje, una línea por día copiando cada `linea` tal cual (los horarios tachados YA están ocupados por otros clientes: no inventes otros ni los ofrezcas), y di 'hora de España'."
             : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",
         };
       } catch (e) {
