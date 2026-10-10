@@ -36,11 +36,12 @@ export function aseguraConfirmacionLlamada(text: string, steps: any[]): string {
     }
   }
   if (!enlace || text.includes(enlace)) return text;
-  if (text.trim()) return `${text.trim()}\n\nEste es tu enlace para entrar a la videollamada:\n${enlace}`;
+  if (text.trim()) return `${text.trim()}\n\nEste es tu enlace para entrar:\n${enlace}`;
   const fechaHora = cuando(startTime);
   return (
-    `¡Quedó agendada tu videollamada${fechaHora ? ` para ${fechaHora} (hora de España)` : ""}! 🙌 ` +
-    `Maricela te llamará y también te llegó la invitación a tu correo.\n\n` +
+    `¡Listo, quedó agendada tu videollamada${fechaHora ? ` para ${fechaHora} (hora de España)` : ""}! 🙌 ` +
+    `Maricela te espera en la llamada y estará a tu disposición para darte toda la información que necesitas y aclarar todas tus dudas. ` +
+    `Cada vez estás más cerca de cumplir tu sueño de tener tu casa en Colombia 🏡✨ También te llegó la invitación a tu correo.\n\n` +
     `Este es tu enlace para entrar:\n${enlace}`
   );
 }
