@@ -137,7 +137,10 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
               email,
               timeZone: calcomTimeZone(env),
               phone: contacto,
-              notes: notas,
+              // La reserva guarda el instante exacto; cada pantalla (Cal.com, Gmail, el
+              // calendario de Maricela) lo muestra en SU zona horaria. Esta nota deja
+              // escrita la hora acordada con el cliente, en hora de España.
+              notes: [notas, notaHoraEspana(slot)].filter(Boolean).join(" · "),
             });
             if (b.ok) {
               booked = true;
@@ -146,6 +149,16 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
               // hoy no se puede cancelar mañana (ver cancelarCitaTool).
               if (b.uid) metadata.calBookingUid = b.uid;
               if (b.start ?? slot) metadata.calStart = String(b.start ?? slot);
+              // Comprobación: la hora que Cal.com guardó debe ser EXACTAMENTE la que se le
+              // ofreció al cliente. Si no coincide, se avisa al equipo en el acto.
+              if (b.start && Date.parse(b.start) !== Date.parse(slot)) {
+                console.error(`[calcom] hora distinta · ofrecida=${slot} guardada=${b.start}`);
+                const { notifyCamila } = await import("../lib/camila");
+                await notifyCamila(env, {
+                  heading: "⚠️ La hora de una videollamada no coincide",
+                  body: `Se le ofreció al cliente ${notaHoraEspana(slot)} pero Cal.com guardó ${notaHoraEspana(b.start)}. Revisa la reserva (${nombre}).`,
+                }).catch(() => false);
+              }
               metadata.estado = "Reservada (Cal.com)";
               calMessage = "Quedó reservada en la agenda.";
               if (b.meetingUrl) {
@@ -190,6 +203,18 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
       return { citaId: id, booked, ...(enlace ? { enlace } : {}), message: `Cita registrada. ${calMessage}` };
     },
   });
+}
+
+/** «Hora acordada con el cliente: jueves 15 de octubre, 18:30 (hora de España)». */
+export function notaHoraEspana(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(new Date(t))
+      .map((x) => [x.type, x.value]),
+  );
+  return `Hora acordada con el cliente: ${p.weekday} ${p.day} de ${p.month}, ${p.hour}:${p.minute} (hora de España)`;
 }
 
 export function cancelarCitaTool(env: Env, getConversationId: () => string | null) {

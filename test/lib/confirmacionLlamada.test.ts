@@ -29,3 +29,12 @@ describe("aseguraConfirmacionLlamada", () => {
     expect(aseguraConfirmacionLlamada("hola", [])).toBe("hola");
   });
 });
+
+describe("nota de hora de España en la reserva", () => {
+  it("el mismo instante se escribe en hora de España", async () => {
+    const { notaHoraEspana } = await import("../../src/tools/servicios");
+    // 16:30 UTC = 18:30 en España (CEST) = 11:30 en Colombia: es la MISMA hora, solo cambia la zona.
+    expect(notaHoraEspana("2026-10-15T16:30:00.000Z")).toBe("Hora acordada con el cliente: jueves 15 de octubre, 18:30 (hora de España)");
+    expect(notaHoraEspana("no es fecha")).toBe("");
+  });
+});
