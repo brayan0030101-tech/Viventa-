@@ -94,7 +94,7 @@ const ESTILO_BASE = `<style>
 </style>`;
 
 /** Recuerda el tema elegido (claro / oscuro) y lo aplica antes de pintar, para que no parpadee. */
-const SCRIPT_TEMA = `<script>(function(){try{var t=localStorage.getItem('crm_tema');if(t!=='claro'&&t!=='oscuro')t='oscuro';document.documentElement.setAttribute('data-tema',t)}catch(e){document.documentElement.setAttribute('data-tema','oscuro')}})();
+const SCRIPT_TEMA = `<script>(function(){try{var t=localStorage.getItem('crm_tema');if(t!=='claro'&&t!=='oscuro')t='claro';document.documentElement.setAttribute('data-tema',t)}catch(e){document.documentElement.setAttribute('data-tema','claro')}})();
 function cambiarTema(){var h=document.documentElement,n=h.getAttribute('data-tema')==='claro'?'oscuro':'claro';h.setAttribute('data-tema',n);try{localStorage.setItem('crm_tema',n)}catch(e){}var b=document.getElementById('btn-tema');if(b)b.textContent=n==='claro'?'🌙 Modo oscuro':'☀️ Modo claro'}
 document.addEventListener('DOMContentLoaded',function(){var b=document.getElementById('btn-tema');if(b)b.textContent=document.documentElement.getAttribute('data-tema')==='claro'?'🌙 Modo oscuro':'☀️ Modo claro'});</script>`;
 
