@@ -138,10 +138,10 @@ function etiqueta(k: string): string {
 }
 
 /** Pestañas del CRM: Leads | Calendario. */
-export function subnav(activo: "leads" | "calendario"): string {
+export function subnav(activo: "leads" | "calendario" | "informes"): string {
   const tab = (id: string, href: string, texto: string) =>
     `<a href="${href}" style="padding:9px 16px;font-size:12.5px;font-weight:600;letter-spacing:.04em;border-bottom:2px solid ${activo === id ? "var(--accent)" : "transparent"};color:${activo === id ? "var(--cream)" : "var(--muted)"}">${texto}</a>`;
-  return `<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", "/admin/crm", "👥 Leads")}${tab("calendario", "/admin/crm/calendario", "📅 Calendario de llamadas")}</div>`;
+  return `<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", "/admin/crm", "👥 Leads")}${tab("calendario", "/admin/crm/calendario", "📅 Calendario de llamadas")}${tab("informes", "/admin/crm/informes", "📊 Informes")}</div>`;
 }
 
 // ─── Lista de leads ──────────────────────────────────────────────────────────

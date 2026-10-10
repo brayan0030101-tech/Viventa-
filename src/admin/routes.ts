@@ -999,6 +999,20 @@ adminApp.get("/crm/c/:id/ficha.xlsx", async (c) => {
     },
   });
 });
+adminApp.get("/crm/informes", async (c) => {
+  const { renderCrmInformes, periodoValido } = await import("../../member/crm-informes.local");
+  return c.html(await renderCrmInformes(c.env, periodoValido(c.req.query("p"))));
+});
+adminApp.get("/crm/informes.xlsx", async (c) => {
+  const { excelInforme, periodoValido } = await import("../../member/crm-informes.local");
+  const data = await excelInforme(c.env, periodoValido(c.req.query("p")));
+  return new Response(data as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="informe-viventa-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    },
+  });
+});
 adminApp.get("/crm/c/:id", async (c) => {
   const { renderCrmFicha } = await import("../../member/crm.local");
   const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1" });

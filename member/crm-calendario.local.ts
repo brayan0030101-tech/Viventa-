@@ -21,6 +21,8 @@ export type EstadoLlamada = "agendada" | "pasada" | "cancelada";
 export interface LlamadaCrm {
   id: string;
   convId: string;
+  /** Cuándo se reservó (para medir cuántas llamadas agendó el bot en un periodo). */
+  creada: number;
   inicio: number;
   estado: EstadoLlamada;
   enlace: string;
@@ -39,8 +41,8 @@ const hm = (ms: number): string =>
 /** Todas las videollamadas de los últimos 150 días (y las futuras), con el nombre y la prioridad del cliente. */
 export async function cargarLlamadas(env: Env, now = Date.now()): Promise<LlamadaCrm[]> {
   const db = new Db(env.DB);
-  const rows = await db.all<{ id: string; conversation_id: string | null; name: string | null; metadata: string | null }>(
-    "SELECT id, conversation_id, name, metadata FROM leads WHERE intent LIKE 'Cita · Videollamada%' AND created_at > ? ORDER BY created_at ASC",
+  const rows = await db.all<{ id: string; conversation_id: string | null; name: string | null; metadata: string | null; created_at: number }>(
+    "SELECT id, conversation_id, name, metadata, created_at FROM leads WHERE intent LIKE 'Cita · Videollamada%' AND created_at > ? ORDER BY created_at ASC",
     [now - 150 * DIA],
   );
   const ids = [...new Set(rows.map((r) => r.conversation_id).filter((x): x is string => !!x))];
@@ -74,6 +76,7 @@ export async function cargarLlamadas(env: Env, now = Date.now()): Promise<Llamad
     out.push({
       id: r.id,
       convId: r.conversation_id,
+      creada: r.created_at,
       inicio,
       estado: cancelada ? "cancelada" : inicio < now ? "pasada" : "agendada",
       enlace: m.calMeetingUrl ?? "",
