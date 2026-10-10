@@ -391,7 +391,7 @@ function sidebar(activeTab: string, pro: boolean, niche: NichePack | null, t: (k
         </div>`}
         <div style="line-height:1.05">
           ${env ? brandMark(env) : `<div style="font-family:'Space Grotesk';font-weight:700;font-size:15px;letter-spacing:-.02em">Horizontes<span style="color:var(--accent)">AgentOS</span></div>`}
-          <div style="font-size:9.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase">Panel · ${pro ? "Pro" : "Free"}</div>
+          <div style="font-size:9.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase;margin-top:7px">Panel · ${pro ? "Pro" : "Free"}</div>
         </div>
       </div>
     </div>
@@ -451,7 +451,7 @@ export function layout(opts: { title: string; activeTab: string; body: string; e
   <div class="shell">
     ${sidebar(opts.activeTab, pro, niche, t, opts.env)}
     <div style="display:flex;flex-direction:column;min-width:0">
-      <header style="position:sticky;top:0;z-index:30;background:rgba(20,16,9,.9);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 26px;display:flex;align-items:center;gap:20px">
+      <header style="position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 26px;display:flex;align-items:center;gap:20px">
         <div style="min-width:0">
           <div style="font-size:10px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase">${t(section.labelKey)} / ${item.label}</div>
           <h1 style="font-family:'Space Grotesk';font-weight:700;font-size:22px;margin:2px 0 0;letter-spacing:-.02em">${item.label}</h1>

@@ -87,9 +87,9 @@ export async function cargarCrm(env: Env, now = Date.now()): Promise<FilaCrm[]> 
 // ─── Utilidades de presentación ──────────────────────────────────────────────
 
 const NIVEL = {
-  caliente: { icono: "🔥", nombre: "Caliente", color: "#f07a3f", orden: 0 },
-  tibio: { icono: "🟡", nombre: "Tibio", color: "#f5a623", orden: 1 },
-  frio: { icono: "⚪", nombre: "Frío", color: "#7aa2d6", orden: 2 },
+  caliente: { icono: "🔥", nombre: "Caliente", color: "#E60D6F", orden: 0 },
+  tibio: { icono: "🟡", nombre: "Tibio", color: "#F5A623", orden: 1 },
+  frio: { icono: "⚪", nombre: "Frío", color: "#8FA3D9", orden: 2 },
 } as const;
 
 function badgeNivel(n: LeadResumen["prioridad"]["nivel"], puntos?: number): string {
@@ -252,6 +252,11 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
 
   const vacio = `<div style="padding:44px 18px;text-align:center;color:var(--dim)">No hay leads con estos filtros.</div>`;
   const body = `${ESTILO_CRM}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:14px 18px;border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--panel)">
+      <div><div style="font-weight:700;font-size:16px;color:var(--cream)">Clientes de Maricela Naranjo</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">Viventa · compra de vivienda en Colombia desde el exterior</div></div>
+      <div style="font-size:11px;color:var(--dim)">${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long" }).format(new Date(now))}</div>
+    </div>
     ${kpis}
     ${filtros}
     <div class="crm-card" style="overflow-x:auto">
@@ -410,7 +415,7 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
         ? `<span style="color:var(--bad)">Falta: ${esc(falta.join(", "))}</span>`
         : `<span style="color:var(--accent)">Listo para registrar${lead && correoParaFormulario(lead).inventado ? " (correo inventado)" : ""}</span>`;
   const botonRegistro = lead && formUrl && !m.viventa_registrado && !m.viventa_existente && !falta.length
-    ? `<a class="bigbtn" href="${esc(urlFormulario(formUrl, lead))}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;background:var(--accent);color:#141009;padding:8px 14px;font-size:12px;font-weight:700">Abrir formulario de Zoho</a>`
+    ? `<a class="bigbtn" href="${esc(urlFormulario(formUrl, lead))}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;background:var(--accent);color:var(--bg);padding:8px 14px;font-size:12px;font-weight:700">Abrir formulario de Zoho</a>`
     : "";
 
   const ticketsHtml = tickets.length
@@ -432,7 +437,7 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
     ${card("Tickets", ticketsHtml)}
     ${card("Nota interna (solo equipo)", `<form method="POST" action="/admin/crm/c/${encodeURIComponent(convId)}/nota">
         <textarea name="nota" rows="4" class="crm-in" style="width:100%;resize:vertical" placeholder="Ej.: la llamé el lunes, prefiere por la tarde…">${esc(m.crm_nota ?? "")}</textarea>
-        <button class="bigbtn" style="margin-top:8px;background:var(--accent);color:#141009;padding:7px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">Guardar nota</button>
+        <button class="bigbtn" style="margin-top:8px;background:var(--accent);color:var(--bg);padding:7px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">Guardar nota</button>
         ${opts.guardado ? `<span style="color:var(--ok);font-size:12px;margin-left:10px">✔ Guardada</span>` : ""}
       </form>`)}`;
 
