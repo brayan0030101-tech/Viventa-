@@ -138,10 +138,10 @@ function etiqueta(k: string): string {
 }
 
 /** Pestañas del CRM: Leads | Calendario. */
-export function subnav(activo: "leads" | "calendario" | "informes"): string {
+export function subnav(activo: "leads" | "calendario" | "informes" | "recomendaciones"): string {
   const tab = (id: string, href: string, texto: string) =>
     `<a href="${href}" style="padding:9px 16px;font-size:12.5px;font-weight:600;letter-spacing:.04em;border-bottom:2px solid ${activo === id ? "var(--accent)" : "transparent"};color:${activo === id ? "var(--cream)" : "var(--muted)"}">${texto}</a>`;
-  return `<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", "/admin/crm", "👥 Leads")}${tab("calendario", "/admin/crm/calendario", "📅 Calendario de llamadas")}${tab("informes", "/admin/crm/informes", "📊 Informes")}</div>`;
+  return `<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", "/admin/crm", "👥 Leads")}${tab("calendario", "/admin/crm/calendario", "📅 Calendario de llamadas")}${tab("informes", "/admin/crm/informes", "📊 Informes")}${tab("recomendaciones", "/admin/crm/recomendaciones", "🧠 Recomendaciones")}</div>`;
 }
 
 // ─── Lista de leads ──────────────────────────────────────────────────────────
@@ -183,6 +183,7 @@ function ordenarCrm(filas: FilaCrm[]): FilaCrm[] {
 }
 
 export const ESTILO_CRM = `<style>
+  main ul,#modal-root ul{list-style:disc}
   .crm-card{background:var(--panel);border:1px solid var(--line)}
   .crm-kpi{display:block;padding:14px 16px;border:1px solid var(--line);background:var(--panel);transition:all .12s ease;color:inherit}
   .crm-kpi:hover{border-color:var(--accent);transform:translateY(-1px)}
@@ -356,7 +357,7 @@ export function burbujas(msgs: Array<{ role: string; content: string; created_at
     .join("");
 }
 
-export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?: boolean } = {}, now = Date.now()): Promise<string | null> {
+export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?: boolean; errorIA?: string } = {}, now = Date.now()): Promise<string | null> {
   const db = new Db(env.DB);
   const conv = await db.first<ConvRow>(
     "SELECT id, channel, channel_user_id, display_name, last_message_at, open_ticket_id, metadata FROM conversations WHERE id = ?",
@@ -453,7 +454,10 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
         ${opts.guardado ? `<span style="color:var(--ok);font-size:12px;margin-left:10px">✔ Guardada</span>` : ""}
       </form>`)}`;
 
-  const derecha = `<div class="crm-card" style="padding:16px">
+  const { tarjetaAnalisisConv } = await import("./crm-ia.local");
+  const tarjetaIA = await tarjetaAnalisisConv(env, convId, conv.last_message_at, { error: opts.errorIA });
+
+  const derecha = `${tarjetaIA}<div class="crm-card" style="padding:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap">
         <div class="crm-sec" style="margin:0">Conversación completa (${msgs.length} mensajes)</div>
         <a class="ghostbtn" href="/admin/conversations?c=${encodeURIComponent(convId)}" style="font-size:12px;border:1px solid var(--line);padding:6px 12px;color:var(--muted)">💬 Responder desde Conversaciones</a>

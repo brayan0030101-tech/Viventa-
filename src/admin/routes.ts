@@ -1013,9 +1013,29 @@ adminApp.get("/crm/informes.xlsx", async (c) => {
     },
   });
 });
+adminApp.post("/crm/c/:id/analizar", async (c) => {
+  const { analizarConversacion } = await import("../../member/crm-ia.local");
+  const id = decodeURIComponent(c.req.param("id"));
+  const body = await c.req.parseBody();
+  const r = await analizarConversacion(c.env, id, { forzar: body["forzar"] === "1" });
+  return c.redirect(`/admin/crm/c/${encodeURIComponent(id)}${r.ok ? "" : `?iaerror=${encodeURIComponent(r.error ?? "No se pudo analizar")}`}`);
+});
+adminApp.get("/crm/recomendaciones", async (c) => {
+  const { renderCrmRecomendaciones } = await import("../../member/crm-ia.local");
+  return c.html(await renderCrmRecomendaciones(c.env, { id: c.req.query("id") }));
+});
+adminApp.post("/crm/recomendaciones/generar", async (c) => {
+  const { analizarSemana, analisisSemanales, renderCrmRecomendaciones } = await import("../../member/crm-ia.local");
+  const previos = await analisisSemanales(c.env, 1);
+  if (previos[0] && Date.now() - previos[0].creado < 30 * 60_000) {
+    return c.html(await renderCrmRecomendaciones(c.env, { error: "Ya se generó un análisis hace menos de 30 minutos. Espera un poco para no gastar de más." }));
+  }
+  const r = await analizarSemana(c.env);
+  return c.html(await renderCrmRecomendaciones(c.env, r.ok ? { id: r.analisis?.id, mensaje: "✔ Análisis generado." } : { error: r.error }));
+});
 adminApp.get("/crm/c/:id", async (c) => {
   const { renderCrmFicha } = await import("../../member/crm.local");
-  const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1" });
+  const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1", errorIA: c.req.query("iaerror") || undefined });
   return html ? c.html(html) : c.text("Cliente no encontrado", 404);
 });
 adminApp.post("/crm/c/:id/nota", async (c) => {
