@@ -5,7 +5,8 @@ import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { BASE, conUsuario, crmLayout, paginaSimple, ESTILO_CAMPO, ESTILO_BOTON } from "./crm-shell.local";
+import { SettingsRepo } from "../src/db/settings";
+import { BASE, conUsuario, crmLayout, paginaSimple, reBase, modoValido, esEmbebido, ESTILO_CAMPO, ESTILO_BOTON, type ModoCrm } from "./crm-shell.local";
 import { LOGO_SVG } from "./crm-logo.local";
 
 // ─── Usuarios y sesiones (propios del CRM) ───────────────────────────────────
@@ -216,11 +217,13 @@ export function crmApp(): Hono<Vars> {
   const app = new Hono<Vars>();
   const opcionesCookie = { path: BASE, httpOnly: true, secure: true, sameSite: "Lax" as const, maxAge: TTL_SESION / 1000 };
   const origen = (c: { req: { url: string } }) => new URL(c.req.url).origin;
+  const soloAdminCtx = async (c: Context<Vars>) => c.get("usuario")?.rol === "admin";
 
   // Páginas públicas
   app.get("/logo.svg", (c) => new Response(LOGO_SVG, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } }));
 
   app.get("/login", async (c) => {
+    if ((await leerModo(c.env)) === "junto") return c.redirect("/admin/crm");
     if (!llaveSesion(c.env)) return c.text("El CRM todavía no está configurado (falta CRM_SESSION_SECRET).", 503);
     if (await usuarioDeSesion(c.env, getCookie(c, COOKIE))) return c.redirect(BASE);
     return c.html(paginaLogin());
@@ -260,8 +263,23 @@ export function crmApp(): Hono<Vars> {
     return c.redirect(BASE);
   });
 
-  // Todo lo demás exige sesión del CRM.
+  // ¿Dónde vive el CRM ahora? (ajuste «crm_modo», se cambia desde «Vista del CRM»).
   app.use("*", async (c, next) => {
+    if (esEmbebido(c.env)) return next(); // dentro del panel de Forja ya pasó por su acceso
+    const ruta = c.req.path.replace(/^\/crm/, "") || "/"; // la ruta llega completa cuando la app está montada en /crm
+    if (ruta === "/logo.svg") return next();
+    const modo = await leerModo(c.env);
+    if (modo === "junto") return c.redirect(`/admin/crm${ruta === "/" ? "" : ruta}`);
+    return next();
+  });
+
+  // Todo lo demás exige sesión del CRM (o, dentro del panel de Forja, la del panel).
+  app.use("*", async (c, next) => {
+    if (esEmbebido(c.env)) {
+      const e = c.env as unknown as { PANEL_NAME?: string; PANEL_EMAIL?: string; PANEL_ROLE?: string };
+      c.set("usuario", { id: "panel", correo: e.PANEL_EMAIL ?? "", nombre: e.PANEL_NAME ?? "Panel", rol: e.PANEL_ROLE === "staff" ? "equipo" : "admin" });
+      return next();
+    }
     if (!llaveSesion(c.env)) return c.text("El CRM todavía no está configurado (falta CRM_SESSION_SECRET).", 503);
     const u = await usuarioDeSesion(c.env, getCookie(c, COOKIE));
     if (!u) {
@@ -351,6 +369,38 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderCrmRecomendaciones(c.env, r.ok ? { id: r.analisis?.id, mensaje: "✔ Análisis generado." } : { error: r.error }));
   });
 
+  // Subir a Zoho
+  app.get("/zoho", async (c) => {
+    const { renderCrmZoho, pestanaValida } = await import("./crm-zoho.local");
+    return pagina(c, await renderCrmZoho(c.env, pestanaValida(c.req.query("tab")), { orden: c.req.query("orden") ?? undefined, mensaje: c.req.query("ok") ? `✔ ${decodeURIComponent(c.req.query("ok")!)}` : undefined }));
+  });
+  app.post("/zoho/marcar", async (c) => {
+    const { marcarZoho, pestanaValida } = await import("./crm-zoho.local");
+    const f = await c.req.parseBody({ all: true });
+    const ids = ([] as unknown[]).concat(f["ids"] ?? []).map(String);
+    const accion = f["accion"] === "existente" ? "existente" : f["accion"] === "deshacer" ? "deshacer" : "registrado";
+    const u = c.get("usuario");
+    const r = await marcarZoho(c.env, ids, accion, u?.nombre || u?.correo || "CRM");
+    const texto = accion === "deshacer" ? `${r.cambiados} cliente(s) vuelven a la cola` : accion === "existente" ? `${r.cambiados} cliente(s) marcados como ya existentes` : `${r.cambiados} cliente(s) marcados como subidos`;
+    return c.redirect(`${BASE}/zoho?tab=${pestanaValida(String(f["tab"] ?? ""))}&ok=${encodeURIComponent(texto)}`);
+  });
+  app.get("/zoho.xlsx", async (c) => {
+    const { excelPendientesZoho } = await import("./crm-zoho.local");
+    return xlsx(await excelPendientesZoho(c.env), "pendientes-zoho");
+  });
+
+  // Vista del CRM (separado / junto / ambos)
+  app.get("/modo", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede ver esto.", 403);
+    return pagina(c, await vistaModo(c.env, origen(c), c.req.query("ok") === "1"));
+  });
+  app.post("/modo", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede hacer esto.", 403);
+    const f = await c.req.parseBody();
+    await new SettingsRepo(new Db(c.env.DB)).set("crm_modo", modoValido(String(f["modo"] ?? "")));
+    return c.redirect(`${BASE}/modo?ok=1`);
+  });
+
   // Usuarios (solo administrador)
   const soloAdmin = async (c: Context<Vars>) => c.get("usuario")?.rol === "admin";
   app.get("/usuarios", async (c) => {
@@ -409,4 +459,64 @@ async function vistaUsuarios(env: Env, origen: string, invitacion?: string, erro
       <tbody>${us.map(fila).join("") || '<tr><td colspan="4" style="padding:20px;color:var(--dim)">Todavía no hay usuarios.</td></tr>'}</tbody></table></div>
     <p class="text-dim" style="font-size:11px;margin-top:10px">Estos usuarios son solo del CRM. No tienen relación con el panel de Forja.</p>`;
   return crmLayout({ title: "Usuarios", activa: "usuarios", body });
+}
+
+export async function leerModo(env: Env): Promise<ModoCrm> {
+  try {
+    return modoValido(await new SettingsRepo(new Db(env.DB)).get("crm_modo"));
+  } catch {
+    return "ambos";
+  }
+}
+
+async function vistaModo(env: Env, origen: string, guardado: boolean): Promise<string> {
+  const actual = await leerModo(env);
+  const opcion = (m: ModoCrm, titulo: string, texto: string) => `<form method="POST" action="${BASE}/modo" class="crm-card" style="padding:16px 18px;border:1px solid ${actual === m ? "var(--accent)" : "var(--line)"};${actual === m ? "background:var(--accent-soft);" : ""}display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px"><div style="font-weight:700;color:var(--cream);font-size:14.5px">${titulo}${actual === m ? ' <span style="color:var(--ok);font-size:12px">· activo ahora</span>' : ""}</div><div style="font-size:12.5px;color:var(--muted);margin-top:3px">${texto}</div></div>
+      <input type="hidden" name="modo" value="${m}">
+      <button class="bigbtn" ${actual === m ? "disabled" : ""} style="background:${actual === m ? "var(--line)" : "var(--accent)"};color:#fff;border:0;padding:9px 16px;font-size:12.5px;font-weight:700">${actual === m ? "Elegido" : "Usar este"}</button></form>`;
+  const body = `<style>.crm-card{background:var(--panel);border:1px solid var(--line)}</style>
+    ${guardado ? '<div class="crm-card" style="padding:10px 14px;margin-bottom:12px;color:var(--ok);font-size:12.5px">✔ Cambio guardado. Ya vale, sin esperar nada.</div>' : ""}
+    <p style="font-size:13px;color:var(--muted);margin:0 0 14px;max-width:760px">Aquí decides <b style="color:var(--cream)">dónde se ve el CRM</b>. Los datos son los mismos en cualquier opción (leads, llamadas, Zoho, informes): solo cambia por dónde se entra. Puedes cambiar cuando quieras, sin perder nada.</p>
+    <div style="display:grid;gap:12px;max-width:820px">
+      ${opcion("ambos", "Los dos a la vez (para comparar)", `Entras por <b>${esc(origen)}/crm</b> (CRM aparte, con su acceso propio) o por <b>${esc(origen)}/admin/crm</b> (dentro del panel de Forja). Úsalo mientras decides.`)}
+      ${opcion("separado", "Separado (CRM aparte)", `Solo funciona <b>${esc(origen)}/crm</b>, con sus propios usuarios y su diseño de Viventa. El panel de Forja deja de mostrar el botón «CRM».`)}
+      ${opcion("junto", "Junto (dentro del panel de Forja)", `Solo funciona <b>${esc(origen)}/admin/crm</b>, con el acceso del panel de Forja. La dirección <b>/crm</b> te manda ahí.`)}
+    </div>`;
+  return crmLayout({ title: "Vista del CRM", activa: "modo", body, env });
+}
+
+// ─── Dentro del panel de Forja ───────────────────────────────────────────────
+
+let interna: Hono<Vars> | null = null;
+
+/**
+ * Atiende /admin/crm/* con la misma aplicación del CRM, pero dentro del marco del panel de Forja
+ * y con el acceso del panel (que ya validó la sesión). Reescribe los enlaces a /admin/crm.
+ */
+export async function atenderEmbebido(request: Request, env: Env): Promise<Response> {
+  const modo = await leerModo(env);
+  const url = new URL(request.url);
+  if (modo === "separado") return Response.redirect(`${url.origin}${BASE}`, 302);
+  interna ??= crmApp();
+  const resto = url.pathname.replace(/^\/admin\/crm/, "") || "/";
+  // Dentro del panel de Forja, SOLO las páginas del CRM se pintan con la marca de Viventa (el resto del panel no cambia).
+  const entorno = {
+    ...env, CRM_BASE: "/admin/crm", CRM_SHELL: "forja", CRM_EMBEBIDO: "1",
+    BRAND_NAME: "Maricela Naranjo · Viventa", BRAND_LOGO_URL: "/brand/logo", BRAND_ACCENT: "#E60D6F",
+    BRAND_ACCENT_2: "#F2A2C6", BRAND_SURFACE: "#161A33", BRAND_FONT: "Poppins",
+  } as Env;
+  const res = await interna.fetch(new Request(`${url.origin}${resto}${url.search}`, request), entorno);
+  const loc = res.headers.get("location");
+  if (loc && loc.startsWith(BASE)) {
+    const h = new Headers(res.headers);
+    h.set("location", `/admin/crm${loc.slice(BASE.length)}`);
+    return new Response(null, { status: res.status, headers: h });
+  }
+  if ((res.headers.get("content-type") ?? "").includes("text/html")) {
+    const h = new Headers(res.headers);
+    h.delete("content-length");
+    return new Response(reBase(await res.text(), "/admin/crm"), { status: res.status, headers: h });
+  }
+  return res;
 }

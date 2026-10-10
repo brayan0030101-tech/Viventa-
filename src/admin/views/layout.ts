@@ -47,6 +47,7 @@ const NAV: Section[] = [
   {
     labelKey: "nav.bandeja" as const,
     items: [
+      { id: "crm", labelKey: "nav.crm" as const, href: "/admin/crm", icon: "contact" },
       { id: "conversations", labelKey: "nav.conversations" as const, href: "/admin/conversations", icon: "messages-square" },
       { id: "boveda", labelKey: "nav.boveda" as const, href: "/admin/boveda", icon: "images" },
       { id: "leads", labelKey: "nav.leads" as const, href: "/admin/leads", icon: "user-plus" },

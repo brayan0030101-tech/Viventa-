@@ -1,8 +1,27 @@
 // member/crm-shell.local.ts — el «marco» del CRM de Viventa: totalmente independiente del panel
 // de Forja (otra dirección, otro acceso, otro diseño). Colores y logo de viventa.co.
 import type { Env } from "../src/env";
+import { layout as layoutForja } from "../src/admin/views/layout";
 
 export const BASE = "/crm";
+
+/** Dónde vive el CRM: «separado» (/crm, su propio acceso), «junto» (dentro del panel de Forja, /admin/crm) o «ambos». */
+export type ModoCrm = "separado" | "junto" | "ambos";
+export function modoValido(v: string | null | undefined): ModoCrm {
+  const t = (v ?? "").trim().toLowerCase();
+  return t === "separado" || t === "junto" ? t : "ambos";
+}
+
+type EntornoCrm = Env & { CRM_BASE?: string; CRM_SHELL?: string };
+/** Ruta base con la que se pintan los enlaces: «/crm» (separado) o «/admin/crm» (dentro del panel de Forja). */
+export const baseDe = (env?: Env): string => (env as EntornoCrm | undefined)?.CRM_BASE ?? BASE;
+export const esEmbebido = (env?: Env): boolean => (env as EntornoCrm | undefined)?.CRM_SHELL === "forja";
+
+/** Cambia los enlaces «/crm…» de una página ya pintada por la ruta base elegida. */
+export function reBase(html: string, base: string): string {
+  if (base === BASE) return html;
+  return html.replace(/(href|action|hx-get|hx-post|src)="\/crm(?=[/?"#])/g, `$1="${base}`);
+}
 
 const esc = (v: string | null | undefined): string =>
   (v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -10,7 +29,7 @@ const esc = (v: string | null | undefined): string =>
 /** Marcador que cada ruta reemplaza con el usuario que tiene la sesión (sin tocar el env compartido). */
 export const MARCA_USUARIO = "<!--CRM_USUARIO-->";
 
-export type Seccion = "leads" | "calendario" | "informes" | "recomendaciones" | "usuarios";
+export type Seccion = "leads" | "calendario" | "informes" | "recomendaciones" | "zoho" | "usuarios" | "modo";
 
 const ESTILO_BASE = `<style>
   :root{
@@ -68,7 +87,9 @@ const ITEMS: Array<{ id: Seccion; href: string; icono: string; texto: string; so
   { id: "calendario", href: `${BASE}/calendario`, icono: "📅", texto: "Calendario de llamadas" },
   { id: "informes", href: `${BASE}/informes`, icono: "📊", texto: "Informes" },
   { id: "recomendaciones", href: `${BASE}/recomendaciones`, icono: "🧠", texto: "Recomendaciones" },
+  { id: "zoho", href: `${BASE}/zoho`, icono: "📤", texto: "Subir a Zoho" },
   { id: "usuarios", href: `${BASE}/usuarios`, icono: "🔑", texto: "Usuarios", soloAdmin: true },
+  { id: "modo", href: `${BASE}/modo`, icono: "⚙️", texto: "Vista del CRM", soloAdmin: true },
 ];
 
 const TITULOS: Record<Seccion, string> = {
@@ -76,10 +97,23 @@ const TITULOS: Record<Seccion, string> = {
   calendario: "Calendario de llamadas",
   informes: "Informes",
   recomendaciones: "Recomendaciones",
+  zoho: "Subir clientes a Zoho",
   usuarios: "Usuarios",
+  modo: "Vista del CRM",
 };
 
+/** Pestañas internas para cuando el CRM se ve DENTRO del panel de Forja (allí solo hay un botón «CRM»). */
+function tabsEmbebidas(activa: Seccion): string {
+  const tab = (id: Seccion, href: string, texto: string) =>
+    `<a href="${href}" style="padding:9px 16px;font-size:12.5px;font-weight:600;border-bottom:2px solid ${activa === id ? "var(--accent)" : "transparent"};color:${activa === id ? "var(--cream)" : "var(--muted)"}">${texto}</a>`;
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", `${BASE}`, "👥 Leads")}${tab("calendario", `${BASE}/calendario`, "📅 Calendario")}${tab("informes", `${BASE}/informes`, "📊 Informes")}${tab("recomendaciones", `${BASE}/recomendaciones`, "🧠 Recomendaciones")}${tab("zoho", `${BASE}/zoho`, "📤 Subir a Zoho")}${tab("modo", `${BASE}/modo`, "⚙️ Vista")}</div>`;
+}
+
 export function crmLayout(opts: { title: string; activa: Seccion; body: string; env?: Env }): string {
+  if (esEmbebido(opts.env)) {
+    // Dentro del panel de Forja: se usa su marco y se añaden las pestañas del CRM.
+    return layoutForja({ title: `CRM · ${opts.title}`, activeTab: "crm", body: tabsEmbebidas(opts.activa) + opts.body, env: opts.env });
+  }
   const nav = ITEMS.map((i) => `<a class="nav${i.id === opts.activa ? " on" : ""}" href="${i.href}" data-solo-admin="${i.soloAdmin ? "1" : "0"}"><span>${i.icono}</span>${i.texto}</a>`).join("");
   return `<!DOCTYPE html>
 <html lang="es"><head>

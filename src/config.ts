@@ -31,7 +31,7 @@ export function isToolAvailable(env: Env, toolName: string): boolean {
 // CSV de ids del NAV de admin/views/layout.ts). "overview" no está a propósito:
 // siempre debe quedar una tab de aterrizaje (el guard de rutas redirige ahí).
 export const HIDEABLE_TABS = [
-  "conversations", "boveda", "leads", "cobros", "tickets", "reviews", "campanas",
+  "conversations", "crm", "boveda", "leads", "cobros", "tickets", "reviews", "campanas",
   "plantillas", "agente", "kb", "mejoras", "conexiones", "config",
   "insights", "stats", "costs", "equipo",
 ] as const;
@@ -71,6 +71,12 @@ export function staffHiddenTabs(env: Env): string[] {
 }
 
 export function hiddenTabs(env: Env): string[] {
+  const base = hiddenTabsBase(env);
+  // El CRM de Viventa vive como aplicación aparte cuando el modo es «separado»: sin botón en el panel.
+  return (env as unknown as { CRM_MODO?: string }).CRM_MODO === "separado" && !base.includes("crm") ? [...base, "crm"] : base;
+}
+
+function hiddenTabsBase(env: Env): string[] {
   // El rol de la sesión lo estampa el middleware de auth en el env request-scoped
   // (mismo patrón que applyPanelLanguage). Merge: staff se suma a lo que la
   // agencia ya ocultó — así UN solo punto gobierna nav Y guard de rutas.

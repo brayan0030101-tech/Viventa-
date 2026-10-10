@@ -107,6 +107,12 @@ adminApp.use("*", async (c, next) => {
       const e = c.env as unknown as Record<string, string | undefined>;
       e.PANEL_ROLE = rol;
       e.PANEL_UID = uid;
+      // Dónde vive el CRM de Viventa (ajuste crm_modo): decide si el panel muestra el botón «CRM».
+      {
+        const { SettingsRepo: Ajustes } = await import("../db/settings");
+        const { modoValido } = await import("../../member/crm-shell.local");
+        e.CRM_MODO = modoValido(await new Ajustes(db).get("crm_modo").catch(() => null));
+      }
       if (rol === "staff") {
         // Visibilidad configurada por el admin (tab Equipo) — hiddenTabs() la lee
         // de aquí, y como hiddenTabs gobierna nav Y rutas, aplica de verdad.
@@ -963,6 +969,10 @@ adminApp.post("/agente/node/brain/tools/:name/toggle", async (c) => {
 });
 
 adminApp.get("/leads", async (c) => c.html(await renderLeads(c.env)));
+
+// CRM de Viventa dentro del panel (modo «junto» o «ambos»): la misma aplicación de /crm con el marco de Forja.
+adminApp.all("/crm", async (c) => (await import("../../member/crm-app.local")).atenderEmbebido(c.req.raw, c.env));
+adminApp.all("/crm/*", async (c) => (await import("../../member/crm-app.local")).atenderEmbebido(c.req.raw, c.env));
 
 adminApp.get("/tickets", async (c) => c.html(await renderTickets(c.env)));
 
