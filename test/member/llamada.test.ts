@@ -12,7 +12,7 @@ vi.mock("../../src/integrations/calcom", async (importOriginal) => {
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { elegirOpciones, armarDias, tachar, proponerLlamadaTool } from "../../member/llamada.local";
+import { elegirOpciones, armarDias, tachar, proponerLlamadaTool, botonDia, botonesHoras } from "../../member/llamada.local";
 import { llamadasAgendadas } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -175,5 +175,18 @@ describe("interruptor de la oferta de llamada", () => {
   it("en modo activo se ofrece a todos los calientes/tibios", async () => {
     await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('viventa_llamada_modo','activo',1)");
     expect((await correr("ycloud:34600000001")).ofrecerLlamada).toBe(true);
+  });
+});
+
+describe("botones de la videollamada", () => {
+  it("botonDia cabe en 20 caracteres", () => {
+    const t = botonDia("2026-10-12T08:00:00Z");
+    expect(t.length).toBeLessThanOrEqual(20);
+    expect(t).toMatch(/^Lun 12 oct/);
+  });
+  it("botonesHoras reparte máx 3 horas", () => {
+    const ops = [{ hora: "10:00" }, { hora: "12:00" }, { hora: "13:30" }, { hora: "15:30" }];
+    expect(botonesHoras(ops)).toEqual(["10:00", "12:00", "15:30"]);
+    expect(botonesHoras(ops.slice(0, 2))).toEqual(["10:00", "12:00"]);
   });
 });

@@ -47,7 +47,7 @@ export interface ReplyButton {
 // Canales que renderizan botones NATIVOS. El resto recibe el fallback numerado
 // en texto (sender.ts) — nada se rompe, nadie ve el marcador crudo.
 export const BUTTON_CHANNELS: ReadonlySet<ChannelId> = new Set([
-  "telegram", "whatsapp", "zernio", "messenger", "instagram",
+  "telegram", "whatsapp", "zernio", "messenger", "instagram", "ycloud",
 ]);
 
 // Archivo de la Galería (superpoder, ver skill/galeria.md) que el bot manda en

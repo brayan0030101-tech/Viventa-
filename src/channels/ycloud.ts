@@ -41,6 +41,8 @@ interface YCloudInboundMessage {
   to?: string;
   type?: string;
   text?: { body?: string };
+  // Toque de un botón (reply buttons) o de una lista interactiva.
+  interactive?: { button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
   image?: YCloudMedia;
   audio?: YCloudMedia;
   document?: YCloudMedia & { filename?: string };
@@ -235,6 +237,8 @@ export async function parseYCloudEvents(
 
   if (m.type === "text") {
     text = m.text?.body || undefined;
+  } else if (m.type === "interactive") {
+    text = m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || undefined;
   } else if (m.type === "image" && m.image?.id) {
     imageUrl = (await signedMediaUrl(m.image.id, env, origin, m.image.link)) ?? undefined;
     text = m.image.caption || undefined;
@@ -344,15 +348,36 @@ export const ycloudAdapter: ChannelAdapter = {
     for (let i = 0; i < reply.chunks.length; i++) {
       const delay = i === 0 ? 0 : reply.interChunkDelayMs ?? 1000;
       if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+      // Botones: el ÚLTIMO chunk sale como mensaje interactivo (máx 3, títulos
+      // ≤20; el body de WhatsApp tope a 1024). Si no cabe, lista numerada.
+      const esUltimo = i === reply.chunks.length - 1;
+      const conBotones = esUltimo && !!reply.buttons?.length && reply.chunks[i].length <= 1024;
+      const cuerpo =
+        esUltimo && !!reply.buttons?.length && !conBotones
+          ? `${reply.chunks[i]}\n\n${reply.buttons.map((b, n) => `${n + 1}) ${b.title}`).join("\n")}`
+          : reply.chunks[i];
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-        body: JSON.stringify({
-          from,
-          to: `+${reply.channelUserId}`,
-          type: "text",
-          text: { body: reply.chunks[i] },
-        }),
+        body: JSON.stringify(
+          conBotones
+            ? {
+                from,
+                to: `+${reply.channelUserId}`,
+                type: "interactive",
+                interactive: {
+                  type: "button",
+                  body: { text: reply.chunks[i] },
+                  action: {
+                    buttons: reply.buttons!.slice(0, 3).map((b, n) => ({
+                      type: "reply",
+                      reply: { id: (b.payload || `btn:${n}`).slice(0, 256), title: b.title.slice(0, 20) },
+                    })),
+                  },
+                },
+              }
+            : { from, to: `+${reply.channelUserId}`, type: "text", text: { body: cuerpo } },
+        ),
       });
       // Fuera de la ventana de 24h Meta rechaza texto libre (pide plantilla HSM):
       // logéalo con el cuerpo para ver el motivo exacto, no lo tragues en

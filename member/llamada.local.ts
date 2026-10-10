@@ -41,6 +41,21 @@ function sumarDias(fecha: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const DIA_CORTO = new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "short", day: "numeric", month: "short" });
+
+/** Título de botón del día (≤ 20 caracteres): «Lun 12 oct». */
+export function botonDia(iso: string): string {
+  const t = DIA_CORTO.format(new Date(iso)).replace(/\./g, "").replace(",", "");
+  return (t.charAt(0).toUpperCase() + t.slice(1)).slice(0, 20);
+}
+
+/** Hasta 3 horas repartidas (el máximo de botones) para el paso «elige hora». */
+export function botonesHoras(opciones: Array<{ hora: string }>): string[] {
+  const n = opciones.length;
+  const idx = n <= 3 ? opciones.map((_, i) => i) : [0, Math.floor((n - 1) / 2), n - 1];
+  return [...new Set(idx)].map((i) => opciones[i].hora);
+}
+
 const POR_DIA = 4;
 const MAX_TACHADOS_POR_DIA = 2;
 
@@ -173,10 +188,17 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           necesitaCorreo: !lead.correo,
           correoDelCliente: lead.correo || undefined,
           telefono: lead.telefono || undefined,
-          dias: dias.map((d) => ({ dia: d.dia, linea: d.linea, opciones: d.opciones.map((o) => ({ hora: o.hora, startTime: o.startTime })) })),
+          dias: dias.map((d) => ({
+            dia: d.dia,
+            boton: botonDia(d.opciones[0].startTime),
+            linea: d.linea,
+            marcadorHoras: `[[botones: ${botonesHoras(d.opciones).join(" | ")}]]`,
+            opciones: d.opciones.map((o) => ({ hora: o.hora, startTime: o.startTime })),
+          })),
+          marcadorDias: `[[botones: ${dias.slice(0, 3).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]`,
           opciones,
           message: opciones.length
-            ? "Ofrece estas opciones en UN solo mensaje, una línea por día copiando cada `linea` tal cual (los horarios tachados YA están ocupados por otros clientes: no inventes otros ni los ofrezcas), y di 'hora de España'."
+            ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas) y termina con el `marcadorHoras` de ese día. Siempre 'hora de España'."
             : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",
         };
       } catch (e) {

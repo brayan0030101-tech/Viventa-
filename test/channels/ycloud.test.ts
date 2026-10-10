@@ -34,6 +34,7 @@ import {
   normalizeYCloudEvents,
   isForThisNumber,
   serveYCloudMedia,
+  ycloudAdapter,
 } from "../../src/channels/ycloud";
 
 const ORIGIN = "https://bot.example.workers.dev";
@@ -341,3 +342,28 @@ describe("media con enlace firmado de YCloud (causa de los audios '(no pude ente
   });
 });
 
+
+describe("botones de WhatsApp (YCloud)", () => {
+  it("el toque de un botón llega como texto con su título", async () => {
+    const out = await parseYCloudEvents(
+      inbound({ id: "i2", wamid: "w2", from: "+34600000000", type: "interactive", interactive: { button_reply: { id: "btn:Mar 13 oct", title: "Mar 13 oct" } } }) as any,
+      env,
+      ORIGIN,
+    );
+    expect(out[0]?.text).toBe("Mar 13 oct");
+  });
+
+  it("sendReply manda mensaje interactivo con los botones en el último chunk", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await ycloudAdapter.sendReply(
+      { channel: "ycloud", channelUserId: "34600000000", chunks: ["¿Qué día te queda mejor?"], buttons: [{ title: "Lun 12 oct", payload: "btn:Lun 12 oct" }, { title: "Mar 13 oct", payload: "btn:Mar 13 oct" }] },
+      { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any,
+    );
+    const body = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(body.type).toBe("interactive");
+    expect(body.interactive.action.buttons).toHaveLength(2);
+    expect(body.interactive.action.buttons[0].reply.title).toBe("Lun 12 oct");
+    vi.unstubAllGlobals();
+  });
+});

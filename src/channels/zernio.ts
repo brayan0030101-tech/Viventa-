@@ -152,7 +152,11 @@ export function parseZernioEvents(ev: ZernioEvent): IncomingMessage[] {
       displayName: m.sender?.username || m.sender?.name || undefined,
       // Tap de botón sin texto (algunas plataformas mandan solo el payload):
       // se usa el payload/callback como texto para que el cerebro lo entienda.
-      text: m.text || m.metadata?.interactiveId || m.metadata?.callbackData || undefined,
+      text:
+        m.text ||
+        // El payload de nuestros botones es "btn:<título>": el cliente "dijo" el título.
+        (m.metadata?.interactiveId || m.metadata?.callbackData || "").replace(/^btn:/, "") ||
+        undefined,
       imageUrl,
       audioUrl,
       fileUrl,
