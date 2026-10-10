@@ -372,7 +372,7 @@ export function crmApp(): Hono<Vars> {
   // Subir a Zoho
   app.get("/zoho", async (c) => {
     const { renderCrmZoho, pestanaValida } = await import("./crm-zoho.local");
-    return pagina(c, await renderCrmZoho(c.env, pestanaValida(c.req.query("tab")), { orden: c.req.query("orden") ?? undefined, mensaje: c.req.query("ok") ? `✔ ${decodeURIComponent(c.req.query("ok")!)}` : undefined }));
+    return pagina(c, await renderCrmZoho(c.env, pestanaValida(c.req.query("tab")), { orden: c.req.query("orden") ?? undefined, nivel: c.req.query("nivel") ?? undefined, mensaje: c.req.query("ok") ? `✔ ${decodeURIComponent(c.req.query("ok")!)}` : undefined }));
   });
   app.post("/zoho/marcar", async (c) => {
     const { marcarZoho, pestanaValida } = await import("./crm-zoho.local");

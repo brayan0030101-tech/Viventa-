@@ -162,3 +162,15 @@ describe("separado / junto", () => {
     expect(await pag.text()).toContain("activo ahora");
   });
 });
+
+describe("filtro de prioridad en Subir a Zoho", () => {
+  it("filtra la cola por prioridad", async () => {
+    const todo = await renderCrmZoho(env, "pendientes", {}, NOW);
+    expect(todo).toContain("Ana López Ruiz");
+    const sin = await renderCrmZoho(env, "pendientes", { nivel: "frio" }, NOW);
+    expect(sin).not.toContain("Ana López Ruiz");
+    expect(sin).toContain("Prioridad:");
+    const cal = await renderCrmZoho(env, "pendientes", { nivel: "caliente" }, NOW);
+    expect(cal).toContain("Ana López Ruiz");
+  });
+});

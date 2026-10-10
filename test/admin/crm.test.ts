@@ -93,3 +93,17 @@ describe("otros", () => {
     expect(String.fromCharCode(x[0], x[1])).toBe("PK");
   });
 });
+
+describe("filtro de prioridad", () => {
+  it("la lista trae el desplegable de prioridad y filtra por caliente / tibio / frío", async () => {
+    const html = await renderCrmLista(env, { nivel: "caliente" }, NOW);
+    expect(html).toContain('name="nivel"');
+    expect(html).toContain("🔥 Calientes");
+    expect(html).toContain('<option value="caliente" selected>');
+    expect(html).toContain("Ana López Ruiz");
+    expect(html).not.toContain("pepe_ig"); // el frío queda fuera
+    const frios = await renderCrmLista(env, { nivel: "frio" }, NOW);
+    expect(frios).toContain("pepe_ig");
+    expect(frios).not.toContain("Ana López Ruiz");
+  });
+});

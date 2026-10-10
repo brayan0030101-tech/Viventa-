@@ -176,12 +176,13 @@ const ESTILO_ZOHO = `<style>
   @media (max-width:1100px){.zh-row{grid-template-columns:1fr 1fr}.zh-head{display:none}}
 </style>`;
 
-export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mensaje?: string; orden?: string } = {}, now = Date.now()): Promise<string> {
+export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mensaje?: string; orden?: string; nivel?: string } = {}, now = Date.now()): Promise<string> {
   const todas = await cargarZoho(env, now);
   const r = resumenZoho(todas, now);
   const db = new Db(env.DB);
   const formUrl = ((await new SettingsRepo(db).get(SETTING_FORM_URL)) ?? "").trim();
-  let filas = todas.filter((f) => f.estado === ESTADO_DE[pestana]);
+  const nivel = opts.nivel === "caliente" || opts.nivel === "tibio" || opts.nivel === "frio" ? opts.nivel : "";
+  let filas = todas.filter((f) => f.estado === ESTADO_DE[pestana] && (!nivel || f.lead.prioridad.nivel === nivel));
   if (pestana === "pendientes") {
     filas = opts.orden === "prioridad"
       ? filas.sort((a, b) => NIVEL[a.lead.prioridad.nivel].orden - NIVEL[b.lead.prioridad.nivel].orden || b.lead.prioridad.puntos - a.lead.prioridad.puntos)
@@ -265,6 +266,12 @@ export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mens
     ${progreso}${kpis}
     <p class="text-dim" style="font-size:12px;margin:0 0 10px">${esc(ayuda[pestana])}</p>
     ${!formUrl && pestana === "pendientes" ? `<div class="crm-card" style="padding:10px 14px;margin-bottom:10px;color:var(--accent-2);font-size:12.5px">Falta configurar el enlace del formulario de Zoho (ajuste «viventa_form_url»); sin él no aparece el botón «Abrir formulario».</div>` : ""}
+    <form method="GET" action="/crm/zoho" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <input type="hidden" name="tab" value="${pestana}">${opts.orden ? `<input type="hidden" name="orden" value="${esc(opts.orden)}">` : ""}
+      <label style="font-size:12px;color:var(--muted)">Prioridad:</label>
+      <select name="nivel" class="crm-in" onchange="this.form.submit()">${[["", "Toda"], ["caliente", "🔥 Calientes"], ["tibio", "🟡 Tibios"], ["frio", "⚪ Fríos"]].map(([v, t]) => `<option value="${v}"${nivel === v ? " selected" : ""}>${t}</option>`).join("")}</select>
+      <span class="text-dim" style="font-size:11.5px">${filas.length} cliente(s)</span>
+    </form>
     ${barraLote}${tabla}`;
   return crmLayout({ title: "Subir a Zoho", activa: "zoho", body, env });
 }

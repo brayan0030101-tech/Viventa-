@@ -236,7 +236,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
       .join("")}</select>`;
   const filtros = `<form method="GET" action="/crm" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <input class="crm-in" type="search" name="q" value="${esc(f.q)}" placeholder="Buscar por nombre, teléfono, correo o ciudad…" style="min-width:280px;flex:1">
-    ${f.nivel ? `<input type="hidden" name="nivel" value="${esc(f.nivel)}">` : ""}
+    ${sel("nivel", f.nivel, [["", "Toda prioridad"], ["caliente", "🔥 Calientes"], ["tibio", "🟡 Tibios"], ["frio", "⚪ Fríos"]])}
     ${sel("canal", f.canal, [["", "Todos los canales"], ["whatsapp", "WhatsApp"], ["instagram", "Instagram"]])}
     ${sel("estado", f.estado, [["", "Cualquier estado"], ["con_llamada", "Con llamada agendada"], ["sin_llamada", "Sin llamada"], ["registrado", "Ya registrado en Zoho"], ["sin_registrar", "Sin registrar en Zoho"]])}
     <button class="crm-in" style="cursor:pointer">Buscar</button>
