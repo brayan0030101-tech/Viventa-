@@ -1011,6 +1011,8 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         const conPregunta = [...textosPorPaso.slice(0, -1)].reverse().find((t) => t.includes("?"));
         assistantText = soloConfirma && conPregunta ? conPregunta : ultimo;
       }
+      // Videollamada reservada: el cliente siempre recibe confirmación + enlace.
+      assistantText = (await import("./lib/confirmacionLlamada")).aseguraConfirmacionLlamada(assistantText, steps as any[]);
       toolCallCount = steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0);
       // Persist what the agent DID (not just what it said): tool name + input,
       // feeding the dashboard's thread chips, stats and the Mi Agente counters.
