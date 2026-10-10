@@ -195,6 +195,7 @@ describe("videollamada: recordatorios y resumen", () => {
     expect(text).toContain("mañana");
     expect(text).toContain("(hora de España)");
     expect(text).toMatch(/\b1[3-9]:\d\d\b/);
+    expect((sendOutboundMock.mock.calls[0][1].buttons as { title: string }[]).map((b) => b.title)).toEqual(["Confirmo", "Reprogramar"]);
     expect((await runRecordatoriosLlamada(env, NOW + 5 * 60_000)).r24).toBe(0);
   });
 

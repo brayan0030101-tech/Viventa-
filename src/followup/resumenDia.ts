@@ -336,6 +336,29 @@ function madridParts(now: number): { hora: number; dia: string } {
   return { hora: Number(p.hour) % 24, dia: `${p.year}-${p.month}-${p.day}` };
 }
 
+/**
+ * Línea del resumen: cuántas videollamadas agendó el bot y cuántas se le fueron a
+ * Maricela por el comodín («otro horario»). Tablas chicas, una vez al día.
+ */
+export async function lineaLlamadas(db: Db, now: number): Promise<string> {
+  const cuenta = async (desde: number) => {
+    const agendadas = await db.first<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM leads
+        WHERE created_at > ? AND intent LIKE 'Cita · Videollamada%'
+          AND json_extract(COALESCE(metadata, '{}'), '$.estado') = 'Reservada (Cal.com)'`,
+      [desde],
+    );
+    const comodin = await db.first<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM tickets WHERE created_at > ? AND summary LIKE '%otro horario%'",
+      [desde],
+    );
+    return { a: agendadas?.n ?? 0, c: comodin?.n ?? 0 };
+  };
+  const dia = await cuenta(now - 24 * H);
+  const semana = await cuenta(now - 7 * 24 * H);
+  return `📞 Llamadas · el bot agendó ${dia.a} (pasó a Maricela por otro horario: ${dia.c}) · últimos 7 días: ${semana.a} agendadas, ${semana.c} por comodín`;
+}
+
 export async function runResumenDia(env: Env, now = Date.now()): Promise<{ sent: boolean; leads: number }> {
   const { hora, dia } = madridParts(now);
   if (hora !== 8 || !camilaConfigured(env)) return { sent: false, leads: 0 };
@@ -365,6 +388,11 @@ export async function runResumenDia(env: Env, now = Date.now()): Promise<{ sent:
   const settings = new SettingsRepo(db);
   const formUrl = ((await settings.get(SETTING_FORM_URL)) ?? "").trim() || undefined;
   const msgs = mensajesResumen(leads, url, formUrl);
+  try {
+    msgs[0] = `${await lineaLlamadas(db, now)}\n\n${msgs[0]}`;
+  } catch (e) {
+    console.error("[resumenDia] lineaLlamadas:", e);
+  }
   for (let i = 0; i < msgs.length; i++) {
     await notifyCamila(env, {
       heading: i === 0 ? "☀️ Resumen del día" : `☀️ Resumen del día (${i + 1}/${msgs.length})`,

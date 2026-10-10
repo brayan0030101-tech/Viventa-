@@ -18,7 +18,7 @@ import type { ChannelId } from "../channels/shared";
  *  rechaza el envío (el llamador lo captura por candidato). */
 export async function sendOutbound(
   env: Env,
-  target: { conversationId: string; channel: string; channelUserId: string; text: string },
+  target: { conversationId: string; channel: string; channelUserId: string; text: string; buttons?: { title: string; payload: string }[] },
   now: number = Date.now(),
 ): Promise<void> {
   const db = new Db(env.DB);
@@ -31,6 +31,7 @@ export async function sendOutbound(
       channelUserId: target.channelUserId,
       chunks: [target.text],
       interChunkDelayMs: 0,
+      ...(target.buttons?.length ? { buttons: target.buttons } : {}),
     },
     env,
   );

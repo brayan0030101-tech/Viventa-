@@ -22,7 +22,7 @@ const NOW = Date.UTC(2026, 9, 12, 6, 0);
 const slot = (fecha: string, hhmm: string) => `${fecha}T${hhmm}:00.000+02:00`;
 
 describe("elegirOpciones", () => {
-  it("hasta 4 horarios por día repartidos, en los primeros 3 días hábiles, solo 10:00–15:30", () => {
+  it("hasta 4 horarios por día repartidos, en los primeros 5 días hábiles, solo 10:00–15:30", () => {
     const byDate = {
       "2026-10-12": [slot("2026-10-12", "09:30"), slot("2026-10-12", "10:00"), slot("2026-10-12", "10:30"), slot("2026-10-12", "13:00"), slot("2026-10-12", "16:00")],
       "2026-10-13": [slot("2026-10-13", "10:00"), slot("2026-10-13", "14:00"), slot("2026-10-13", "14:30")],
@@ -33,7 +33,7 @@ describe("elegirOpciones", () => {
     expect(o.map((x) => `${x.fecha} ${x.hora}`)).toEqual([
       "2026-10-12 10:00", "2026-10-12 10:30", "2026-10-12 13:00", // 09:30 y 16:00 quedan fuera
       "2026-10-13 10:00", "2026-10-13 14:00", "2026-10-13 14:30",
-      "2026-10-14 11:00",
+      "2026-10-14 11:00", "2026-10-15 10:00", // ahora hasta 5 días hábiles («otro día»)
     ]);
   });
   it("ignora fines de semana y lo que queda a menos de 2 h", () => {

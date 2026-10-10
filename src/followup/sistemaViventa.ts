@@ -100,11 +100,12 @@ async function enviarACliente(
   plantilla: { setting: string; params: string[] } | null,
   lastUserAt: number | null,
   now: number,
+  buttons?: { title: string; payload: string }[],
 ): Promise<SendResult> {
   const conVentana = conv.channel === "ycloud";
   const dentro = lastUserAt != null && now - lastUserAt < WINDOW_MS;
   if (!conVentana || dentro) {
-    await sendOutbound(env, { conversationId: conv.id, channel: conv.channel, channelUserId: conv.channel_user_id, text }, now);
+    await sendOutbound(env, { conversationId: conv.id, channel: conv.channel, channelUserId: conv.channel_user_id, text, buttons }, now);
     return "libre";
   }
   const settings = new SettingsRepo(db);
@@ -361,7 +362,10 @@ export async function runRecordatoriosLlamada(
         `¿Sigue en pie, o prefieres reprogramarla?` +
         (meta.calMeetingUrl ? `\n\nEste es tu enlace para entrar: ${meta.calMeetingUrl}` : "");
       try {
-        await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", hora] }, lastUser, now);
+        await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", hora] }, lastUser, now, [
+          { title: "Confirmo", payload: "btn:Confirmo" },
+          { title: "Reprogramar", payload: "btn:Reprogramar" },
+        ]);
         out.r24++;
       } catch (e) {
         await falloRecordatorio(env, "24 h", nombre || ref.channel_user_id, hora, e);

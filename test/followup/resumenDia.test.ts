@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import {
-  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos, correoParaFormulario,
+  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos, correoParaFormulario, lineaLlamadas,
 } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -118,6 +118,17 @@ describe("runResumenDia", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
   const A_LAS_8 = Date.UTC(2026, 9, 20, 6, 30);
+
+  it("lineaLlamadas cuenta las llamadas del bot y las que pasaron por comodín", async () => {
+    const now = A_LAS_8;
+    await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES ('c1',?,?,?,?,?,?,?,?)",
+      [conv.id, "Ana", "", "Cita · Videollamada Viventa · 2026-10-22 11:00", JSON.stringify({ estado: "Reservada (Cal.com)" }), "new", now - 1000, now - 1000]);
+    await db.run("INSERT INTO tickets (id, conversation_id, category, summary, transcript, status, created_at) VALUES ('t1',?,?,?,?,?,?)",
+      [conv.id, "otro", "Cliente pide otro horario para la llamada", "", "open", now - 2000]);
+    const t = await lineaLlamadas(db, now);
+    expect(t).toContain("el bot agendó 1 (pasó a Maricela por otro horario: 1)");
+    expect(t).toContain("7 días: 1 agendadas, 1 por comodín");
+  });
 
   it("manda el resumen y el CSV a los dos, una sola vez al día", async () => {
     const r = await runResumenDia(env, A_LAS_8);
