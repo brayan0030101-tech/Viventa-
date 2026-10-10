@@ -13,7 +13,7 @@ export const ETAPAS = [
   { id: "hecha", nombre: "Llamada hecha", icono: "📞", ayuda: "Ya habló con Maricela" },
   { id: "negociando", nombre: "Negociando", icono: "🤝", ayuda: "Hay avance concreto" },
   { id: "cerrado", nombre: "Cerrado", icono: "🏆", ayuda: "Compró / reservó" },
-  { id: "perdido", nombre: "Perdido", icono: "✖️", ayuda: "No sigue" },
+  { id: "perdido", nombre: "Perdido", icono: "✖️", ayuda: "Sin respuesta 21 días después de la llamada" },
 ] as const;
 export type EtapaId = (typeof ETAPAS)[number]["id"];
 export const etapaValida = (v: unknown): v is EtapaId => ETAPAS.some((e) => e.id === v);
@@ -28,12 +28,16 @@ interface Contexto {
 }
 
 /** Etapa automática de un cliente según lo que ya sabemos de él. */
-export function etapaAutomatica(f: FilaCrm, ctx: Pick<Contexto, "resultados" | "llamadas">): EtapaId {
+/** Días sin ningún mensaje, después de la llamada, para darlo por enfriado. */
+const ENFRIA_DIAS = 21;
+const DIA = 24 * 3600_000;
+
+export function etapaAutomatica(f: FilaCrm, ctx: Pick<Contexto, "resultados" | "llamadas">, now = Date.now()): EtapaId {
   const id = f.lead.convId;
   const res = ctx.resultados.get(id);
   if (res === "concretado" || res === "parcial") return "negociando";
   const ll = ctx.llamadas.get(id);
-  if (res || ll?.pasada) return "hecha";
+  if (res || ll?.pasada) return now - f.ultimo > ENFRIA_DIAS * DIA ? "perdido" : "hecha";
   if (ll?.agendada || f.lead.llamada) return "agendada";
   const campos = Object.entries(f.lead.ficha.metadata).filter(([k, v]) => v && !/^(cita|cal)/i.test(k)).length;
   return f.lead.prioridad.nivel !== "frio" || campos >= 3 ? "calificado" : "nuevo";
@@ -64,7 +68,7 @@ export async function cargarPipeline(env: Env, now = Date.now()): Promise<Tarjet
   for (const m of ms) if (m.e) manual.set(m.id, m.e);
   return filas.map((fila) => {
     const man = manual.get(fila.lead.convId);
-    return man && etapaValida(man) ? { fila, etapa: man, manual: true } : { fila, etapa: etapaAutomatica(fila, { resultados, llamadas }), manual: false };
+    return man && etapaValida(man) ? { fila, etapa: man, manual: true } : { fila, etapa: etapaAutomatica(fila, { resultados, llamadas }, now), manual: false };
   });
 }
 
@@ -85,13 +89,12 @@ export async function avanzarPorResultado(env: Env, convId: string, resultado: s
   const db = new Db(env.DB);
   const r = await db.first<{ e: string | null }>("SELECT json_extract(metadata, '$.crm_etapa') AS e FROM conversations WHERE id = ?", [convId]);
   if (r?.e === "cerrado" || r?.e === "perdido") return;
-  await fijarEtapa(env, convId, resultado === "concretado" || resultado === "parcial" ? "negociando" : "hecha");
+  await fijarEtapa(env, convId, resultado === "cerrado" ? "cerrado" : resultado === "concretado" || resultado === "parcial" ? "negociando" : "hecha");
 }
 
 // ─── Vista ───────────────────────────────────────────────────────────────────
 
 const MAX_POR_COLUMNA = 40;
-const DIA = 24 * 3600_000;
 
 function tarjeta(t: TarjetaPipeline, now: number): string {
   const f = t.fila;

@@ -30,6 +30,8 @@ export interface AnalisisLlamada {
   objeciones: string[];
   interes: number;
   proximoPaso: string;
+  /** El cliente reservó/pagó/firmó en la llamada o quedó comprometido con fecha. */
+  ventaCerrada: boolean;
   pendientes: Array<{ tarea: string; responsable: string; cuando: string }>;
 }
 
@@ -102,6 +104,7 @@ export function leerAnalisis(raw: string): AnalisisLlamada | null {
     objeciones: lista(j["objeciones"]),
     interes: Math.min(5, Math.max(1, Math.round(Number(j["interes"]) || 3))),
     proximoPaso: texto(j["proximo_paso"], 400),
+    ventaCerrada: j["venta_cerrada"] === true,
     pendientes: pend
       .map((p) => {
         const o = (p ?? {}) as Record<string, unknown>;
@@ -143,6 +146,7 @@ Interpreta la llamada para Maricela (no es técnica). No inventes nada que no se
  "objeciones": ["dudas o frenos del cliente"],
  "interes": 1 a 5 (5 = quiere avanzar ya),
  "proximo_paso": "la siguiente acción concreta",
+ "venta_cerrada": true solo si el cliente dijo claramente que reserva, paga, firma o compra; si no, false,
  "pendientes": [{"tarea": "qué hay que hacer", "responsable": "Maricela" | "Cliente" | "Equipo", "cuando": "fecha o plazo si se dijo, si no vacío"}]
 }
 «concretado» = se cerró algo claro (reserva, envío de documentos, siguiente cita). «parcial» = hubo avance pero falta algo. «no_concretado» = no se acordó nada. «sin_respuesta» = el cliente no se presentó o la llamada no avanzó.`;
@@ -173,7 +177,7 @@ Interpreta la llamada para Maricela (no es técnica). No inventes nada que no se
     ]);
   }
   try {
-    await (await import("./crm-pipeline.local")).avanzarPorResultado(env, ll.convId, analisis.resultado);
+    await (await import("./crm-pipeline.local")).avanzarPorResultado(env, ll.convId, analisis.ventaCerrada ? "cerrado" : analisis.resultado);
   } catch (e) {
     console.error("[crm-resultados] avanzar etapa:", e);
   }
