@@ -39,13 +39,25 @@
 - **Identidad:** el bot se presenta como "el equipo comercial de Maricela" y no dice por su cuenta que es un asistente virtual; si el cliente le pregunta de frente, responde con honestidad.
 - Se actualizó `ESTADO-DEL-BOT.md`.
 
-## 8 de octubre – revisión
-- Se revisó que **los audios funcionan** (sin fallos desde el arreglo). Las **imágenes** se reciben y se guardan, pero falta una prueba real para confirmar que el bot las interpreta bien. Los **documentos/PDF** no se leen: los revisa una persona.
-- Se creó este historial.
+## 8 de octubre – informes, Zoho y pedido de datos
+- Se generaron Excel con los clientes del día (teléfonos y correos en columnas separadas, hojas por día y de Instagram sin teléfono).
+- El bot **pide el teléfono solo en Instagram** (en WhatsApp ya lo tiene) y, con el texto de Maricela, escribió a los clientes de Instagram que no lo habían dado (de a 5 cada 15 min, 9–21 h de España).
+- **Avisos a Camila y Maricela por Telegram** configurados, con el canal del cliente (WhatsApp con teléfono, Instagram con perfil). El panel de tickets también muestra el canal.
+- **Resumen diario de las 8:00** con los leads ordenados por prioridad (🔥/🟡/⚪).
+
+## 9 de octubre – registro en Zoho por formulario
+- Maricela registra cada cliente en el formulario de Zoho: el bot le manda un **enlace con los datos ya escritos**, al instante y en el resumen. Funcionó: 13 clientes creados en 2 minutos.
+- Comandos de Maricela al bot de Telegram: `registrado <nombre>`, `existente <nombre>`, `pendientes`. Se marcaron los clientes que ella señaló en verde (ya creados) y rojo (ya existían en el sistema).
+- El bot **pide por mensaje los datos que faltan** para el formulario (apellido, teléfono, ciudades) y avisa cuando el cliente los completa.
+- Guion de **13 mensajes**: se añadió la pregunta de ingresos mensuales. Nuevo **comodín**: cuando el bot no sabe responder, usa el mensaje de Maricela, avisa al equipo y se pausa.
+- **Reintento automático** cuando Anthropic falla (a los 3 y 10 min) y registro del error real en la tabla `ai_fallos`.
+
+## 10 de octubre
+- **Excel de clientes listos a las 6:00 y 14:00 de España** por Telegram (con enlace del formulario por fila). Sin correo, se usa uno inventado con dominio inexistente y marcado como tal (pedido de Maricela).
 
 ## Pendiente (resumen; el detalle está en `ESTADO-DEL-BOT.md`)
-1. Que Camila y Maricela le escriban al bot de Telegram para configurar sus avisos.
+1. Revisar que llegaron los primeros Excel de las 6:00/14:00 y cómo contestan los clientes a los pedidos de datos.
 2. Plantillas de WhatsApp aprobadas en YCloud (seguimientos y recordatorios fuera de 24 h).
-3. Seguridad: restablecer claves de Instagram en Meta y de Cal.com, y cerrar sesiones de Forja desconocidas.
-4. Medir en 2–3 días: lecturas de la base de datos, caché y costo con Sonnet 5.5.
-5. Prueba real de imagen; CRM para estatus migratorio y ahorros; lista de clientes ya conocidos; reconectar el permiso de Zernio antes del 5 de diciembre de 2026.
+3. Cerrar la llamada con fecha y hora reales en Cal.com (zonas horarias) y nota de voz de Maricela tras cada llamada.
+4. Seguridad: restablecer claves de Instagram en Meta y de Cal.com, y cerrar sesiones de Forja desconocidas.
+5. Medir costo con Sonnet 5.5, lecturas de la base de datos y fallos de IA (`ai_fallos`); reconectar el permiso de Zernio antes del 5 de diciembre de 2026.
