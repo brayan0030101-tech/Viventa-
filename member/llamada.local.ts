@@ -56,6 +56,14 @@ export function botonesHoras(opciones: Array<{ hora: string }>): string[] {
   return [...new Set(idx)].map((i) => opciones[i].hora);
 }
 
+/** Marcadores de botones con MÁS horas del mismo día (3 por tanda, sin repetir las ya mostradas). */
+export function tandasMasHoras(libres: Array<{ hora: string }>, yaMostradas: string[], maxTandas = 3): string[] {
+  const resto = libres.map((l) => l.hora).filter((h) => !yaMostradas.includes(h));
+  const out: string[] = [];
+  for (let i = 0; i < resto.length && out.length < maxTandas; i += 3) out.push(`[[botones: ${resto.slice(i, i + 3).join(" | ")}]]`);
+  return out;
+}
+
 const POR_DIA = 4;
 const MAX_TACHADOS_POR_DIA = 2;
 
@@ -76,6 +84,8 @@ export interface DiaLlamada {
   fecha: string;
   dia: string;
   opciones: OpcionLlamada[];
+  /** TODOS los horarios libres de ese día (para «ver más horarios»). */
+  libres: OpcionLlamada[];
   /** Horas de ese día que YA tienen una llamada reservada por otro cliente (reales). */
   ocupadas: string[];
   /** Línea lista para el mensaje: libres normales, ocupadas tachadas. */
@@ -103,13 +113,14 @@ export function armarDias(byDate: Record<string, string[]>, reservadas: Array<{ 
     const opciones: OpcionLlamada[] = repartir(validos, POR_DIA).map((iso) => ({
       fecha, dia: DIAS.format(new Date(iso)), hora: iso.slice(11, 16), startTime: iso,
     }));
+    const todos: OpcionLlamada[] = validos.map((iso) => ({ fecha, dia: DIAS.format(new Date(iso)), hora: iso.slice(11, 16), startTime: iso }));
     const libres = new Set(validos.map((iso) => iso.slice(11, 16)));
     const ocupadas = [...new Set(reservadas.filter((r) => r.fecha === fecha && r.hora >= DESDE && r.hora <= HASTA && !libres.has(r.hora)).map((r) => r.hora))]
       .sort()
       .slice(0, MAX_TACHADOS_POR_DIA);
     const items = [...opciones.map((o) => ({ hora: o.hora, ocupada: false })), ...ocupadas.map((h) => ({ hora: h, ocupada: true }))].sort((x, y) => (x.hora < y.hora ? -1 : 1));
     out.push({
-      fecha, dia: opciones[0].dia, opciones, ocupadas,
+      fecha, dia: opciones[0].dia, opciones, libres: todos, ocupadas,
       linea: `${opciones[0].dia}: ${items.map((i) => (i.ocupada ? tachar(i.hora) : i.hora)).join(" · ")}`,
     });
   }
@@ -193,12 +204,13 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
             boton: botonDia(d.opciones[0].startTime),
             linea: d.linea,
             marcadorHoras: `[[botones: ${botonesHoras(d.opciones).join(" | ")}]]`,
-            opciones: d.opciones.map((o) => ({ hora: o.hora, startTime: o.startTime })),
+            masHoras: tandasMasHoras(d.libres, botonesHoras(d.opciones)),
+            opciones: d.libres.map((o) => ({ hora: o.hora, startTime: o.startTime })),
           })),
           marcadorDias: `[[botones: ${dias.slice(0, 3).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]`,
           opciones,
           message: opciones.length
-            ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas) y termina con el `marcadorHoras` de ese día. Siempre 'hora de España'."
+            ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día. Siempre 'hora de España'."
             : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",
         };
       } catch (e) {

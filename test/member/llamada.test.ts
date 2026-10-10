@@ -190,3 +190,13 @@ describe("botones de la videollamada", () => {
     expect(botonesHoras(ops.slice(0, 2))).toEqual(["10:00", "12:00"]);
   });
 });
+
+describe("más horarios por día", () => {
+  it("tandas de 3 sin repetir las ya mostradas", async () => {
+    const { tandasMasHoras } = await import("../../member/llamada.local");
+    const libres = ["10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"].map((hora) => ({ hora }));
+    const t = tandasMasHoras(libres, ["10:00", "11:30", "13:30"]);
+    expect(t).toEqual(["[[botones: 10:30 | 11:00 | 12:00]]", "[[botones: 12:30 | 13:00]]"]);
+    expect(tandasMasHoras(libres.slice(0, 3), ["10:00", "10:30", "11:00"])).toEqual([]);
+  });
+});
