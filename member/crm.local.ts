@@ -88,8 +88,8 @@ export async function cargarCrm(env: Env, now = Date.now()): Promise<FilaCrm[]> 
 
 export const NIVEL = {
   caliente: { icono: "🔥", nombre: "Caliente", color: "#E60D6F", orden: 0 },
-  tibio: { icono: "🟡", nombre: "Tibio", color: "#F5A623", orden: 1 },
-  frio: { icono: "⚪", nombre: "Frío", color: "#8FA3D9", orden: 2 },
+  tibio: { icono: "🟡", nombre: "Tibio", color: "#E09A00", orden: 1 },
+  frio: { icono: "⚪", nombre: "Frío", color: "#6F85CC", orden: 2 },
 } as const;
 
 export function badgeNivel(n: LeadResumen["prioridad"]["nivel"], puntos?: number): string {

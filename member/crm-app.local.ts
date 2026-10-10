@@ -220,7 +220,7 @@ export function crmApp(): Hono<Vars> {
   const soloAdminCtx = async (c: Context<Vars>) => c.get("usuario")?.rol === "admin";
 
   // Páginas públicas
-  app.get("/logo.svg", (c) => new Response(LOGO_SVG, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } }));
+  app.get("/logo.svg", (c) => new Response(c.req.query("tema") === "claro" ? LOGO_SVG.replace(/#FFFFFF/gi, "#2A2D52") : LOGO_SVG, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" } }));
 
   app.get("/login", async (c) => {
     if ((await leerModo(c.env)) === "junto") return c.redirect("/admin/crm");

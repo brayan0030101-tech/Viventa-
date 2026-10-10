@@ -39,6 +39,20 @@ const ESTILO_BASE = `<style>
     --cream:#EEF0FA; --muted:#A7ADD3; --dim:#7A80AE;
     --ok:#00DDB8; --info:#8FA3D9; --bad:#FF7A8A;
   }
+  html[data-tema="claro"]{
+    --bg:#F4F6FC; --panel:#FFFFFF; --panel2:#F0F2FA; --raise:#E8EBF7;
+    --line:#DCE0F0; --linelit:#BEC5E2;
+    --accent:#E60D6F; --accent-2:#C70A60; --accent-soft:rgba(230,13,111,.09);
+    --cream:#1B1F3B; --muted:#4F557F; --dim:#838AB0;
+    --ok:#009C84; --info:#4A60B3; --bad:#D3304A;
+  }
+  html[data-tema="claro"] body{background:var(--bg)}
+  html[data-tema="claro"] .modal-backdrop{background:rgba(27,31,59,.45)}
+  html[data-tema="claro"] .modal-card{box-shadow:8px 8px 0 rgba(27,31,59,.12)}
+  html[data-tema="claro"] .bigbtn:hover{box-shadow:5px 5px 0 var(--linelit)}
+  .logo-claro{display:none} html[data-tema="claro"] .logo-oscuro{display:none} html[data-tema="claro"] .logo-claro{display:block}
+  .btn-tema{background:var(--panel2);border:1px solid var(--line);color:var(--muted);padding:6px 12px;font-size:12px;cursor:pointer;transition:all .12s ease}
+  .btn-tema:hover{border-color:var(--accent);color:var(--cream)}
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--cream);font-family:'Poppins',ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   a{color:var(--accent);text-decoration:none}
@@ -78,6 +92,13 @@ const ESTILO_BASE = `<style>
   }
   @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 </style>`;
+
+/** Recuerda el tema elegido (claro / oscuro) y lo aplica antes de pintar, para que no parpadee. */
+const SCRIPT_TEMA = `<script>(function(){try{var t=localStorage.getItem('crm_tema');if(t!=='claro'&&t!=='oscuro')t='oscuro';document.documentElement.setAttribute('data-tema',t)}catch(e){document.documentElement.setAttribute('data-tema','oscuro')}})();
+function cambiarTema(){var h=document.documentElement,n=h.getAttribute('data-tema')==='claro'?'oscuro':'claro';h.setAttribute('data-tema',n);try{localStorage.setItem('crm_tema',n)}catch(e){}var b=document.getElementById('btn-tema');if(b)b.textContent=n==='claro'?'🌙 Modo oscuro':'☀️ Modo claro'}
+document.addEventListener('DOMContentLoaded',function(){var b=document.getElementById('btn-tema');if(b)b.textContent=document.documentElement.getAttribute('data-tema')==='claro'?'🌙 Modo oscuro':'☀️ Modo claro'});</script>`;
+
+const BOTON_TEMA = `<button type="button" id="btn-tema" class="btn-tema" onclick="cambiarTema()" title="Cambiar entre modo claro y modo oscuro">☀️ Modo claro</button>`;
 
 const FUENTES = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">`;
@@ -121,6 +142,7 @@ export function crmLayout(opts: { title: string; activa: Seccion; body: string; 
 <meta name="robots" content="noindex,nofollow">
 <title>${esc(opts.title)} · Viventa</title>
 <link rel="icon" href="${BASE}/logo.svg" type="image/svg+xml">
+${SCRIPT_TEMA}
 ${FUENTES}
 <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 ${ESTILO_BASE}
@@ -129,14 +151,14 @@ ${ESTILO_BASE}
 <div class="shell">
   <aside class="sb">
     <div style="padding:20px 18px 16px;border-bottom:1px solid var(--line)">
-      <a href="${BASE}"><img src="${BASE}/logo.svg" alt="Viventa" style="height:30px;width:auto;display:block"></a>
+      <a href="${BASE}"><img class="logo-oscuro" src="${BASE}/logo.svg" alt="Viventa" style="height:30px;width:auto;display:block"><img class="logo-claro" src="${BASE}/logo.svg?tema=claro" alt="Viventa" style="height:30px;width:auto"></a>
       <div style="font-size:10px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin-top:8px">CRM · Maricela Naranjo</div>
     </div>
     <nav class="sb-nav">${nav}</nav>
     ${MARCA_USUARIO}
   </aside>
   <div style="min-width:0">
-    <header class="topbar"><h1 style="font-weight:700;font-size:21px;margin:0;letter-spacing:-.01em">${TITULOS[opts.activa]}</h1></header>
+    <header class="topbar" style="display:flex;align-items:center;gap:14px"><h1 style="font-weight:700;font-size:21px;margin:0;letter-spacing:-.01em">${TITULOS[opts.activa]}</h1><span style="margin-left:auto">${BOTON_TEMA}</span></header>
     <main>${opts.body}</main>
   </div>
 </div>
@@ -162,10 +184,11 @@ export function paginaSimple(titulo: string, cuerpo: string): string {
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>${esc(titulo)} · Viventa</title>
-<link rel="icon" href="${BASE}/logo.svg" type="image/svg+xml">${FUENTES}${ESTILO_BASE}</head>
-<body style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:radial-gradient(circle at 20% 10%,#262C5E 0,var(--bg) 55%)">
+<link rel="icon" href="${BASE}/logo.svg" type="image/svg+xml">${SCRIPT_TEMA}${FUENTES}${ESTILO_BASE}</head>
+<body style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:var(--bg)">
+<div style="position:fixed;top:14px;right:14px">${BOTON_TEMA}</div>
 <div style="width:min(420px,100%);background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--accent);padding:30px 28px;box-shadow:10px 10px 0 rgba(0,0,0,.25)">
-  <img src="${BASE}/logo.svg" alt="Viventa" style="height:34px;width:auto;display:block;margin-bottom:6px">
+  <img class="logo-oscuro" src="${BASE}/logo.svg" alt="Viventa" style="height:34px;width:auto;display:block;margin-bottom:6px"><img class="logo-claro" src="${BASE}/logo.svg?tema=claro" alt="Viventa" style="height:34px;width:auto;margin-bottom:6px">
   <div style="font-size:11px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin-bottom:22px">CRM · Maricela Naranjo</div>
   ${cuerpo}
 </div></body></html>`;
