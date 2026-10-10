@@ -167,7 +167,7 @@ export async function createBooking(
     notes?: string;
   },
 ): Promise<
-  | { ok: true; bookingId: number | string; uid?: string; status?: string; start?: string }
+  | { ok: true; bookingId: number | string; uid?: string; status?: string; start?: string; meetingUrl?: string }
   | { ok: false; reason: string }
 > {
   if (!env.CALCOM_API_KEY) return { ok: false, reason: "not_configured" };
@@ -195,10 +195,16 @@ export async function createBooking(
       console.error(`[calcom] booking http_${res.status} · eventType=${args.eventTypeId} start=${args.start} · ${(await res.text().catch(() => "")).slice(0, 300)}`);
       return { ok: false, reason: `http_${res.status}` };
     }
-    const body = (await res.json()) as { data?: { id: number | string; uid?: string; status?: string; start?: string } };
+    const body = (await res.json()) as {
+      data?: { id: number | string; uid?: string; status?: string; start?: string; meetingUrl?: string; location?: string };
+    };
     const d = body.data;
     if (!d?.id) return { ok: false, reason: "no_booking_id" };
-    return { ok: true, bookingId: d.id, uid: d.uid, status: d.status, start: d.start };
+    // Enlace para entrar a la llamada: el que devuelve Cal.com; si no viene,
+    // el de Cal Video, que se arma con el uid de la reserva.
+    const esUrl = (v?: string) => (typeof v === "string" && /^https?:\/\//.test(v) ? v : undefined);
+    const meetingUrl = esUrl(d.meetingUrl) ?? esUrl(d.location) ?? (d.uid ? `https://app.cal.com/video/${d.uid}` : undefined);
+    return { ok: true, bookingId: d.id, uid: d.uid, status: d.status, start: d.start, meetingUrl };
   } catch (e: any) {
     return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
   }

@@ -114,6 +114,7 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
 
       // Método adicional: reservar en Cal.com si está conectado y tenemos slot + email.
       let calMessage = "El negocio la confirma.";
+      let enlace: string | undefined;
       let booked = false;
       if (calcomConfigured(env)) {
         // Si el modelo no arrastró el startTime ISO, lo busca el CÓDIGO casando
@@ -147,6 +148,11 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
               if (b.start ?? slot) metadata.calStart = String(b.start ?? slot);
               metadata.estado = "Reservada (Cal.com)";
               calMessage = "Quedó reservada en la agenda.";
+              if (b.meetingUrl) {
+                metadata.calMeetingUrl = b.meetingUrl;
+                enlace = b.meetingUrl;
+                calMessage += ` Enlace de la videollamada: ${b.meetingUrl} (mándaselo al cliente tal cual, solo, en su propia línea).`;
+              }
             } else {
               // El slot pudo ocuparse; guardamos el lead pero pedimos reintentar.
               metadata.estado = "Por confirmar (falló Cal.com)";
@@ -181,7 +187,7 @@ export function agendarCitaTool(env: Env, getConversationId: () => string | null
         notes: [profesional ? `Con: ${profesional}` : "", notas ?? ""].filter(Boolean).join(" · ") || undefined,
         metadata,
       });
-      return { citaId: id, booked, message: `Cita registrada. ${calMessage}` };
+      return { citaId: id, booked, ...(enlace ? { enlace } : {}), message: `Cita registrada. ${calMessage}` };
     },
   });
 }

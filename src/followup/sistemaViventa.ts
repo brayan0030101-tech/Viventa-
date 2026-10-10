@@ -358,7 +358,8 @@ export async function runRecordatoriosLlamada(
     if (falta <= 24 * H && falta > 2 * H && lead.created_at <= inicio - 24 * H && (await claim(db, "leads", lead.id, "viventa_r24", now))) {
       const text =
         `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Te recuerdo que mañana tienes tu videollamada con Maricela a las ${hora} (hora de España). ` +
-        `¿Sigue en pie, o prefieres reprogramarla?`;
+        `¿Sigue en pie, o prefieres reprogramarla?` +
+        (meta.calMeetingUrl ? `\n\nEste es tu enlace para entrar: ${meta.calMeetingUrl}` : "");
       try {
         await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", hora] }, lastUser, now);
         out.r24++;
@@ -370,7 +371,8 @@ export async function runRecordatoriosLlamada(
     // Recordatorio 1 h antes.
     if (falta <= H && lead.created_at <= inicio - H && (await claim(db, "leads", lead.id, "viventa_r1", now))) {
       const text =
-        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 En una hora, a las ${hora} (hora de España), es tu videollamada con Maricela. ¡Te esperamos!`;
+        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 En una hora, a las ${hora} (hora de España), es tu videollamada con Maricela. ¡Te esperamos!` +
+        (meta.calMeetingUrl ? `\n\nEntra aquí: ${meta.calMeetingUrl}` : "");
       try {
         await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", hora] }, lastUser, now);
         out.r1++;
