@@ -168,6 +168,20 @@ function aFechaHoraMadrid(iso: string): { fecha: string; hora: string } | null {
   return { fecha: `${p.year}-${p.month}-${p.day}`, hora: `${String(Number(p.hour) % 24).padStart(2, "0")}:${p.minute}` };
 }
 
+/** Días con horarios libres (horario de día) para ofrecer la llamada fuera de la conversación. */
+export async function diasParaOferta(env: Env, now: number): Promise<DiaLlamada[]> {
+  if (!calcomConfigured(env)) return [];
+  const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");
+  if (!eventTypeId) return [];
+  const tz = calcomTimeZone(env);
+  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now));
+  const res = await getAvailableSlotsRange(env, eventTypeId, hoy, sumarDias(hoy, 10), tz);
+  if (!res.ok) return [];
+  const bk = await getUpcomingBookingStarts(env, eventTypeId);
+  const reservadas = bk.ok ? bk.starts.map(aFechaHoraMadrid).filter((x): x is { fecha: string; hora: string } => !!x) : [];
+  return armarDias(res.byDate, reservadas, now, VENTANA_DIA);
+}
+
 export function proponerLlamadaTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:

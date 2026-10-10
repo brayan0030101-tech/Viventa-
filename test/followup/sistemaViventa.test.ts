@@ -26,6 +26,13 @@ vi.mock("../../src/lib/camila", async (importOriginal) => {
   return { ...actual, notifyCamila: (...a: unknown[]) => notifyCamilaMock(...a) };
 });
 
+vi.mock("../../member/llamada.local", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../member/llamada.local")>();
+  const iso = (d: string) => `${d}T10:00:00.000+02:00`;
+  const dia = (fecha: string) => ({ fecha, dia: "x", opciones: [{ fecha, dia: "x", hora: "10:00", startTime: iso(fecha) }], libres: [], ocupadas: [], linea: "" });
+  return { ...actual, diasParaOferta: async () => [dia("2026-10-21"), dia("2026-10-22"), dia("2026-10-23")] };
+});
+
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
@@ -38,6 +45,7 @@ import {
   runPedirTelefono,
   runPedirDatos,
   runAvisoLlamadas,
+  runOfertaLlamada,
   textoPedirDatos,
   TEXTO_PEDIR_TELEFONO,
   TPL_SEGUIMIENTO,
@@ -390,5 +398,49 @@ describe("aviso de llamadas agendadas", () => {
     await seedCita("Por confirmar (falló Cal.com)", 30);
     await seedCita("Reservada (Cal.com)", -5);
     expect((await runAvisoLlamadas(env, NOW)).sent).toBe(0);
+  });
+});
+
+describe("oferta de videollamada a clientes calificados", () => {
+  async function seedOferta(userId: string, idleH: number, channel = "ycloud") {
+    const id = await seedConv(channel, userId);
+    await msgs.append(id, "user", "hola", { createdAt: NOW - idleH * H });
+    await db.run("UPDATE conversations SET paused_until = ? WHERE id = ?", [NOW + 5 * H, id]);
+    return id;
+  }
+  async function activar(ids: string[]) {
+    await settings.set("viventa_oferta_llamada", "activo");
+    await settings.set("viventa_llamada_modo", "activo");
+    await settings.set("viventa_oferta_lista", ids.join(","));
+  }
+  const A_LAS_11 = Date.UTC(2026, 9, 20, 9, 0); // 11:00 en Madrid
+
+  it("apagada por defecto: no escribe a nadie", async () => {
+    const id = await seedOferta("34600000101", 3);
+    await settings.set("viventa_oferta_lista", id);
+    expect((await runOfertaLlamada(env, A_LAS_11)).sent).toBe(0);
+    expect(sendOutboundMock).not.toHaveBeenCalled();
+  });
+
+  it("escribe una vez con 3 botones de día, reactiva la conversación y no repite", async () => {
+    const id = await seedOferta("34600000102", 3);
+    await activar([id]);
+    const r = await runOfertaLlamada(env, A_LAS_11);
+    expect(r.sent).toBe(1);
+    const arg = sendOutboundMock.mock.calls[0][1];
+    expect(arg.text).toContain("videollamada de 30 minutos");
+    expect(arg.buttons).toHaveLength(3);
+    const c = await db.first<{ paused_until: number | null }>("SELECT paused_until FROM conversations WHERE id = ?", [id]);
+    expect(c?.paused_until).toBeNull();
+    expect((await runOfertaLlamada(env, A_LAS_11 + 15 * 60_000)).sent).toBe(0);
+  });
+
+  it("no escribe fuera de ventana (más de 22 h), de madrugada, ni a quien una persona atiende", async () => {
+    const vieja = await seedOferta("34600000103", 30);
+    const humana = await seedOferta("34600000104", 3);
+    await msgs.append(humana, "owner", "te llamo yo", { createdAt: NOW - 2 * H });
+    await activar([vieja, humana]);
+    expect((await runOfertaLlamada(env, A_LAS_11)).sent).toBe(0);
+    expect((await runOfertaLlamada(env, Date.UTC(2026, 9, 20, 2, 0))).sent).toBe(0);
   });
 });

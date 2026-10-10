@@ -620,6 +620,91 @@ export async function runAvisoLlamadas(env: Env, now = Date.now()): Promise<{ se
   return { sent };
 }
 
+// ─── 5. Oferta de videollamada a clientes calificados que aún no tienen llamada ──
+
+const MAX_POR_PASADA_OFERTA = 5;
+
+/**
+ * Escribe UNA vez a los clientes calificados de una lista aprobada (setting
+ * `viventa_oferta_lista`, ids de conversación separados por coma) para ofrecerles
+ * la videollamada con botones de día. Apagado por defecto: solo corre con
+ * `viventa_oferta_llamada = activo` Y `viventa_llamada_modo = activo`. Solo a quien
+ * escribió hace menos de 22 h (ventana libre), de 9 a 21 h de España, sin llamada
+ * ya agendada y sin que una persona del equipo esté hablando con él.
+ */
+export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ sent: number }> {
+  const horaMadrid = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hour12: false }).format(new Date(now)),
+  );
+  if (horaMadrid < 9 || horaMadrid >= 21) return { sent: 0 };
+  const db = new Db(env.DB);
+  const settings = new SettingsRepo(db);
+  if (((await settings.get("viventa_oferta_llamada")) ?? "").trim().toLowerCase() !== "activo") return { sent: 0 };
+  if (((await settings.get("viventa_llamada_modo")) ?? "").trim().toLowerCase() !== "activo") return { sent: 0 };
+  const ids = ((await settings.get("viventa_oferta_lista")) ?? "").split(/[,;\s]+/).filter(Boolean);
+  if (ids.length === 0) return { sent: 0 };
+
+  const marcas = ids.map(() => "?").join(",");
+  const convs = await db.all<ConvRef & { taken_by: string | null; metadata: string | null }>(
+    `SELECT id, channel, channel_user_id, display_name, taken_by, metadata FROM conversations
+      WHERE id IN (${marcas}) AND channel IN ('ycloud', 'zernio')`,
+    ids,
+  );
+  const pendientes = convs.filter((c) => {
+    if (c.taken_by) return false;
+    try {
+      return !(c.metadata && JSON.parse(c.metadata).viventa_oferta);
+    } catch {
+      return true;
+    }
+  });
+  if (pendientes.length === 0) return { sent: 0 };
+
+  const { diasParaOferta, botonDia } = await import("../../member/llamada.local");
+  const dias = await diasParaOferta(env, now);
+  if (dias.length === 0) return { sent: 0 };
+  const botones = dias.slice(0, 3).map((d) => {
+    const t = botonDia(d.opciones[0].startTime);
+    return { title: t, payload: `btn:${t}` };
+  });
+  const yaTienen = await llamadasAgendadasDe(db, now);
+
+  let sent = 0;
+  for (const c of pendientes) {
+    if (sent >= MAX_POR_PASADA_OFERTA) break;
+    if (yaTienen.has(c.id)) continue;
+    const ult = await db.first<{ t: number | null; owner: number }>(
+      `SELECT MAX(CASE WHEN role = 'user' THEN created_at END) AS t,
+              MAX(CASE WHEN role = 'owner' AND created_at > ? THEN 1 ELSE 0 END) AS owner
+         FROM messages WHERE conversation_id = ? AND created_at > ?`,
+      [now - 30 * H, c.id, now - 30 * H],
+    );
+    if (!ult?.t || now - ult.t >= 22 * H || ult.owner) continue;
+    if (!(await claim(db, "conversations", c.id, "viventa_oferta", now))) continue;
+    const nombre = primerNombre(c.display_name);
+    const text =
+      `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Maricela puede llamarte en una videollamada de 30 minutos para orientarte con tu caso. ` +
+      `¿Qué día te queda mejor? (hora de España)`;
+    try {
+      // La conversación quedó pausada al pasar al equipo: se reactiva para que el bot atienda la respuesta.
+      await db.run("UPDATE conversations SET paused_until = NULL WHERE id = ?", [c.id]);
+      await enviarACliente(env, db, c, text, null, ult.t, now, botones);
+      sent++;
+    } catch (e) {
+      console.error(`[sistemaViventa] oferta llamada ${c.id}:`, e);
+    }
+  }
+  if (sent > 0) {
+    await avisarEquipo(env, "📞 Ofrecí la videollamada", `Le escribí a ${sent} cliente(s) calificado(s) ofreciéndoles agendar su videollamada con Maricela (botones de día). Las que se agenden aparecerán en el calendario.`);
+  }
+  return { sent };
+}
+
+async function llamadasAgendadasDe(db: Db, now: number): Promise<Set<string>> {
+  const { llamadasAgendadas } = await import("./resumenDia");
+  return new Set((await llamadasAgendadas(db, now)).keys());
+}
+
 export async function runSistemaViventa(env: Env, now = Date.now()): Promise<void> {
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
@@ -627,6 +712,7 @@ export async function runSistemaViventa(env: Env, now = Date.now()): Promise<voi
   await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
   await runPedirDatos(env, now).catch((e) => console.error("[sistemaViventa] datos:", e));
   await runAvisoLlamadas(env, now).catch((e) => console.error("[sistemaViventa] aviso llamadas:", e));
+  await runOfertaLlamada(env, now).catch((e) => console.error("[sistemaViventa] oferta llamada:", e));
   const { runResumenDia, runExcelListos } = await import("./resumenDia");
   await runResumenDia(env, now).catch((e) => console.error("[sistemaViventa] resumen:", e));
   await runExcelListos(env, now).catch((e) => console.error("[sistemaViventa] excel:", e));
