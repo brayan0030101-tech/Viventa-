@@ -102,7 +102,7 @@ describe("análisis semanal", () => {
     expect((await runAnalisisSemanal(env, NOW - 60 * 60_000)).hecho).toBe(false); // lunes 8:30
     expect((await runAnalisisSemanal(env, NOW)).hecho).toBe(true);
     expect(notifyMock).toHaveBeenCalledTimes(1);
-    expect(notifyMock.mock.calls[0][1].url).toBe("https://bot.example/admin/crm/recomendaciones");
+    expect(notifyMock.mock.calls[0][1].url).toBe("https://bot.example/crm/recomendaciones");
     expect(notifyMock.mock.calls[0][1].body).toContain("Mejora uno");
     expect((await runAnalisisSemanal(env, NOW + 5 * 60_000)).hecho).toBe(false); // ya se hizo hoy
     expect(generarMock).toHaveBeenCalledTimes(1);

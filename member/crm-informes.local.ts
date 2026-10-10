@@ -3,7 +3,7 @@
 // tickets y el costo de la IA. El análisis con IA de las conversaciones es la fase 4.
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { layout } from "../src/admin/views/layout";
+import { crmLayout } from "./crm-shell.local";
 import { buildXlsx } from "../src/lib/xlsx";
 import { esc, NIVEL, ESTILO_CRM, subnav, cargarCrm, type FilaCrm } from "./crm.local";
 import { cargarLlamadas, type LlamadaCrm } from "./crm-calendario.local";
@@ -250,7 +250,7 @@ function columnas(datos: Array<{ etiqueta: string; a: number; b?: number }>, alt
 export async function renderCrmInformes(env: Env, periodo: Periodo, now = Date.now()): Promise<string> {
   const i = await calcularInforme(env, periodo, now);
   const tab = (p: Periodo, t: string) =>
-    `<a href="/admin/crm/informes?p=${p}" style="padding:6px 14px;font-size:12px;border:1px solid ${p === periodo ? "var(--accent)" : "var(--line)"};background:${p === periodo ? "var(--accent-soft)" : "transparent"};color:${p === periodo ? "var(--cream)" : "var(--muted)"}">${t}</a>`;
+    `<a href="/crm/informes?p=${p}" style="padding:6px 14px;font-size:12px;border:1px solid ${p === periodo ? "var(--accent)" : "var(--line)"};background:${p === periodo ? "var(--accent-soft)" : "transparent"};color:${p === periodo ? "var(--cream)" : "var(--muted)"}">${t}</a>`;
 
   const resumen = resumenGeneral(i).map((t) => `<li style="margin-bottom:5px">${negrita(t)}</li>`).join("");
   const calif = i.porNivel.caliente + i.porNivel.tibio;
@@ -284,7 +284,7 @@ export async function renderCrmInformes(env: Env, periodo: Periodo, now = Date.n
     : `<div class="text-dim" style="font-size:12px">Sin gasto registrado.</div>`;
 
   const lista = (filas: FilaCrm[], max = 8) =>
-    filas.slice(0, max).map((f) => `<a href="/admin/crm/c/${encodeURIComponent(f.lead.convId)}" style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line);color:inherit"><span style="color:var(--cream)">${NIVEL[f.lead.prioridad.nivel].icono} ${esc(f.lead.nombre)}</span><span class="text-dim">${esc(f.lead.canal)}</span></a>`).join("") ||
+    filas.slice(0, max).map((f) => `<a href="/crm/c/${encodeURIComponent(f.lead.convId)}" style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line);color:inherit"><span style="color:var(--cream)">${NIVEL[f.lead.prioridad.nivel].icono} ${esc(f.lead.nombre)}</span><span class="text-dim">${esc(f.lead.canal)}</span></a>`).join("") ||
     `<div class="text-dim" style="font-size:12px">Nada pendiente 🎉</div>`;
 
   const card = (t: string, c: string, sub = "") => `<div class="crm-card" style="padding:16px"><div class="crm-sec">${t}</div>${c}${sub}</div>`;
@@ -293,7 +293,7 @@ export async function renderCrmInformes(env: Env, periodo: Periodo, now = Date.n
     ${subnav("informes")}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       ${tab("hoy", "Hoy")}${tab("7d", "7 días")}${tab("30d", "30 días")}${tab("todo", "Todo el proyecto")}
-      <a class="ghostbtn" href="/admin/crm/informes.xlsx?p=${periodo}" style="margin-left:auto;border:1px solid var(--line);padding:6px 14px;font-size:12px;color:var(--muted)">⬇ Excel del informe</a>
+      <a class="ghostbtn" href="/crm/informes.xlsx?p=${periodo}" style="margin-left:auto;border:1px solid var(--line);padding:6px 14px;font-size:12px;color:var(--muted)">⬇ Excel del informe</a>
     </div>
     <div class="crm-card" style="padding:16px 20px;margin-bottom:14px;border-left:4px solid var(--accent)">
       <div class="crm-sec">Resumen general · ${esc(TITULO_PERIODO[periodo])}</div>
@@ -309,15 +309,15 @@ export async function renderCrmInformes(env: Env, periodo: Periodo, now = Date.n
       ${card("A qué hora escriben (hora de España)", porHora, `<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-top:4px"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>23 h</span></div>`)}
     </div>
     <div class="inf-2">
-      ${card("⚠️ Sin llamada agendada (calientes y tibios)", lista(i.alertas.sinLlamada), i.alertas.sinLlamada.length > 8 ? `<a href="/admin/crm?estado=sin_llamada" style="font-size:12px;display:inline-block;margin-top:8px">Ver los ${i.alertas.sinLlamada.length} →</a>` : "")}
-      ${card("📝 Pendientes de registrar en Zoho", lista(i.alertas.pendientesZoho), i.alertas.pendientesZoho.length > 8 ? `<a href="/admin/crm?estado=sin_registrar" style="font-size:12px;display:inline-block;margin-top:8px">Ver los ${i.alertas.pendientesZoho.length} →</a>` : "")}
+      ${card("⚠️ Sin llamada agendada (calientes y tibios)", lista(i.alertas.sinLlamada), i.alertas.sinLlamada.length > 8 ? `<a href="/crm?estado=sin_llamada" style="font-size:12px;display:inline-block;margin-top:8px">Ver los ${i.alertas.sinLlamada.length} →</a>` : "")}
+      ${card("📝 Pendientes de registrar en Zoho", lista(i.alertas.pendientesZoho), i.alertas.pendientesZoho.length > 8 ? `<a href="/crm?estado=sin_registrar" style="font-size:12px;display:inline-block;margin-top:8px">Ver los ${i.alertas.pendientesZoho.length} →</a>` : "")}
     </div>
     <div class="inf-2">
       ${card("🎫 Tickets por tipo", tickets, i.alertas.ticketsViejos ? `<div style="font-size:12px;color:var(--bad);margin-top:8px">${i.alertas.ticketsViejos} tickets abiertos hace más de 24 h</div>` : "")}
       ${card("💰 Costo de la IA", costos, `<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px"><span style="color:var(--dim)">Total</span><b style="color:var(--accent)">${usd(i.costos.total)}</b></div>`)}
     </div>
     <p class="text-dim" style="font-size:11px">Calculado ${esc(new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", dateStyle: "short", timeStyle: "short" }).format(new Date(i.generado)))} (hora de España) con los datos del bot. El costo es solo lo que cobra la IA, sin Cloudflare, YCloud ni Zernio.</p>`;
-  return layout({ title: "CRM · Informes", activeTab: "crm", body, env });
+  return crmLayout({ title: "Informes", activa: "informes", body, env });
 }
 
 // ─── Excel del informe ───────────────────────────────────────────────────────

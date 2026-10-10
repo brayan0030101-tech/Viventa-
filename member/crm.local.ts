@@ -1,10 +1,10 @@
 // member/crm.local.ts — CRM de Viventa para Maricela (fase 1: leads, ficha y conversaciones).
 // Vive en member/ para que `forjabot update` no lo pise. Se monta dentro del panel del
-// bot (/admin/crm), con su mismo acceso por usuario y contraseña y su misma base de datos.
+// bot (/crm), con su propio acceso y su propio diseño; comparte solo la base de datos.
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
-import { layout } from "../src/admin/views/layout";
+import { crmLayout } from "./crm-shell.local";
 import {
   armarLeads, llamadasAgendadas, urlFormulario, faltantes, correoParaFormulario, formatoLlamada,
   SETTING_FORM_URL, type LeadResumen,
@@ -137,11 +137,9 @@ function etiqueta(k: string): string {
   return k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 }
 
-/** Pestañas del CRM: Leads | Calendario. */
-export function subnav(activo: "leads" | "calendario" | "informes" | "recomendaciones"): string {
-  const tab = (id: string, href: string, texto: string) =>
-    `<a href="${href}" style="padding:9px 16px;font-size:12.5px;font-weight:600;letter-spacing:.04em;border-bottom:2px solid ${activo === id ? "var(--accent)" : "transparent"};color:${activo === id ? "var(--cream)" : "var(--muted)"}">${texto}</a>`;
-  return `<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)">${tab("leads", "/admin/crm", "👥 Leads")}${tab("calendario", "/admin/crm/calendario", "📅 Calendario de llamadas")}${tab("informes", "/admin/crm/informes", "📊 Informes")}${tab("recomendaciones", "/admin/crm/recomendaciones", "🧠 Recomendaciones")}</div>`;
+/** Antes eran pestañas dentro de la página; ahora el menú lateral del CRM las reemplaza. */
+export function subnav(_activo: "leads" | "calendario" | "informes" | "recomendaciones"): string {
+  return "";
 }
 
 // ─── Lista de leads ──────────────────────────────────────────────────────────
@@ -213,7 +211,7 @@ function kpiLink(href: string, titulo: string, n: number, activo: boolean, color
 function qs(f: FiltrosCrm, cambio: Partial<FiltrosCrm>): string {
   const x = { ...f, ...cambio };
   const p = Object.entries(x).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
-  return `/admin/crm${p.length ? `?${p.join("&")}` : ""}`;
+  return `/crm${p.length ? `?${p.join("&")}` : ""}`;
 }
 
 export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.now()): Promise<string> {
@@ -234,13 +232,13 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
     `<select name="${name}" class="crm-in" onchange="this.form.submit()">${opciones
       .map(([v, t]) => `<option value="${v}"${(valor ?? "") === v ? " selected" : ""}>${t}</option>`)
       .join("")}</select>`;
-  const filtros = `<form method="GET" action="/admin/crm" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+  const filtros = `<form method="GET" action="/crm" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
     <input class="crm-in" type="search" name="q" value="${esc(f.q)}" placeholder="Buscar por nombre, teléfono, correo o ciudad…" style="min-width:280px;flex:1">
     ${f.nivel ? `<input type="hidden" name="nivel" value="${esc(f.nivel)}">` : ""}
     ${sel("canal", f.canal, [["", "Todos los canales"], ["whatsapp", "WhatsApp"], ["instagram", "Instagram"]])}
     ${sel("estado", f.estado, [["", "Cualquier estado"], ["con_llamada", "Con llamada agendada"], ["sin_llamada", "Sin llamada"], ["registrado", "Ya registrado en Zoho"], ["sin_registrar", "Sin registrar en Zoho"]])}
     <button class="crm-in" style="cursor:pointer">Buscar</button>
-    <a class="ghostbtn" href="${qs(f, {}).replace("/admin/crm", "/admin/crm/export.xlsx")}" style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:8px 14px;font-size:12.5px">⬇ Excel (${filtradas.length})</a>
+    <a class="ghostbtn" href="${qs(f, {}).replace("/crm", "/crm/export.xlsx")}" style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:8px 14px;font-size:12.5px">⬇ Excel (${filtradas.length})</a>
   </form>`;
 
   const filas = filtradas
@@ -250,7 +248,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
       const contacto = [l.telefono, l.correo.split(",")[0]].filter(Boolean).map(esc).join("<br>") || `<span class="text-dim">—</span>`;
       const interes = [m.ciudadCompra, m.ahorroDisponible].filter(Boolean).map(esc).join(" · ") || "—";
       const reg = r.registro === "registrado" ? `<span style="color:var(--ok)">✔ Registrado</span>` : r.registro === "existente" ? `<span style="color:var(--info)">ya existía</span>` : `<span class="text-dim">sin registrar</span>`;
-      return `<a class="crm-row" href="/admin/crm/c/${encodeURIComponent(l.convId)}">
+      return `<a class="crm-row" href="/crm/c/${encodeURIComponent(l.convId)}">
         <span>${badgeNivel(l.prioridad.nivel, l.prioridad.puntos)}</span>
         <span><span style="color:var(--cream);font-weight:600">${esc(l.nombre)}</span><br><span class="text-dim" style="font-size:11px">${esc(l.canal)}${r.perfil ? ` · @${esc(r.perfil)}` : ""}${r.ticketAbierto ? " · 🔔 ticket" : ""}</span></span>
         <span class="text-muted">${contacto}</span>
@@ -279,7 +277,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
       </div>
     </div>
     <p class="text-dim" style="font-size:11px;margin-top:10px">Se muestran los clientes que dejaron datos en los últimos ${DIAS_VISIBLES} días, de WhatsApp e Instagram. Ordenados: calientes primero, luego por puntaje.</p>`;
-  return layout({ title: "CRM", activeTab: "crm", body, env });
+  return crmLayout({ title: "Leads", activa: "leads", body, env });
 }
 
 // ─── Ficha del cliente ───────────────────────────────────────────────────────
@@ -448,7 +446,7 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
     ${card("Videollamada", llamadasHtml)}
     ${card("Registro en Zoho", `<div style="font-size:12.5px">${registro}</div>${botonRegistro}`)}
     ${card("Tickets", ticketsHtml)}
-    ${card("Nota interna (solo equipo)", `<form method="POST" action="/admin/crm/c/${encodeURIComponent(convId)}/nota">
+    ${card("Nota interna (solo equipo)", `<form method="POST" action="/crm/c/${encodeURIComponent(convId)}/nota">
         <textarea name="nota" rows="4" class="crm-in" style="width:100%;resize:vertical" placeholder="Ej.: la llamé el lunes, prefiere por la tarde…">${esc(m.crm_nota ?? "")}</textarea>
         <button class="bigbtn" style="margin-top:8px;background:var(--accent);color:var(--bg);padding:7px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">Guardar nota</button>
         ${opts.guardado ? `<span style="color:var(--ok);font-size:12px;margin-left:10px">✔ Guardada</span>` : ""}
@@ -460,20 +458,19 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
   const derecha = `${tarjetaIA}<div class="crm-card" style="padding:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap">
         <div class="crm-sec" style="margin:0">Conversación completa (${msgs.length} mensajes)</div>
-        <a class="ghostbtn" href="/admin/conversations?c=${encodeURIComponent(convId)}" style="font-size:12px;border:1px solid var(--line);padding:6px 12px;color:var(--muted)">💬 Responder desde Conversaciones</a>
       </div>
       <div style="max-height:calc(100vh - 220px);overflow-y:auto;padding-right:6px">${burbujas(msgs)}</div>
     </div>`;
 
   const body = `${ESTILO_CRM}
     <div style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <a href="/admin/crm" style="font-size:12px">← Volver a los leads</a>
+      <a href="/crm" style="font-size:12px">← Volver a los leads</a>
       <h2 style="font-family:'Space Grotesk';font-weight:700;font-size:20px;margin:0">${esc(nombre)}</h2>
       ${prioridad ? badgeNivel(prioridad.nivel, prioridad.puntos) : ""}
       <span class="text-dim" style="font-size:12px">Último mensaje ${esc(hace(conv.last_message_at, now))}</span>
     </div>
     <div class="crm-grid"><div>${izquierda}</div><div>${derecha}</div></div>`;
-  return layout({ title: `CRM · ${nombre}`, activeTab: "crm", body, env });
+  return crmLayout({ title: `${nombre}`, activa: "leads", body, env });
 }
 
 export async function guardarNota(env: Env, convId: string, nota: string): Promise<void> {

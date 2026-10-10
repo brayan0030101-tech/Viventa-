@@ -22,6 +22,7 @@ import {
   handlePostback,
 } from "./channels/comment-funnel";
 import { adminApp } from "./admin/routes";
+import { crmApp } from "../member/crm-app.local";
 import { funnelsApp } from "./funnels/routes";
 import { applyTier } from "./tier";
 import { applyBranding } from "./admin/branding";
@@ -617,6 +618,8 @@ app.get("/admin/", (c) => c.redirect("/admin/overview"));
 
 // Admin dashboard — Basic Auth guarded sub-app mounted at /admin/*.
 app.route("/admin", adminApp);
+// CRM de Viventa: aplicación propia (su acceso, su diseño), independiente del panel de Forja.
+app.route("/crm", crmApp());
 
 // Control-plane API — Bearer-guarded (CONTROL_PLANE_TOKEN) read-only sub-app
 // mounted at /api/* for a future hosted control plane (health + metrics).

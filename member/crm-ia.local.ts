@@ -6,7 +6,7 @@
 //     «Cliente 7» y aquí se vuelve a poner el nombre real.
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { layout } from "../src/admin/views/layout";
+import { crmLayout } from "./crm-shell.local";
 import { armarLeads, type LeadResumen } from "../src/followup/resumenDia";
 import { workModel } from "../src/llm/work-model";
 import { notifyCamila, camilaConfigured } from "../src/lib/camila";
@@ -308,7 +308,7 @@ export async function runAnalisisSemanal(env: Env, now = Date.now()): Promise<{ 
     await notifyCamila(env, {
       heading: "🧠 Análisis semanal del bot",
       body: `Ya está listo el análisis de la semana con recomendaciones para mejorar el guion y la atención.${top ? `\n\nLas mejoras principales:\n${top}` : ""}`,
-      url: `${origen}/admin/crm/recomendaciones`,
+      url: `${origen}/crm/recomendaciones`,
     }).catch(() => false);
   }
   return { hecho: true };
@@ -351,7 +351,7 @@ export async function tarjetaAnalisisConv(env: Env, convId: string, lastMessageA
   const cid = encodeURIComponent(convId);
   const desactualizado = a && a.ultimoMensaje < lastMessageAt;
   const boton = (texto: string, forzar: boolean) =>
-    `<form method="POST" action="/admin/crm/c/${cid}/analizar" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Analizando… (unos 15 segundos)'">
+    `<form method="POST" action="/crm/c/${cid}/analizar" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Analizando… (unos 15 segundos)'">
       ${forzar ? '<input type="hidden" name="forzar" value="1">' : ""}
       <button class="bigbtn" style="background:var(--accent);color:var(--bg);padding:8px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">${texto}</button></form>`;
   return `<div class="crm-card" style="padding:16px;margin-bottom:14px;border-left:4px solid var(--accent)">
@@ -368,7 +368,7 @@ export async function renderCrmRecomendaciones(env: Env, opts: { id?: string; me
   const lista = await analisisSemanales(env);
   const elegido = lista.find((x) => x.id === opts.id) ?? lista[0];
   const historial = lista
-    .map((x) => `<a href="/admin/crm/recomendaciones?id=${x.id}" style="display:block;padding:7px 10px;border-bottom:1px dashed var(--line);font-size:12px;color:${x.id === elegido?.id ? "var(--cream)" : "var(--muted)"};${x.id === elegido?.id ? "background:var(--accent-soft)" : ""}">${esc(fechaHora(x.creado))}</a>`)
+    .map((x) => `<a href="/crm/recomendaciones?id=${x.id}" style="display:block;padding:7px 10px;border-bottom:1px dashed var(--line);font-size:12px;color:${x.id === elegido?.id ? "var(--cream)" : "var(--muted)"};${x.id === elegido?.id ? "background:var(--accent-soft)" : ""}">${esc(fechaHora(x.creado))}</a>`)
     .join("");
   const ultimaGeneracion = lista[0]?.creado ?? 0;
   const enfriamiento = now - ultimaGeneracion < 30 * 60_000;
@@ -385,7 +385,7 @@ export async function renderCrmRecomendaciones(env: Env, opts: { id?: string; me
         <div style="font-weight:700;font-size:16px;color:var(--cream)">Recomendaciones para mejorar el bot y la atención</div>
         <div class="text-dim" style="font-size:12px">Una IA lee las conversaciones de la semana y dice qué cambiar. Se genera sola cada lunes a las 9:00 y avisa a Camila y a Maricela por Telegram.</div>
       </div>
-      <form method="POST" action="/admin/crm/recomendaciones/generar" style="margin-left:auto" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Analizando… (puede tardar un minuto)'">
+      <form method="POST" action="/crm/recomendaciones/generar" style="margin-left:auto" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Analizando… (puede tardar un minuto)'">
         <button class="bigbtn" ${enfriamiento ? "disabled title=\"Ya se generó hace menos de 30 minutos\"" : ""} style="background:var(--accent);color:var(--bg);padding:9px 16px;font-size:12.5px;font-weight:700;border:0;cursor:${enfriamiento ? "not-allowed" : "pointer"};opacity:${enfriamiento ? ".5" : "1"}">Generar análisis ahora (≈ $0,10)</button>
       </form>
     </div>
@@ -395,5 +395,5 @@ export async function renderCrmRecomendaciones(env: Env, opts: { id?: string; me
       <div>${cuerpo}</div>
       <div class="crm-card"><div class="crm-sec" style="padding:10px 10px 0">Anteriores</div>${historial || '<div class="text-dim" style="padding:10px;font-size:12px">—</div>'}</div>
     </div>`;
-  return layout({ title: "CRM · Recomendaciones", activeTab: "crm", body, env });
+  return crmLayout({ title: "Recomendaciones", activa: "recomendaciones", body, env });
 }

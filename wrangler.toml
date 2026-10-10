@@ -76,13 +76,6 @@ BOT_TIMEZONE = "Europe/Madrid"  # zona horaria para resolver fechas ("mañana", 
 CALCOM_EVENT_TYPE_ID = "7227219"  # tipo de evento "Videollamada Viventa" (30 min) en el Cal.com de Maricela
 CALCOM_TIMEZONE = "Europe/Madrid"
 BOT_TIER = "pro"  # 'free' | 'pro'
-# Marca de Viventa / Maricela Naranjo en el panel y el CRM (colores tomados de viventa.co: rosa #E60D6F, navy #161A33).
-BRAND_NAME = "Maricela Naranjo · Viventa"
-BRAND_LOGO_URL = "/brand/logo"  # el logo vive en D1 (setting brand_logo), sin hosting externo
-BRAND_ACCENT = "#E60D6F"
-BRAND_ACCENT_2 = "#F2A2C6"
-BRAND_SURFACE = "#161A33"
-BRAND_FONT = "Poppins"  # la tipografía de viventa.co (PP Pangram Sans) no está en Google Fonts: Poppins es la más cercana de la lista
 LLM_PROVIDER = "anthropic"
 IG_OFFICIAL = "off"  # apaga el canal oficial de Meta para Instagram; los DMs entran por Zernio
 PROMPT_CACHE_TTL = "1h"  # el prompt grande dura 1 h en el caché de Anthropic (escribe a 2×, lee a 0,1×). Volver a "5m" si el tráfico baja

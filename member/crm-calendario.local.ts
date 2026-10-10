@@ -3,7 +3,7 @@
 // enlace de Meet). Al tocar una llamada se abre la ficha del cliente con su contexto.
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { layout } from "../src/admin/views/layout";
+import { crmLayout } from "./crm-shell.local";
 import { armarLeads, faltantes, formatoLlamada, type LeadResumen } from "../src/followup/resumenDia";
 import { zonaDeResidencia, horaEn, esEspana } from "../src/lib/zonaCliente";
 import { buildXlsx } from "../src/lib/xlsx";
@@ -138,7 +138,7 @@ function nombreCorto(n: string): string {
 
 function chip(l: LlamadaCrm, i: number): string {
   return `<button class="cal-chip ${l.estado}" style="border-left-color:${l.estado === "agendada" ? colorNivel(l.nivel) : ""};animation-delay:${60 + i * 40}ms"
-    hx-get="/admin/crm/llamada/${encodeURIComponent(l.id)}" hx-target="#modal-root" hx-swap="innerHTML" title="${esc(l.nombre)} · ${hm(l.inicio)}">
+    hx-get="/crm/llamada/${encodeURIComponent(l.id)}" hx-target="#modal-root" hx-swap="innerHTML" title="${esc(l.nombre)} · ${hm(l.inicio)}">
     <b>${hm(l.inicio)}</b> ${esc(nombreCorto(l.nombre))}</button>`;
 }
 
@@ -182,10 +182,10 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
   const sig = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
   const navMes = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-    <a class="ghostbtn" href="/admin/crm/calendario?mes=${prev}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">←</a>
+    <a class="ghostbtn" href="/crm/calendario?mes=${prev}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">←</a>
     <h2 style="font-family:'Space Grotesk';font-weight:700;font-size:20px;margin:0;min-width:190px;text-align:center;text-transform:capitalize">${MESES[m - 1]} ${y}</h2>
-    <a class="ghostbtn" href="/admin/crm/calendario?mes=${sig}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">→</a>
-    <a class="ghostbtn" href="/admin/crm/calendario" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted);margin-left:6px">Hoy</a>
+    <a class="ghostbtn" href="/crm/calendario?mes=${sig}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">→</a>
+    <a class="ghostbtn" href="/crm/calendario" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted);margin-left:6px">Hoy</a>
     <span class="text-dim" style="margin-left:auto;font-size:11px">Horas en hora de España</span>
   </div>`;
 
@@ -200,7 +200,7 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
   const agenda = proximas.length
     ? proximas
         .map(
-          (l) => `<button class="cal-agenda-item" hx-get="/admin/crm/llamada/${encodeURIComponent(l.id)}" hx-target="#modal-root" hx-swap="innerHTML">
+          (l) => `<button class="cal-agenda-item" hx-get="/crm/llamada/${encodeURIComponent(l.id)}" hx-target="#modal-root" hx-swap="innerHTML">
             <span style="width:4px;align-self:stretch;background:${colorNivel(l.nivel)}"></span>
             <span style="flex:1"><span style="display:block;color:var(--cream);font-weight:600;font-size:12.5px">${esc(l.nombre)}</span>
             <span class="text-dim" style="font-size:11px">${esc(cuando(l.inicio))} · ${hm(l.inicio)} · ${esc(l.canal)}</span></span></button>`,
@@ -213,7 +213,7 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
         <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)">Próxima llamada</div>
         <div style="font-weight:700;font-size:15px;margin-top:3px">${esc(siguiente.nombre)}</div>
         <div style="font-size:12px;color:var(--muted)">${esc(cuando(siguiente.inicio))} a las ${hm(siguiente.inicio)} (España) · ${esc(enTiempo(siguiente.inicio, now))}</div>
-        <button class="bigbtn" hx-get="/admin/crm/llamada/${encodeURIComponent(siguiente.id)}" hx-target="#modal-root" hx-swap="innerHTML" style="margin-top:10px;background:var(--accent);color:var(--bg);padding:7px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">Ver contexto del cliente</button>
+        <button class="bigbtn" hx-get="/crm/llamada/${encodeURIComponent(siguiente.id)}" hx-target="#modal-root" hx-swap="innerHTML" style="margin-top:10px;background:var(--accent);color:var(--bg);padding:7px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">Ver contexto del cliente</button>
       </div>`
     : "";
 
@@ -237,7 +237,7 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
         <div class="crm-card" style="padding:14px 16px"><div class="crm-sec">Próximas llamadas</div>${agenda}</div>
       </div>
     </div>`;
-  return layout({ title: "CRM · Calendario", activeTab: "crm", body, env });
+  return crmLayout({ title: "Calendario", activa: "calendario", body, env });
 }
 
 // ─── Ficha de la llamada (ventana emergente) ─────────────────────────────────
@@ -324,9 +324,8 @@ export async function renderLlamadaDetalle(env: Env, leadId: string, now = Date.
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0">
         ${ll.enlace && ll.estado === "agendada" ? `<a class="bigbtn" href="${esc(ll.enlace)}" target="_blank" rel="noopener" style="background:var(--accent);color:var(--bg);padding:9px 16px;font-size:12.5px;font-weight:700">▶ Entrar a Google Meet</a>` : ""}
-        <a class="ghostbtn" href="/admin/crm/c/${cid}" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">Ver ficha completa</a>
-        <a class="ghostbtn" href="/admin/crm/c/${cid}/ficha.xlsx" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">⬇ Ficha + conversación (Excel)</a>
-        <a class="ghostbtn" href="/admin/conversations?c=${cid}" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">💬 Conversación</a>
+        <a class="ghostbtn" href="/crm/c/${cid}" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">Ver ficha completa</a>
+        <a class="ghostbtn" href="/crm/c/${cid}/ficha.xlsx" style="border:1px solid var(--line);padding:9px 14px;font-size:12.5px;color:var(--muted)">⬇ Ficha + conversación (Excel)</a>
       </div>
       <div class="crm-sec">Resumen para la llamada</div>
       <div style="margin-bottom:16px">${resumen}</div>

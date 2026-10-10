@@ -49,7 +49,7 @@ describe("calendario de llamadas", () => {
     expect(html).toContain("<b>10:00</b> Ana L.");
     expect(html).toContain("<b>11:30</b> Luis M.");
     expect(html).toContain("Próxima llamada");
-    expect(html).toContain("hx-get=\"/admin/crm/llamada/c1\"");
+    expect(html).toContain("hx-get=\"/crm/llamada/c1\"");
     expect(html).toContain("cancelada"); // la del 5 de octubre
   });
 
