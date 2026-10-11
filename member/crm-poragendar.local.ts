@@ -118,7 +118,11 @@ export async function cargarPorAgendar(env: Env, opts: { frios?: boolean } = {},
     const ultimaActividad = Math.max(f.ultimo, wa?.ultimo ?? 0);
 
     let motivo: MotivoPendiente;
+    // Instagram solo deja responder 24 h: si es solo Instagram, hay teléfono y su último mensaje ya pasó esa ventana,
+    // la vía es WhatsApp (se considera «sin contactar»).
+    const soloIgVencido = !wa && f.lead.canal === "Instagram" && tieneTel && (!reciente || now - reciente.at > 22 * H);
     if (propuesta) motivo = "propuso";
+    else if (soloIgVencido) motivo = "sin_contactar";
     else if (reciente && now - reciente.at < SIN_RESPUESTA_DIAS * DIA) motivo = "conversando";
     else if (wa || f.lead.canal === "WhatsApp") motivo = "sin_respuesta";
     else if (tieneTel) motivo = "sin_contactar";
