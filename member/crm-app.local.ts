@@ -321,6 +321,10 @@ export function crmApp(): Hono<Vars> {
     await guardarNota(c.env, id, String((await c.req.parseBody())["nota"] ?? ""));
     return c.redirect(`${BASE}/c/${encodeURIComponent(id)}?guardado=1`);
   });
+  app.get("/c/:id/zoho-nota", async (c) => {
+    const { tarjetaNotaZohoContenido } = await import("./crm-zohonota.local");
+    return c.html(await tarjetaNotaZohoContenido(c.env, decodeURIComponent(c.req.param("id")), c.req.query("r") === "1"));
+  });
   app.post("/c/:id/analizar", async (c) => {
     const { analizarConversacion } = await import("./crm-ia.local");
     const id = decodeURIComponent(c.req.param("id"));

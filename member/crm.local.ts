@@ -459,7 +459,8 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
 
   const { tarjetaPendientes } = await import("./crm-resultados.local");
   const tarjetaPend = await tarjetaPendientes(env, convId);
-  const derecha = `${tarjetaPend}${tarjetaIA}<div class="crm-card" style="padding:16px">
+  const { tarjetaNotaZoho } = await import("./crm-zohonota.local");
+  const derecha = `${tarjetaNotaZoho(convId)}${tarjetaPend}${tarjetaIA}<div class="crm-card" style="padding:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap">
         <div class="crm-sec" style="margin:0">Conversación completa (${msgs.length} mensajes)</div>
       </div>
