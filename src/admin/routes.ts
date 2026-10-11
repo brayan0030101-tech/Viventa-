@@ -11,6 +11,7 @@
  * `DASHBOARD_PASSWORD` from the binding), it is applied inside a wildcard
  * middleware that has access to `c.env` rather than at module-init time.
  */
+import { esOfertaVideollamada } from "../lib/ofertaLlamada";
 import { parsePeerBots } from "./projects";
 import { applyPanelLanguage, bustIdiomaCache, esCodigoValido } from "../idioma";
 import { esLocalePanel, traductor } from "./i18n";
@@ -1361,11 +1362,19 @@ adminApp.post("/conversations/:id/reply", async (c) => {
   const msgs = new MessagesRepo(db);
   await msgs.append(id, "owner", text);
   await convs.touchLastMessage(id);
-  await convs.setPausedUntil(id, Date.now() + (await takeoverMs(c.env)));
+  // Oferta de videollamada del equipo: el bot sigue con el agendamiento cuando el cliente responda
+  // (no se pausa) y la conversación queda marcada como «ofrecida por el equipo».
+  const ofertaLlamada = esOfertaVideollamada(text);
+  if (ofertaLlamada) {
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_oferta', ?) WHERE id = ?", [new Date().toISOString(), id]);
+    await convs.setPausedUntil(id, null);
+  } else {
+    await convs.setPausedUntil(id, Date.now() + (await takeoverMs(c.env)));
+  }
 
   c.header("X-Sent", "1");
   return c.html(
-    `<span class="text-emerald-600">✓ Enviado por ${escapeHtml(channelLabel(conv.channel))}</span>` +
+    `<span class="text-emerald-600">✓ Enviado por ${escapeHtml(channelLabel(conv.channel))}${ofertaLlamada ? " · el bot seguirá con el agendamiento cuando responda" : ""}</span>` +
       `<div id="thread-live" hx-swap-oob="innerHTML">${await renderThreadLive(c.env, id)}</div>`,
   );
 });
