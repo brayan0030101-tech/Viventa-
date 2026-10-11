@@ -97,4 +97,24 @@ describe("agendar llamada manual", () => {
     expect(html).toContain("SIN avisar al cliente");
     expect(html).toContain("Confirmar y agendar");
   });
+
+  it("bloquea una llamada que choca con otra del CRM y propone el modo según la disponibilidad", async () => {
+    await crearCitaManual(env, entrada(), NOW);
+    await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", ["ycloud:34600999888", "ycloud", "34600999888", "Otro", NOW - 9e6, NOW - 8e6]);
+    const choca = await previsualizar(env, entrada({ nombre: "Otro Cliente", tel: "600999888", correo: "", hora: "10:15" }), NOW);
+    expect(choca.choque).toContain("10:00");
+    const r = await crearCitaManual(env, entrada({ nombre: "Otro Cliente", tel: "600999888", correo: "", hora: "10:15" }), NOW);
+    expect(r.ok).toBe(false);
+    // sin elegir modo: libre → Cal.com; ocupado → solo CRM
+    expect((await previsualizar(env, leerEntrada({ nombre: "X", tel: "600777000", fecha: "2026-10-13", hora: "10:30" }), NOW)).modo).toBe("relleno");
+    expect((await previsualizar(env, leerEntrada({ nombre: "X", tel: "600777000", fecha: "2026-10-13", hora: "13:00" }), NOW)).modo).toBe("solo_crm");
+  });
+
+  it("solo con la fecha muestra los horarios libres y las llamadas del día", async () => {
+    await crearCitaManual(env, entrada(), NOW);
+    const html = await renderAgendar(env, leerEntrada({ nombre: "Z", tel: "600555000", fecha: "2026-10-13" }), {}, NOW);
+    expect(html).toContain("Horarios libres");
+    expect(html).toContain("10:30");
+    expect(html).toContain("Valentina");
+  });
 });

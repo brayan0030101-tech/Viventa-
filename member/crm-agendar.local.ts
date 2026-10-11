@@ -26,6 +26,8 @@ export interface EntradaAgenda {
   hora: string; // HH:MM
   zona: ZonaEntrada;
   modo: ModoAgenda;
+  /** No eligió modo: se propone según la disponibilidad (libre → Cal.com; ocupada → solo CRM). */
+  modoAuto: boolean;
   /** Enlace de Meet que el cliente ya tiene (opcional; solo para «solo CRM»). */
   meet: string;
 }
@@ -41,6 +43,7 @@ export function leerEntrada(q: Record<string, string | undefined>): EntradaAgend
     hora: /^\d{1,2}:\d{2}$/.test(q["hora"] ?? "") ? q["hora"]!.padStart(5, "0") : "",
     zona,
     modo,
+    modoAuto: !q["modo"],
     meet: /^https:\/\/meet\.google\.com\/[\w-]+/.test((q["meet"] ?? "").trim()) ? (q["meet"] ?? "").trim().slice(0, 200) : "",
   };
 }
@@ -122,11 +125,36 @@ export interface Vista {
   slotIso: string;
   cliente: ClienteEncontrado | null;
   aviso: string;
+  /** Modo propuesto (el elegido, o según disponibilidad si no eligió). */
+  modo: ModoAgenda;
+  /** Horarios libres de ese día en Cal.com (HH:MM, hora de España). */
+  libres: string[];
+  /** Llamadas que ya hay ese día en el CRM (hora de España). */
+  delDia: Array<{ hm: string; nombre: string }>;
+  /** Otra llamada del CRM que choca con esta hora. */
+  choque: string;
 }
 
 export async function previsualizar(env: Env, entrada: EntradaAgenda, now = Date.now()): Promise<Vista> {
   const completo = !!(entrada.nombre && entrada.fecha && entrada.hora && (entrada.tel || entrada.correo));
-  const base: Vista = { entrada, completo, ms: 0, madrid: "", colombia: "", disponible: null, slotIso: "", cliente: null, aviso: "" };
+  const base: Vista = { entrada, completo, ms: 0, madrid: "", colombia: "", disponible: null, slotIso: "", cliente: null, aviso: "", modo: entrada.modo, libres: [], delDia: [], choque: "" };
+  const hmMadrid = (ms: number): string => new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(ms));
+  const diaMadridDe = (ms: number): string => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+  // Solo la fecha: se muestran los horarios libres de ese día para elegir uno (y no pisar otra llamada).
+  if (entrada.fecha && !entrada.hora && calcomConfigured(env)) {
+    const etId = resolveEventTypeId(env, SERVICIO);
+    if (etId) {
+      const r = await getAvailableSlots(env, etId, entrada.fecha, calcomTimeZone(env));
+      if (r.ok) base.libres = r.slots.map((x) => hmMadrid(Date.parse(x)));
+    }
+  }
+  if (entrada.fecha) {
+    const { cargarLlamadas } = await import("./crm-calendario.local");
+    base.delDia = (await cargarLlamadas(env, now))
+      .filter((l) => l.estado === "agendada" && diaMadridDe(l.inicio) === entrada.fecha)
+      .sort((a, b) => a.inicio - b.inicio)
+      .map((l) => ({ hm: hmMadrid(l.inicio), nombre: l.nombre }));
+  }
   if (!entrada.fecha || !entrada.hora) return base;
   const ms = utcDesdeLocal(entrada.fecha, entrada.hora, TZ[entrada.zona]);
   base.ms = ms;
@@ -134,6 +162,12 @@ export async function previsualizar(env: Env, entrada: EntradaAgenda, now = Date
   base.colombia = cuando(ms, "America/Bogota");
   if (ms < now) base.aviso = "Esa fecha y hora ya pasaron.";
   base.cliente = await buscarCliente(env, entrada.tel, entrada.correo, now);
+  {
+    // ¿Choca con otra llamada del CRM (30 min de duración)? Siempre se bloquea: así no se cruzan los horarios.
+    const { cargarLlamadas } = await import("./crm-calendario.local");
+    const otra = (await cargarLlamadas(env, now)).find((l) => l.estado === "agendada" && l.convId !== base.cliente?.convId && Math.abs(l.inicio - ms) < 30 * 60_000);
+    if (otra) base.choque = `${otra.nombre} a las ${hmMadrid(otra.inicio)}`;
+  }
   if (calcomConfigured(env)) {
     const etId = resolveEventTypeId(env, SERVICIO);
     if (etId) {
@@ -147,6 +181,7 @@ export async function previsualizar(env: Env, entrada: EntradaAgenda, now = Date
       }
     }
   }
+  if (entrada.modoAuto) base.modo = base.disponible === false ? "solo_crm" : "relleno";
   return base;
 }
 
@@ -156,6 +191,7 @@ export async function crearCitaManual(env: Env, entrada: EntradaAgenda, now = Da
   const v = await previsualizar(env, entrada, now);
   if (!v.completo) return { ok: false, error: "Faltan datos: nombre, fecha, hora y teléfono o correo." };
   if (v.aviso) return { ok: false, error: v.aviso };
+  if (v.choque) return { ok: false, error: `Ese horario choca con otra llamada del CRM: ${v.choque}. Elige otro horario.` };
   if (v.cliente?.yaTieneLlamada) return { ok: false, error: `Este cliente ya tiene una videollamada agendada (${v.cliente.yaTieneLlamada}). Cancélala primero si es un cambio.` };
   const db = new Db(env.DB);
 
@@ -215,9 +251,16 @@ const campo = (nombre: string, titulo: string, valor: string, extra = ""): strin
 export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { resultado?: Resultado } = {}, now = Date.now()): Promise<string> {
   const v = await previsualizar(env, entrada, now);
   const r = opts.resultado;
+  const urlHora = (hm: string): string => `/crm/agendar?${new URLSearchParams({ nombre: entrada.nombre, tel: entrada.tel, correo: entrada.correo, fecha: entrada.fecha, hora: hm, zona: entrada.zona, ...(entrada.meet ? { meet: entrada.meet } : {}) }).toString()}`;
+  const delDia = v.delDia.length
+    ? `<div style="font-size:12px;margin:8px 0;color:var(--muted)">📅 Ya hay ${v.delDia.length} llamada(s) ese día en el CRM: ${v.delDia.map((x) => `<b style="color:var(--cream)">${esc(x.hm)}</b> ${esc(x.nombre)}`).join(" · ")}</div>`
+    : entrada.fecha ? `<div class="text-dim" style="font-size:12px;margin:8px 0">📅 No hay otras llamadas ese día en el CRM.</div>` : "";
+  const libres = v.libres.length
+    ? `<div style="margin:8px 0"><div class="text-dim" style="font-size:11.5px;margin-bottom:6px">Horarios libres en Cal.com ese día (hora de España). Toca uno para elegirlo:</div><div style="display:flex;flex-wrap:wrap;gap:6px">${v.libres.map((hm) => `<a href="${esc(urlHora(hm))}" class="ghostbtn" style="border:1px solid var(--line);padding:5px 10px;font-size:12px;color:var(--cream)">${esc(hm)}</a>`).join("")}</div></div>`
+    : "";
   const resumen = !entrada.fecha || !entrada.hora
-    ? `<div class="text-dim" style="font-size:12.5px">Rellena los datos y revisa el resumen antes de confirmar.</div>`
-    : `<div style="font-size:13px;line-height:1.8">
+    ? `<div class="text-dim" style="font-size:12.5px">${entrada.fecha ? "Elige la hora para ver el resumen." : "Rellena los datos y revisa el resumen antes de confirmar."}</div>${delDia}${libres}`
+    : `<div style="font-size:13px;line-height:1.8">${delDia}${v.choque ? `<div style="color:var(--bad);font-weight:600">⛔ Choca con otra llamada del CRM: ${esc(v.choque)}. Elige otro horario.</div>` : ""}
         <div>📅 <b style="color:var(--cream)">${esc(v.madrid)}</b> · hora de España</div>
         <div class="text-dim">🇨🇴 ${esc(v.colombia)} · hora de Colombia</div>
         <div>${v.disponible === true ? `<span style="color:var(--ok)">✔ Disponible en Cal.com</span>` : v.disponible === false ? `<span style="color:var(--bad)">✖ No disponible en Cal.com (cerrado o ocupado)</span>` : `<span class="text-dim">No pude comprobar la disponibilidad</span>`}</div>
@@ -226,12 +269,12 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
         ${v.aviso ? `<div style="color:var(--bad)">⚠ ${esc(v.aviso)}</div>` : ""}
       </div>`;
   const radio = (valor: ModoAgenda, titulo: string, ayuda: string, recomendada = false): string =>
-    `<label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);margin-bottom:8px;cursor:pointer"><input type="radio" name="modo" value="${valor}" ${entrada.modo === valor ? "checked" : ""} style="margin-top:3px;accent-color:var(--accent)"><span style="font-size:12.5px;color:var(--cream)"><b>${titulo}</b>${recomendada ? ` <span style="color:var(--ok);font-size:11px">recomendada</span>` : ""}<br><span class="text-dim">${ayuda}</span></span></label>`;
+    `<label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);margin-bottom:8px;cursor:pointer"><input type="radio" name="modo" value="${valor}" ${v.modo === valor ? "checked" : ""} style="margin-top:3px;accent-color:var(--accent)"><span style="font-size:12.5px;color:var(--cream)"><b>${titulo}</b>${recomendada ? ` <span style="color:var(--ok);font-size:11px">recomendada</span>` : ""}<br><span class="text-dim">${ayuda}</span></span></label>`;
   const body = `${ESTILO_CRM}
     <div style="max-width:760px">
       <a href="/crm/calendario" style="font-size:12px">← Volver al calendario</a>
       <h2 style="font-weight:700;font-size:20px;margin:10px 0 6px">Agendar llamada manual</h2>
-      <p class="text-dim" style="font-size:12.5px;margin:0 0 16px">Para llamadas que Maricela ya acordó con el cliente y el bot no tiene. Si ya están en su Google Calendar, Cal.com las ve ocupadas: usa «Solo en el CRM».</p>
+      <p class="text-dim" style="font-size:12.5px;margin:0 0 16px">Para llamadas que Maricela acordó por su cuenta. <b>Si el horario está libre</b>, se crea en Cal.com y queda en su Google Calendar y en el CRM. <b>Si ya la tiene en su Google Calendar</b>, Cal.com lo ve ocupado y se guarda solo en el CRM.</p>
       ${r ? (r.ok
         ? `<div class="crm-card" style="padding:16px;margin-bottom:16px;border-left:4px solid var(--ok)"><b style="color:var(--ok)">✔ Listo</b><div style="font-size:13px;margin-top:6px">${esc(r.mensaje)}</div>${r.enlace ? `<div style="font-size:12.5px;margin-top:6px">Enlace de Meet: <a href="${esc(r.enlace)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.enlace)}</a></div>` : ""}<div style="margin-top:10px;display:flex;gap:10px"><a class="ghostbtn" href="/crm/c/${encodeURIComponent(r.convId)}" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Ver ficha</a><a class="ghostbtn" href="/crm/calendario" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Ver calendario</a><a class="ghostbtn" href="/crm/agendar" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Agendar otra</a></div></div>`
         : `<div class="crm-card" style="padding:14px;margin-bottom:16px;border-left:4px solid var(--bad);color:var(--bad);font-size:13px">✖ ${esc(r.error)}</div>`) : ""}
@@ -253,7 +296,7 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
         ${radio("solo_crm", "Solo en el CRM", "No toca Cal.com ni Google Calendar. Úsala si la llamada ya está en el Google Calendar de Maricela (Cal.com ya ve ese horario ocupado, así que el bot no se lo ofrece a nadie).")}
         <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
           <button type="submit" name="accion" value="ver" class="ghostbtn" style="border:1px solid var(--line);padding:9px 16px;font-size:12.5px;color:var(--muted);background:none;cursor:pointer;font-family:inherit">Actualizar resumen</button>
-          <button type="submit" name="accion" value="confirmar" style="${ESTILO_BOTON}" ${v.completo ? "" : "disabled"}>Confirmar y agendar</button>
+          <button type="submit" name="accion" value="confirmar" style="${ESTILO_BOTON}" ${v.completo && !v.choque ? "" : "disabled"}>Confirmar y agendar</button>
         </div>
       </form>`}
     </div>`;

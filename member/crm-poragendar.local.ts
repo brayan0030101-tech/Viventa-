@@ -235,7 +235,7 @@ function acciones(p: Pendiente, vq: string): string {
   const l = p.fila.lead;
   const cid = encodeURIComponent(l.convId);
   const tel = l.telefono.includes("/") ? l.telefono.slice(l.telefono.lastIndexOf("/") + 1).trim() : l.telefono;
-  const agendar = `/crm/agendar?${new URLSearchParams({ nombre: l.nombre, tel, correo: l.correo.split(",")[0].trim(), modo: "solo_crm" }).toString()}`;
+  const agendar = `/crm/agendar?${new URLSearchParams({ nombre: l.nombre, tel, correo: l.correo.split(",")[0].trim() }).toString()}`;
   const boton = (motivo: MotivoDescarte, extra = ""): string =>
     `<form method="POST" action="/crm/por-agendar/clasificar" style="margin:0"><input type="hidden" name="conv" value="${esc(l.convId)}"><input type="hidden" name="motivo" value="${motivo}"><input type="hidden" name="vq" value="${esc(vq)}">${extra}<button style="all:unset;cursor:pointer;display:block;padding:7px 10px;font-size:12px;color:var(--cream);width:100%;box-sizing:border-box">${DESCARTES[motivo].icono} ${DESCARTES[motivo].txt}</button></form>`;
   const manana = new Date(Date.now() + 7 * DIA).toISOString().slice(0, 10);
