@@ -26,6 +26,8 @@ export interface EntradaAgenda {
   hora: string; // HH:MM
   zona: ZonaEntrada;
   modo: ModoAgenda;
+  /** Enlace de Meet que el cliente ya tiene (opcional; solo para «solo CRM»). */
+  meet: string;
 }
 
 export function leerEntrada(q: Record<string, string | undefined>): EntradaAgenda {
@@ -39,6 +41,7 @@ export function leerEntrada(q: Record<string, string | undefined>): EntradaAgend
     hora: /^\d{1,2}:\d{2}$/.test(q["hora"] ?? "") ? q["hora"]!.padStart(5, "0") : "",
     zona,
     modo,
+    meet: /^https:\/\/meet\.google\.com\/[\w-]+/.test((q["meet"] ?? "").trim()) ? (q["meet"] ?? "").trim().slice(0, 200) : "",
   };
 }
 
@@ -170,12 +173,13 @@ export async function crearCitaManual(env: Env, entrada: EntradaAgenda, now = Da
   let enlace: string | undefined;
   let estado = "";
   if (entrada.modo === "solo_crm") {
-    estado = "Reservada (solo CRM)";
+    // Mismo estado que una reserva de Cal.com para que el bot, «Por agendar» y los informes la cuenten como agendada; `soloCrm` la distingue.
+    estado = "Reservada (Cal.com)";
     leadId = await new LeadsRepo(db, env).create({
       conversationId: convId, channelUserId: null, name: nombre, contact: entrada.tel || entrada.correo,
       intent: `Cita · ${SERVICIO} · ${entrada.fecha} ${entrada.hora}`.slice(0, 300),
       notes: "Agendada manualmente por el equipo (solo CRM, no está en Cal.com)",
-      metadata: { servicio: SERVICIO, fecha: entrada.fecha, hora: entrada.hora, calStart: new Date(v.ms).toISOString(), estado, ...suprimir },
+      metadata: { servicio: SERVICIO, fecha: entrada.fecha, hora: entrada.hora, calStart: new Date(v.ms).toISOString(), estado, soloCrm: "1", ...(entrada.meet ? { calMeetingUrl: entrada.meet } : {}), ...suprimir },
     });
   } else {
     if (!v.slotIso) return { ok: false, error: v.disponible === false ? "Ese horario no está disponible en Cal.com (Maricela no lo tiene abierto o ya está ocupado). Puedes guardarla solo en el CRM." : "No pude comprobar la disponibilidad en Cal.com. Inténtalo de nuevo." };
@@ -227,7 +231,7 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
     <div style="max-width:760px">
       <a href="/crm/calendario" style="font-size:12px">← Volver al calendario</a>
       <h2 style="font-weight:700;font-size:20px;margin:10px 0 6px">Agendar llamada manual</h2>
-      <p class="text-dim" style="font-size:12.5px;margin:0 0 16px">Para llamadas que Maricela ya acordó con el cliente y el bot no tiene. Se registra en Cal.com, en su Google Calendar y en el CRM.</p>
+      <p class="text-dim" style="font-size:12.5px;margin:0 0 16px">Para llamadas que Maricela ya acordó con el cliente y el bot no tiene. Si ya están en su Google Calendar, Cal.com las ve ocupadas: usa «Solo en el CRM».</p>
       ${r ? (r.ok
         ? `<div class="crm-card" style="padding:16px;margin-bottom:16px;border-left:4px solid var(--ok)"><b style="color:var(--ok)">✔ Listo</b><div style="font-size:13px;margin-top:6px">${esc(r.mensaje)}</div>${r.enlace ? `<div style="font-size:12.5px;margin-top:6px">Enlace de Meet: <a href="${esc(r.enlace)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.enlace)}</a></div>` : ""}<div style="margin-top:10px;display:flex;gap:10px"><a class="ghostbtn" href="/crm/c/${encodeURIComponent(r.convId)}" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Ver ficha</a><a class="ghostbtn" href="/crm/calendario" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Ver calendario</a><a class="ghostbtn" href="/crm/agendar" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Agendar otra</a></div></div>`
         : `<div class="crm-card" style="padding:14px;margin-bottom:16px;border-left:4px solid var(--bad);color:var(--bad);font-size:13px">✖ ${esc(r.error)}</div>`) : ""}
@@ -240,12 +244,13 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
           ${campo("fecha", "Día", entrada.fecha, 'type="date" required')}
           ${campo("hora", "Hora de inicio", entrada.hora, 'type="time" required')}
         </div>
+        ${campo("meet", "Enlace de Meet que el cliente ya tiene (opcional)", entrada.meet, 'type="url" placeholder="https://meet.google.com/…"')}
         <div class="crm-sec" style="margin-top:6px">Resumen</div>
         <div style="margin-bottom:14px">${resumen}</div>
         <div class="crm-sec">¿Cómo registrarla?</div>
         ${radio("relleno", "En Cal.com SIN avisar al cliente", "Bloquea el horario y la deja en el calendario y el CRM. El cliente no recibe una segunda invitación: conserva el enlace de Meet que ya tiene.", true)}
         ${radio("cliente", "En Cal.com y avisar al cliente", "Cal.com le envía la invitación con su propio enlace de Meet al correo del cliente (puede confundirse si ya tenía otra).")}
-        ${radio("solo_crm", "Solo en el CRM", "No toca Cal.com ni Google Calendar. No bloquea el horario: el bot podría ofrecérselo a otro cliente.")}
+        ${radio("solo_crm", "Solo en el CRM", "No toca Cal.com ni Google Calendar. Úsala si la llamada ya está en el Google Calendar de Maricela (Cal.com ya ve ese horario ocupado, así que el bot no se lo ofrece a nadie).")}
         <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
           <button type="submit" name="accion" value="ver" class="ghostbtn" style="border:1px solid var(--line);padding:9px 16px;font-size:12.5px;color:var(--muted);background:none;cursor:pointer;font-family:inherit">Actualizar resumen</button>
           <button type="submit" name="accion" value="confirmar" style="${ESTILO_BOTON}" ${v.completo ? "" : "disabled"}>Confirmar y agendar</button>

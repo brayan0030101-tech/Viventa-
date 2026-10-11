@@ -82,11 +82,13 @@ describe("agendar llamada manual", () => {
     const no = await crearCitaManual(env, entrada({ hora: "11:00" }), NOW);
     expect(no.ok).toBe(false);
     expect(bookMock).not.toHaveBeenCalled();
-    const crm = await crearCitaManual(env, entrada({ nombre: "Diana Zuñiga", correo: "lizethdiana215@gmail.com", tel: "34642196973", hora: "11:00", modo: "solo_crm" }), NOW);
+    const crm = await crearCitaManual(env, entrada({ nombre: "Diana Zuñiga", correo: "lizethdiana215@gmail.com", tel: "34642196973", hora: "11:00", modo: "solo_crm", meet: "https://meet.google.com/aaa-bbbb-ccc" }), NOW);
     expect(crm.ok).toBe(true);
     expect(bookMock).not.toHaveBeenCalled();
+    const { llamadasAgendadas } = await import("../../src/followup/resumenDia");
+    expect((await llamadasAgendadas(db, NOW)).has("ycloud:34642196973")).toBe(true);
     const ll = await cargarLlamadas(env, NOW);
-    expect(ll.some((l) => l.convId === "ycloud:34642196973")).toBe(true);
+    expect(ll.some((l) => l.convId === "ycloud:34642196973" && l.enlace === "https://meet.google.com/aaa-bbbb-ccc")).toBe(true);
   });
 
   it("dibuja la pantalla con el resumen y la opción recomendada", async () => {
