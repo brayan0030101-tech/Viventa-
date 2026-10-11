@@ -337,6 +337,16 @@ export function crmApp(): Hono<Vars> {
     return data ? xlsx(data, "ficha-cliente") : c.text("Cliente no encontrado", 404);
   });
 
+  // Por agendar
+  app.get("/por-agendar", async (c) => {
+    const { renderCrmPorAgendar } = await import("./crm-poragendar.local");
+    return pagina(c, await renderCrmPorAgendar(c.env, { motivo: c.req.query("motivo"), frios: c.req.query("frios") === "1" }));
+  });
+  app.get("/por-agendar.xlsx", async (c) => {
+    const { excelPorAgendar } = await import("./crm-poragendar.local");
+    return xlsx(await excelPorAgendar(c.env, { frios: c.req.query("frios") === "1" }), "por-agendar");
+  });
+
   // Pipeline
   app.get("/pipeline", async (c) => {
     const { renderCrmPipeline } = await import("./crm-pipeline.local");
