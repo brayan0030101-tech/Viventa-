@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { cargarPorAgendar, clavePhone, proponeHorario, renderCrmPorAgendar, excelPorAgendar } from "../../member/crm-poragendar.local";
+import { cargarPorAgendar, clavePhone, proponeHorario, renderCrmPorAgendar, excelPorAgendar, descartarPersona, reactivarPersona } from "../../member/crm-poragendar.local";
 import type { Env } from "../../src/env";
 
 let env: Env;
@@ -76,5 +76,32 @@ describe("por agendar", () => {
     expect(html).toContain("Marcela Ruiz");
     expect(html).toContain("https://wa.me/46723361321");
     expect((await excelPorAgendar(env, {}, NOW)).length).toBeGreaterThan(500);
+  });
+
+  it("clasificar: saca a la persona (IG y WhatsApp), la pasa a Perdido y se puede reactivar", async () => {
+    await ig("zernio:00000010", "Pedro Gil", "pedro@mail.com / 600111333");
+    await wa("34600111333", [["Hola", 10]]);
+    expect(await motivoDe("Pedro Gil")).toBeDefined();
+    expect((await descartarPersona(env, "zernio:00000010", "no_interesado", null, NOW)).n).toBe(2);
+    expect(await motivoDe("Pedro Gil")).toBeUndefined();
+    const desc = await cargarPorAgendar(env, { descartados: true }, NOW);
+    expect(desc.map((p) => p.fila.lead.nombre)).toContain("Pedro Gil");
+    expect(desc[0].descarte?.motivo).toBe("no_interesado");
+    const { cargarPipeline } = await import("../../member/crm-pipeline.local");
+    expect((await cargarPipeline(env, NOW)).find((t) => t.fila.lead.nombre === "Pedro Gil")?.etapa).toBe("perdido");
+    expect(await renderCrmPorAgendar(env, { motivo: "descartados" }, NOW)).toContain("No está interesado");
+    await reactivarPersona(env, "zernio:00000010");
+    expect(await motivoDe("Pedro Gil")).toBeDefined();
+    expect((await cargarPipeline(env, NOW)).find((t) => t.fila.lead.nombre === "Pedro Gil")?.etapa).not.toBe("perdido");
+  });
+
+  it("«más adelante» aplaza hasta la fecha y luego vuelve a la lista; motivo inválido se rechaza", async () => {
+    await ig("zernio:00000011", "Ana Pausa", "ana@mail.com / 600111444");
+    expect((await descartarPersona(env, "zernio:00000011", "inventado", null, NOW)).ok).toBe(false);
+    await descartarPersona(env, "zernio:00000011", "mas_adelante", "2026-11-20", NOW);
+    expect(await motivoDe("Ana Pausa")).toBeUndefined();
+    const despues = await cargarPorAgendar(env, {}, Date.UTC(2026, 10, 21));
+    const p = despues.find((x) => x.fila.lead.nombre === "Ana Pausa");
+    expect(p?.vuelve).toBe(true);
   });
 });

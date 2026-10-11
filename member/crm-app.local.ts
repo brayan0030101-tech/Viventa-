@@ -355,6 +355,19 @@ export function crmApp(): Hono<Vars> {
     const { renderCrmPorAgendar } = await import("./crm-poragendar.local");
     return pagina(c, await renderCrmPorAgendar(c.env, { motivo: c.req.query("motivo"), frios: c.req.query("frios") === "1" }));
   });
+  const volverPA = (vq: string): string => `${BASE}/por-agendar${/^[\w=&.%-]+$/.test(vq) ? `?${vq}` : ""}`;
+  app.post("/por-agendar/clasificar", async (c) => {
+    const { descartarPersona } = await import("./crm-poragendar.local");
+    const f = await c.req.parseBody();
+    await descartarPersona(c.env, String(f["conv"] ?? ""), String(f["motivo"] ?? ""), f["hasta"] ? String(f["hasta"]) : null);
+    return c.redirect(volverPA(String(f["vq"] ?? "")));
+  });
+  app.post("/por-agendar/reactivar", async (c) => {
+    const { reactivarPersona } = await import("./crm-poragendar.local");
+    const f = await c.req.parseBody();
+    await reactivarPersona(c.env, String(f["conv"] ?? ""));
+    return c.redirect(volverPA(String(f["vq"] ?? "")));
+  });
   app.get("/por-agendar.xlsx", async (c) => {
     const { excelPorAgendar } = await import("./crm-poragendar.local");
     return xlsx(await excelPorAgendar(c.env, { frios: c.req.query("frios") === "1" }), "por-agendar");
