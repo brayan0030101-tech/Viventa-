@@ -337,6 +337,19 @@ export function crmApp(): Hono<Vars> {
     return data ? xlsx(data, "ficha-cliente") : c.text("Cliente no encontrado", 404);
   });
 
+  // Agendar llamada manual
+  app.get("/agendar", async (c) => {
+    const { renderAgendar, leerEntrada } = await import("./crm-agendar.local");
+    return pagina(c, await renderAgendar(c.env, leerEntrada(c.req.query())));
+  });
+  app.post("/agendar", async (c) => {
+    const { renderAgendar, leerEntrada, crearCitaManual } = await import("./crm-agendar.local");
+    const f = await c.req.parseBody();
+    const entrada = leerEntrada(Object.fromEntries(Object.entries(f).map(([k, v]) => [k, typeof v === "string" ? v : ""])));
+    if (f["accion"] !== "confirmar") return pagina(c, await renderAgendar(c.env, entrada));
+    return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
+  });
+
   // Por agendar
   app.get("/por-agendar", async (c) => {
     const { renderCrmPorAgendar } = await import("./crm-poragendar.local");

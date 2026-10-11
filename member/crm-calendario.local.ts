@@ -184,6 +184,7 @@ export async function renderCrmCalendario(env: Env, mes: string | undefined, now
     <h2 style="font-weight:700;font-size:20px;margin:0;min-width:190px;text-align:center;text-transform:capitalize">${MESES[m - 1]} ${y}</h2>
     <a class="ghostbtn" href="/crm/calendario?mes=${sig}" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted)">→</a>
     <a class="ghostbtn" href="/crm/calendario" style="border:1px solid var(--line);padding:6px 12px;color:var(--muted);margin-left:6px">Hoy</a>
+    <a class="ghostbtn" href="/crm/agendar" style="border:1px solid var(--accent);padding:6px 12px;color:var(--accent);margin-left:6px;font-weight:600">＋ Agendar llamada manual</a>
     <span class="text-dim" style="margin-left:auto;font-size:11px">Horas en hora de España</span>
   </div>`;
 
