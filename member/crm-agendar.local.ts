@@ -300,5 +300,5 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
         </div>
       </form>`}
     </div>`;
-  return crmLayout({ title: "Agendar llamada", activa: "calendario", body, env });
+  return crmLayout({ title: "Agendar llamada", activa: "agendar", body, env });
 }
