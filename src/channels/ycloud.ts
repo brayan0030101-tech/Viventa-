@@ -327,11 +327,25 @@ export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env, ori
   return true;
 }
 
+async function registrarFallo(env: Env, telefono: string, detalle: string): Promise<void> {
+  try {
+    const db = new Db(env.DB);
+    await db.run("CREATE TABLE IF NOT EXISTS envios_fallidos (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, canal TEXT NOT NULL, destino TEXT NOT NULL, detalle TEXT NOT NULL)");
+    await db.run("INSERT INTO envios_fallidos (ts, canal, destino, detalle) VALUES (?,?,?,?)", [Date.now(), "ycloud", telefono, detalle.slice(0, 500)]);
+  } catch {
+    /* el registro nunca debe tumbar el envío */
+  }
+}
+
 /** Si un mensaje del bot NO sale por WhatsApp, avisa al equipo (máx. una vez cada 30 min, para no inundar si el problema es general). */
 async function alertarFalloEnvio(env: Env, telefono: string, detalle: string): Promise<void> {
   try {
+    // Registro permanente del fallo (para poder diagnosticar después: qué número, cuándo y qué respondió WhatsApp).
+    const db = new Db(env.DB);
+    await db.run("CREATE TABLE IF NOT EXISTS envios_fallidos (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, canal TEXT NOT NULL, destino TEXT NOT NULL, detalle TEXT NOT NULL)");
+    await db.run("INSERT INTO envios_fallidos (ts, canal, destino, detalle) VALUES (?,?,?,?)", [Date.now(), "ycloud", telefono, detalle.slice(0, 500)]);
     const { SettingsRepo } = await import("../db/settings");
-    const settings = new SettingsRepo(new Db(env.DB));
+    const settings = new SettingsRepo(db);
     const ultimo = Number((await settings.get("ycloud_alerta_envio")) ?? 0) || 0;
     if (Date.now() - ultimo < 30 * 60_000) return;
     await settings.set("ycloud_alerta_envio", String(Date.now()));
@@ -403,7 +417,10 @@ export const ycloudAdapter: ChannelAdapter = {
       if (!res.ok && conBotones) {
         // Si WhatsApp rechaza el mensaje con botones, se reenvía como texto con las opciones numeradas:
         // mejor un mensaje menos bonito que un cliente al que no le llegó nada.
-        console.error(`ycloud sendReply con botones falló (${res.status}): ${(await res.clone().text().catch(() => "")).slice(0, 200)} → reintento como texto`);
+        const motivoBotones = (await res.clone().text().catch(() => "")).slice(0, 300);
+        console.error(`ycloud sendReply con botones falló (${res.status}): ${motivoBotones.slice(0, 200)} → reintento como texto`);
+        // Se deja constancia aunque el reintento salga bien: así se sabe POR QUÉ falló el mensaje con botones.
+        await registrarFallo(env, reply.channelUserId, `botones rechazados ${res.status}: ${motivoBotones}`);
         res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
