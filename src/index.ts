@@ -774,6 +774,11 @@ export default {
         const { runConfirmacionesCitas } = await import("./followup/sistemaViventa");
         await runConfirmacionesCitas(env).catch((e) => console.error("confirmacionesCitas:", e));
       }
+      {
+        // Saldo de YCloud: una consulta por hora; avisa por Telegram si baja de 3 USD (con 0 el bot no puede enviar).
+        const { runSaldoYCloud } = await import("./followup/saldoYCloud");
+        await runSaldoYCloud(env).catch((e) => console.error("saldoYCloud:", e));
+      }
       if (new Date().getUTCMinutes() % 15 < 5) {
         const { runSistemaViventa } = await import("./followup/sistemaViventa");
         await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
