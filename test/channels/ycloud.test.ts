@@ -366,4 +366,21 @@ describe("botones de WhatsApp (YCloud)", () => {
     expect(body.interactive.action.buttons[0].reply.title).toBe("Lun 12 oct");
     vi.unstubAllGlobals();
   });
+
+  it("si WhatsApp rechaza los botones, reenvía el mismo mensaje como texto con opciones numeradas", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":"bad"}', { status: 400 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await ycloudAdapter.sendReply(
+      { channel: "ycloud", channelUserId: "34600000000", chunks: ["¿Qué día te queda mejor?"], buttons: [{ title: "Lun 12 oct", payload: "btn:Lun 12 oct" }, { title: "Mar 13 oct", payload: "btn:Mar 13 oct" }] },
+      { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const segundo = JSON.parse((fetchMock.mock.calls[1] as any)[1].body);
+    expect(segundo.type).toBe("text");
+    expect(segundo.text.body).toContain("1) Lun 12 oct");
+    expect(segundo.text.body).toContain("2) Mar 13 oct");
+    vi.unstubAllGlobals();
+  });
 });

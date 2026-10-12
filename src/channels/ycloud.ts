@@ -327,6 +327,24 @@ export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env, ori
   return true;
 }
 
+/** Si un mensaje del bot NO sale por WhatsApp, avisa al equipo (máx. una vez cada 30 min, para no inundar si el problema es general). */
+async function alertarFalloEnvio(env: Env, telefono: string, detalle: string): Promise<void> {
+  try {
+    const { SettingsRepo } = await import("../db/settings");
+    const settings = new SettingsRepo(new Db(env.DB));
+    const ultimo = Number((await settings.get("ycloud_alerta_envio")) ?? 0) || 0;
+    if (Date.now() - ultimo < 30 * 60_000) return;
+    await settings.set("ycloud_alerta_envio", String(Date.now()));
+    const { notifyCamila } = await import("../lib/camila");
+    await notifyCamila(env, {
+      heading: "⚠️ Un mensaje del bot no salió por WhatsApp",
+      body: `No se pudo enviar al +${telefono}: ${detalle}. Puede ser saldo de YCloud, la ventana de 24 horas o un error de WhatsApp. Revisa YCloud → Mensajes.`,
+    }).catch(() => false);
+  } catch {
+    /* el aviso nunca debe tumbar el envío */
+  }
+}
+
 export const ycloudAdapter: ChannelAdapter = {
   // Existe por la interfaz ChannelAdapter; la ruta /webhooks/ycloud usa
   // parseYCloudEvents directamente (y desvía los echoes a ycloudOwnerTakeover).
@@ -356,7 +374,7 @@ export const ycloudAdapter: ChannelAdapter = {
         esUltimo && !!reply.buttons?.length && !conBotones
           ? `${reply.chunks[i]}\n\n${reply.buttons.map((b, n) => `${n + 1}) ${b.title}`).join("\n")}`
           : reply.chunks[i];
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
         body: JSON.stringify(
@@ -382,7 +400,20 @@ export const ycloudAdapter: ChannelAdapter = {
       // Fuera de la ventana de 24h Meta rechaza texto libre (pide plantilla HSM):
       // logéalo con el cuerpo para ver el motivo exacto, no lo tragues en
       // silencio. En strict además lanza para que la app pinte el motivo.
-      if (!res.ok) await reportSendFailure("ycloud sendReply", res, opts);
+      if (!res.ok && conBotones) {
+        // Si WhatsApp rechaza el mensaje con botones, se reenvía como texto con las opciones numeradas:
+        // mejor un mensaje menos bonito que un cliente al que no le llegó nada.
+        console.error(`ycloud sendReply con botones falló (${res.status}): ${(await res.clone().text().catch(() => "")).slice(0, 200)} → reintento como texto`);
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+          body: JSON.stringify({ from, to: `+${reply.channelUserId}`, type: "text", text: { body: `${reply.chunks[i]}\n\n${reply.buttons!.map((b, n) => `${n + 1}) ${b.title}`).join("\n")}` } }),
+        });
+      }
+      if (!res.ok) {
+        await alertarFalloEnvio(env, reply.channelUserId, `${res.status} ${(await res.clone().text().catch(() => "")).slice(0, 160)}`);
+        await reportSendFailure("ycloud sendReply", res, opts);
+      }
     }
     // Galería: cada archivo va como mensaje propio DESPUÉS del texto (YCloud
     // espeja la Cloud API: image jpg/png ≤5MB, audio aac/mp3/ogg ≤16MB, por link).
