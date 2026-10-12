@@ -352,7 +352,9 @@ async function alertarFalloEnvio(env: Env, telefono: string, detalle: string): P
     const { notifyCamila } = await import("../lib/camila");
     await notifyCamila(env, {
       heading: "⚠️ Un mensaje del bot no salió por WhatsApp",
-      body: `No se pudo enviar al +${telefono}: ${detalle}. Puede ser saldo de YCloud, la ventana de 24 horas o un error de WhatsApp. Revisa YCloud → Mensajes.`,
+      body: /BALANCE_INSUFFICIENT/i.test(detalle)
+        ? `🔴 El saldo de YCloud se acabó: el bot NO puede mandar mensajes por WhatsApp (último intento al +${telefono}). Recarga en ycloud.com → Recargar. Mientras tanto los clientes de WhatsApp no reciben respuesta.`
+        : `No se pudo enviar al +${telefono}: ${detalle}. Puede ser la ventana de 24 horas o un error de WhatsApp. Revisa YCloud → Mensajes.`,
     }).catch(() => false);
   } catch {
     /* el aviso nunca debe tumbar el envío */

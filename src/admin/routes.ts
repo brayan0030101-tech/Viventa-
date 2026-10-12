@@ -1352,6 +1352,7 @@ adminApp.post("/conversations/:id/reply", async (c) => {
         interChunkDelayMs: 0,
       },
       c.env,
+      { strict: true }, // si WhatsApp/YCloud rechaza el envío, que el panel lo diga (antes mostraba «Enviado» aunque no salió)
     );
   } catch (e) {
     // Nothing persisted on failure: the customer never got the message.
