@@ -57,7 +57,8 @@ interface ConvRef {
 function primerNombre(...candidatos: Array<string | null | undefined>): string {
   for (const c of candidatos) {
     const n = (c ?? "").trim().split(/\s+/)[0];
-    if (n) return n;
+    // Un usuario de Instagram («carolcooper1709», «jhon_f») no es un nombre: se salta al siguiente candidato.
+    if (n && !/[\d_.@]/.test(n)) return n;
   }
   return "";
 }
@@ -690,7 +691,8 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
     const porPlantilla = !ventanaAbierta && c.channel === "ycloud" && !!((await settings.get(TPL_OFERTA)) ?? "").trim();
     if (!ventanaAbierta && !porPlantilla) continue;
     if (!(await claim(db, "conversations", c.id, "viventa_oferta", now))) continue;
-    const nombre = primerNombre(c.display_name);
+    const leadName = (await db.first<{ name: string | null }>("SELECT name FROM leads WHERE conversation_id = ? AND name IS NOT NULL AND intent NOT LIKE 'Cita ·%' ORDER BY created_at DESC LIMIT 1", [c.id]))?.name;
+    const nombre = primerNombre(leadName, c.display_name);
     const text =
       `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Maricela puede llamarte en una videollamada de 30 minutos para orientarte con tu caso. ` +
       `¿Qué día te queda mejor? (hora de España)`;
