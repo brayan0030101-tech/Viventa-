@@ -67,11 +67,10 @@ describe("proponerLlamada", () => {
   }
   const correr = (id: string) => (proponerLlamadaTool(env, () => id) as any).execute({});
 
-  it("cliente frío: no se ofrece llamada", async () => {
+  it("cliente frío: también se ofrece la llamada (decisión del dueño, 13 oct 2026)", async () => {
     const id = await cliente({ ciudadCompra: "Cali" });
-    // quitar el teléfono del canal para que sume menos puntos
     const r = await correr(id);
-    expect(r.ofrecerLlamada).toBe(false);
+    expect(r.ofrecerLlamada).toBe(true);
     expect(r.prioridad).toBe("frio");
   });
   it("cliente tibio/caliente: devuelve horarios reales y pide correo si falta", async () => {
@@ -213,7 +212,7 @@ describe("horario nocturno", () => {
 });
 
 describe("cliente frío ofrecido por el equipo", () => {
-  it("la marca viventa_oferta deja pasar a un frío; sin la marca no", async () => {
+  it("un frío pasa la puerta de prioridad con o sin la marca viventa_oferta", async () => {
     const mf = await createTestMiniflare();
     const d1 = (await mf.getD1Database("DB")) as any;
     const db = new Db(d1);
@@ -225,7 +224,9 @@ describe("cliente frío ofrecido por el equipo", () => {
     reservasMock.mockResolvedValue({ ok: true, starts: [] });
     rangoMock.mockResolvedValue({ ok: true, byDate: {} });
     const t = proponerLlamadaTool({ ...env, CALCOM_API_KEY: "k", CALCOM_EVENT_TYPE_ID: "1" } as any, () => "zernio:77") as any;
-    expect((await t.execute({})).ofrecerLlamada).toBe(false); // frío sin marca
+    const sinMarca: any = await t.execute({});
+    // Sin marca: la prioridad ya no lo detiene (solo puede detenerlo la agenda).
+    expect(sinMarca.ofrecerLlamada === true || sinMarca.motivo !== undefined).toBe(true);
     await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'), '$.viventa_oferta', 'x') WHERE id='zernio:77'");
     const r = await t.execute({});
     // Pasó la puerta de «frío»: ahora solo puede detenerla la agenda (aquí no configurada), no la prioridad.

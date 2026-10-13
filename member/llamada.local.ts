@@ -224,15 +224,9 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         if (lead.llamada) {
           return { ofrecerLlamada: false as const, motivo: "ya_tiene_llamada", llamada: lead.llamada };
         }
+        // Desde el 13 oct 2026 la oferta va a TODOS los clientes (también «fríos»): el dueño pidió que
+        // el bot siga hasta agendar con quien terminó el guion; el puntaje solo ordena la lista del equipo.
         const nivel = lead.prioridad.nivel;
-        // Un cliente frío solo recibe la oferta si el equipo se la ofreció a mano (marca viventa_oferta).
-        let ofrecidaPorEquipo = false;
-        try {
-          ofrecidaPorEquipo = !!(convs[0]?.metadata && JSON.parse(convs[0].metadata).viventa_oferta);
-        } catch {
-          /* metadata ilegible: se trata como no ofrecida */
-        }
-        if (nivel === "frio" && !ofrecidaPorEquipo) return { ofrecerLlamada: false as const, prioridad: nivel };
 
         if (!calcomConfigured(env)) return { ofrecerLlamada: false as const, motivo: "agenda_no_configurada" };
         const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");
