@@ -331,3 +331,16 @@ describe("correo inventado", () => {
     expect(faltantes(l)).toEqual([]);
   });
 });
+
+describe("horaDeLlamadaPedida", () => {
+  it("«no indicada» no cuenta como pedir hora; una hora real sí", async () => {
+    const { horaDeLlamadaPedida, puntuarLead } = await import("../../src/followup/resumenDia");
+    expect(horaDeLlamadaPedida("Origen: x. Hora de llamada pedida: no indicada. Teléfono sin indicativo")).toBe("");
+    expect(horaDeLlamadaPedida("Hora de llamada pedida: 18:00 hora de España")).toBe("Hora de llamada pedida: 18:00 hora de España");
+    expect(horaDeLlamadaPedida("sin nada")).toBe("");
+    const sin = puntuarLead({ metadata: {}, notas: "Hora de llamada pedida: no indicada", telefono: "640961054" } as any);
+    expect(sin.puntos).toBe(1);
+    const con = puntuarLead({ metadata: {}, notas: "Hora de llamada pedida: mañana 5pm", telefono: "640961054" } as any);
+    expect(con.puntos).toBe(2);
+  });
+});

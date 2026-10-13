@@ -61,6 +61,18 @@ const CAMPOS_FICHA = [
   "ahorroDisponible", "capacidadMensual", "tipoEmpleo", "antiguedadLaboral", "compraSoloOAcompanado",
 ];
 
+/**
+ * «Hora de llamada pedida: <algo>» de las notas, o "" si no hay hora real. El bot anota
+ * «Hora de llamada pedida: no indicada» cuando el cliente no la dio: eso NO cuenta como pedirla.
+ */
+export function horaDeLlamadaPedida(notas: string): string {
+  const m = notas.match(/hora de llamada[^|;\n]*/i)?.[0]?.trim() ?? "";
+  if (!m) return "";
+  const valor = m.replace(/^hora de llamada(?:\s+pedida)?\s*:?\s*/i, "").trim();
+  if (!valor || /^(no\b|sin\b|ninguna|n\/a|ni\b|[-—–.]+$)/i.test(valor)) return "";
+  return m;
+}
+
 export function puntuarLead(f: FichaLead): Prioridad {
   const m = f.metadata;
   let p = 0;
@@ -80,7 +92,7 @@ export function puntuarLead(f: FichaLead): Prioridad {
   if (f.telefono) suma(1, "Dejó su teléfono");
   const ingresos = parseMonto(m.ingresosMensuales);
   if (ingresos >= 2_000) suma(1, `Ingresos ${m.ingresosMensuales}`);
-  if (/hora de llamada/i.test(f.notas)) suma(1, "Pidió hora de llamada");
+  if (horaDeLlamadaPedida(f.notas)) suma(1, "Pidió hora de llamada");
   if (CAMPOS_FICHA.filter((k) => m[k]).length >= 6) suma(1, "Ficha casi completa");
   return { puntos: p, nivel: p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
 }
@@ -151,7 +163,7 @@ export function armarLeads(convs: ConvInfo[], leads: LeadRow[], llamadas: Map<st
     const telefono = c.channel === "ycloud" ? `+${c.channel_user_id}` : (telefonos[telefonos.length - 1] ?? "");
     const notasTxt = notas.join(" | ");
     const ficha: FichaLead = { metadata: meta, notas: notasTxt, telefono };
-    const hora = notasTxt.match(/hora de llamada[^|;\n]*/i)?.[0]?.trim() ?? "";
+    const hora = horaDeLlamadaPedida(notasTxt);
     out.push({
       convId: c.id,
       canal: canalDe(c.channel),
