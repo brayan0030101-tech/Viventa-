@@ -788,7 +788,9 @@ export async function runSistemaViventa(env: Env, now = Date.now()): Promise<voi
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
   await runRecordatoriosLlamada(env, now).catch((e) => console.error("[sistemaViventa] llamada:", e));
-  await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
+  // Apagado el 13 oct 2026: el guion nuevo ya pide el teléfono en el mensaje 2 (Instagram); este envío le
+  // hablaba de "llamarte mañana" a quien aún no había autorizado sus datos y dejaba la conversación a medias.
+  // await runPedirTelefono(env, now).catch((e) => console.error("[sistemaViventa] teléfono:", e));
   await runPedirDatos(env, now).catch((e) => console.error("[sistemaViventa] datos:", e));
   await runAvisoLlamadas(env, now).catch((e) => console.error("[sistemaViventa] aviso llamadas:", e));
   await runOfertaLlamada(env, now).catch((e) => console.error("[sistemaViventa] oferta llamada:", e));
