@@ -116,6 +116,12 @@ export interface Env {
   ZERNIO_API_BASE?: string; // default https://zernio.com/api/v1
   // Fathom (transcripción de las videollamadas): secreto «whsec_…» del webhook. Ver member/crm-fathom.local.ts.
   FATHOM_WEBHOOK_SECRET?: string;
+  // Zoho CRM (seguimientos de Maricela): «Self Client» de api-console.zoho.com. Ver member/crm-zohoapi.local.ts.
+  ZOHO_CLIENT_ID?: string;
+  ZOHO_CLIENT_SECRET?: string;
+  ZOHO_REFRESH_TOKEN?: string;
+  ZOHO_ACCOUNTS_URL?: string; // default https://accounts.zoho.com
+  ZOHO_API_URL?: string; // default https://www.zohoapis.com
   MANYCHAT_API_KEY?: string;
   MANYCHAT_CONTENT_TYPE?: "instagram" | "whatsapp" | "telegram" | "messenger"; // ManyChat channel for sendContent; defaults to "instagram"
   // Tool de soporte de Forja (solo la instancia de Horizontes; inerte sin ambos).

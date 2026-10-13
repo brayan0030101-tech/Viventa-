@@ -350,6 +350,17 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
   });
 
+  // Seguimientos (tareas de Zoho de Maricela)
+  app.get("/seguimientos", async (c) => {
+    const { renderSeguimientos } = await import("./crm-seguimientos.local");
+    return pagina(c, await renderSeguimientos(c.env));
+  });
+  app.post("/seguimientos/preparar", async (c) => {
+    const { fragmentoBorrador } = await import("./crm-seguimientos.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoBorrador(c.env, String(f["tarea"] ?? ""), f["r"] === "1"));
+  });
+
   // Por agendar
   app.get("/por-agendar", async (c) => {
     const { renderCrmPorAgendar } = await import("./crm-poragendar.local");
