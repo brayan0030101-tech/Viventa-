@@ -220,3 +220,8 @@ export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: s
   if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
   await escribir(env, `/Leads/${leadId}`, "PUT", { Lead_Status: estado, ...extra }, f, now);
 }
+
+/** Lectura genérica de la API de Zoho (solo GET): para diagnósticos y para leer las transiciones de un candidato. */
+export async function zohoGet(env: Env, ruta: string, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {
+  return llamar(env, ruta, {}, f, now);
+}

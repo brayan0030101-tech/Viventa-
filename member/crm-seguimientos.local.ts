@@ -12,7 +12,7 @@ import { anonimizar } from "./crm-ia.local";
 import { clavePhone } from "./crm-poragendar.local";
 import { SettingsRepo } from "../src/db/settings";
 import {
-  ZohoError, ESTADOS_HECHOS, candidatosPorIds, cambiarEstadoCandidato, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
+  ZohoError, ESTADOS_HECHOS, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
   tareaPorId, tareasPendientes, zohoListo,
   type CandidatoZoho, type FetchFn, type NotaZoho, type TareaZoho,
 } from "./crm-zohoapi.local";
@@ -101,7 +101,7 @@ export interface PasosHechos {
 }
 
 export type ResultadoZoho =
-  | { ok: true; pasos: PasosHechos; yaHecho: boolean; siguiente: { asunto: string; fecha: string } | null; aviso?: string }
+  | { ok: true; pasos: PasosHechos; yaHecho: boolean; siguiente: { asunto: string; fecha: string } | null; aviso?: string; manual?: { estado: string; motivo: string; nota: string; notaGuardada: boolean } }
   | { ok: false; error: string; pasos: PasosHechos };
 
 /**
@@ -128,14 +128,7 @@ export async function aplicarEnZoho(
   } catch {
     return { ok: false, error: "El borrador guardado no se pudo leer. Regenéralo.", pasos: {} };
   }
-  // «Cliente perdido» / «Descartado» piden un MOTIVO (campo `motivo` de Zoho).
-  let campoMotivo = "";
-  let motivo = "";
-  if (esCierre(b.accion)) {
-    campoMotivo = ((await new SettingsRepo(db).get(b.accion === "perdido" ? "zoho_campo_motivo_perdido" : "zoho_campo_motivo_descartado")) ?? "").trim() || CAMPO_MOTIVO;
-    const lista = b.accion === "perdido" ? MOTIVOS_PERDIDO : MOTIVOS_DESCARTADO;
-    motivo = lista.find((m) => m === entrada.motivo) ?? b.motivoCierre;
-  }
+  const motivo = esCierre(b.accion) ? ((b.accion === "perdido" ? MOTIVOS_PERDIDO : MOTIVOS_DESCARTADO).find((m) => m === entrada.motivo) ?? b.motivoCierre) : "";
   const previo = await db.first<{ completo: number; pasos: string }>("SELECT completo, pasos FROM crm_seg_hecho WHERE tarea_id = ?", [tareaId]);
   const pasos: PasosHechos = previo ? (JSON.parse(previo.pasos) as PasosHechos) : {};
   if (previo?.completo) return { ok: true, pasos, yaHecho: true, siguiente: null };
@@ -157,7 +150,13 @@ export async function aplicarEnZoho(
       await guardar(true);
       return { ok: true, pasos, yaHecho: true, siguiente: null, aviso: "Esa tarea ya estaba completa en Zoho: no cambié nada." };
     }
-    if (!pasos.nota && nota) {
+    // «Revisar en el futuro», «Cliente perdido» y «Descartado» son TRANSICIONES de Zoho (ventana propia con motivo): escribir el campo por
+    // la API no cambia el estado (Maricela lo comprobó el 14 oct). Mientras no se conecte la transición, el estado lo cambia ella. La ventana
+    // de «Revisar en el futuro» trae su propia caja de NOTA (ahí va la nota); las de «Cliente perdido»/«Descartado» solo piden el motivo
+    // (la nota la deja el sistema).
+    const esTransicion = b.accion === "futuro" || esCierre(b.accion);
+    const notaEnVentana = b.accion === "futuro";
+    if (!notaEnVentana && !pasos.nota && nota) {
       pasos.nota = (await crearNota(env, g.lead_id, nota, opts.f, now)) || "ok";
       await guardar(false);
     }
@@ -171,16 +170,11 @@ export async function aplicarEnZoho(
       pasos.completada = true;
       await guardar(false);
     }
-    if (b.accion === "futuro" && !pasos.estado) {
-      await cambiarEstadoCandidato(env, g.lead_id, ESTADO_FUTURO, opts.f, now);
-      pasos.estado = true;
-    }
-    if (esCierre(b.accion) && !pasos.estado) {
-      await cambiarEstadoCandidato(env, g.lead_id, ESTADOS_CIERRE[b.accion as "perdido" | "descartado"], opts.f, now, { [campoMotivo]: motivo });
-      pasos.estado = true;
-    }
     await guardar(true);
-    return { ok: true, pasos, yaHecho: false, siguiente: pasos.tarea ? { asunto, fecha: fechaSig } : null };
+    return {
+      ok: true, pasos, yaHecho: false, siguiente: pasos.tarea ? { asunto, fecha: fechaSig } : null,
+      ...(esTransicion ? { manual: { estado: b.accion === "futuro" ? ESTADO_FUTURO : ESTADOS_CIERRE[b.accion as "perdido" | "descartado"], motivo, nota, notaGuardada: !notaEnVentana } } : {}),
+    };
   } catch (e) {
     console.error("[crm-seguimientos] aplicarEnZoho:", e);
     await guardar(false).catch(() => undefined);
@@ -467,14 +461,13 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
       : "";
   const avisoFuturo =
     b.accion === "futuro"
-      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: el candidato pasa al estado <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho${escritura ? " (lo hace el botón «Ya lo envié»)" : " (por ahora a mano)"}. Zoho programa solo la siguiente tarea a los 3 meses. El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
+      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: el candidato pasa al estado <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho (el botón completa la tarea; el estado lo cambias tú en su ventana). Zoho programa solo la siguiente tarea a los 3 meses. El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
       : "";
   const listaMotivos = b.accion === "perdido" ? MOTIVOS_PERDIDO : MOTIVOS_DESCARTADO;
-  const confirmacion = esCierre(b.accion)
-    ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y pasar al candidato a «${ESTADOS_CIERRE[b.accion as "perdido" | "descartado"]}» con el motivo elegido (no se deja otra tarea). ¿Confirmas?`
-    : b.accion === "futuro"
-      ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y cambiar el estado del candidato a «${ESTADO_FUTURO}» (Zoho programa la siguiente a los 3 meses). ¿Confirmas?`
-      : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
+  const estadoManual = b.accion === "futuro" ? ESTADO_FUTURO : esCierre(b.accion) ? ESTADOS_CIERRE[b.accion as "perdido" | "descartado"] : "";
+  const confirmacion = estadoManual
+    ? `En Zoho se va a: ${b.accion === "futuro" ? "" : "agregar la nota y "}marcar ESTA tarea como completa. El cambio de estado a «${estadoManual}» ${b.accion === "futuro" ? "y la nota los dejas tú en la ventana de Zoho (te doy el texto)" : "lo haces tú en Zoho (elegir el motivo)"}. ¿Confirmas?`
+    : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
   const cuerpo =
     b.accion === "descartado"
       ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">No hace falta escribirle. El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.descartado)}»</b> y solo se deja la nota (ninguna tarea).</div>`
@@ -505,8 +498,11 @@ export function tarjetaHechoZoho(r: ResultadoZoho, tareaId: string): string {
     return `<div style="border-left:4px solid var(--bad);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--bad)">No se terminó de actualizar Zoho.</b><br>${esc(r.error)}
       <div style="margin-top:6px" class="text-dim">Hecho hasta ahora: ${esc(resumenPasos(r.pasos))}. Pulsa «Ver mensaje» para volver a intentarlo.</div></div>`;
   }
-  return `<div style="border-left:4px solid var(--ok);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--ok)">✔ ${r.yaHecho ? "Esta tarea ya estaba hecha" : "Zoho actualizado"}.</b> ${esc(r.aviso ?? resumenPasos(r.pasos))}${r.siguiente ? `<br><span class="text-muted">Siguiente tarea: «${esc(r.siguiente.asunto)}» para el ${esc(r.siguiente.fecha)}.</span>` : ""}
-    <div class="text-dim" style="font-size:10.5px;margin-top:4px">Al recargar la página esta tarea ya no aparece en la lista (tarea ${esc(tareaId)}).</div></div>`;
+  const manual = r.manual
+    ? `<div style="border:1px solid var(--accent-2);padding:10px 12px;margin-top:10px"><b style="color:var(--cream)">Falta un paso tuyo en Zoho:</b> en el «Plan de acción» del candidato pulsa <b>«${esc(r.manual.estado)}»</b>${r.manual.motivo ? ` y elige el motivo «${esc(r.manual.motivo)}»` : " y elige un motivo válido para esa transición"}. ${r.manual.notaGuardada ? "La nota ya quedó guardada en el candidato." : `En la ventana pega esta nota:${campoCopiable("nm" + tareaId.slice(-8), "Nota", r.manual.nota, 3)}`}<div class="text-dim" style="font-size:10.5px;margin-top:4px">Zoho no deja cambiar ese estado desde fuera: usa una ventana propia.</div></div>`
+    : "";
+  return `${manual ? "" : ""}<div style="border-left:4px solid var(--ok);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--ok)">✔ ${r.yaHecho ? "Esta tarea ya estaba hecha" : r.manual ? "Tarea completada" : "Zoho actualizado"}.</b> ${esc(r.aviso ?? resumenPasos(r.pasos))}${r.siguiente ? `<br><span class="text-muted">Siguiente tarea: «${esc(r.siguiente.asunto)}» para el ${esc(r.siguiente.fecha)}.</span>` : ""}
+    <div class="text-dim" style="font-size:10.5px;margin-top:4px">Al recargar la página esta tarea ya no aparece en la lista (tarea ${esc(tareaId)}).</div></div>${manual}`;
 }
 
 function resumenPasos(p: PasosHechos): string {

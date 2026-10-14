@@ -779,6 +779,11 @@ export default {
         const { runSaldoYCloud } = await import("./followup/saldoYCloud");
         await runSaldoYCloud(env).catch((e) => console.error("saldoYCloud:", e));
       }
+      {
+        // Diagnóstico de solo lectura de Zoho (solo corre si el ajuste zoho_diag_pedir trae un id).
+        const { runZohoDiag } = await import("../member/zoho-diag.local");
+        await runZohoDiag(env).catch((e) => console.error("zohoDiag:", e));
+      }
       if (new Date().getUTCMinutes() % 15 < 5) {
         const { runSistemaViventa } = await import("./followup/sistemaViventa");
         await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
