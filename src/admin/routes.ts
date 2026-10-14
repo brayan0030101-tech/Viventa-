@@ -792,15 +792,23 @@ adminApp.post("/mejoras/lessons/remove", async (c) => {
 });
 
 // Inbox (F1): two-pane view. ?c=<id> selects the thread; ?f/?q filter the list.
-adminApp.get("/conversations", async (c) =>
-  c.html(
-    await renderInbox(c.env, {
-      search: c.req.query("q"),
-      filter: c.req.query("f"),
-      selectedId: c.req.query("c"),
-    }),
-  ),
-);
+adminApp.get("/conversations", async (c) => {
+  let html = await renderInbox(c.env, {
+    search: c.req.query("q"),
+    filter: c.req.query("f"),
+    selectedId: c.req.query("c"),
+  });
+  // `texto`: el CRM (Seguimientos) abre la conversación con el mensaje ya puesto en la caja de respuesta.
+  const texto = (c.req.query("texto") ?? "").slice(0, 1500);
+  if (texto && c.req.query("c")) {
+    const js = JSON.stringify(texto).replace(/</g, "\\u003c").replace(/\u2028|\u2029/g, " ");
+    html = html.replace(
+      "</body>",
+      `<script>(function(){var t=${js};var n=0;var i=setInterval(function(){var e=document.getElementById('reply-text');if(e){if(!e.value){e.value=t;e.focus();}clearInterval(i)}else if(++n>50)clearInterval(i)},100)})()</script></body>`,
+    );
+  }
+  return c.html(html);
+});
 
 // HTMX fragments (polled): left list every 10s, thread every 5s. Registered
 // before /conversations/:id so the static segments win the match.

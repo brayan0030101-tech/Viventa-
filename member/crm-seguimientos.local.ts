@@ -310,17 +310,24 @@ const campoCopiable = (id: string, titulo: string, valor: string, filas: number,
         onclick="var t=document.getElementById('${id}');t.select();try{navigator.clipboard.writeText(t.value)}catch(e){document.execCommand('copy')};this.textContent='✔ Copiado';var b=this;setTimeout(function(){b.textContent='Copiar'},1800)">Copiar</button></div>
     <textarea id="${id}" ${editable ? "" : "readonly"} rows="${filas}" class="crm-in" style="width:100%;resize:vertical;font-size:12.5px;line-height:1.5">${esc(valor)}</textarea></div>`;
 
-export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string }, hoy: string, reutilizado = false): string {
+export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false): string {
   const t = ETIQ_TEMP[b.temperatura];
   const tel = (cand.movil || cand.telefono).replace(/\D/g, "");
   const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : "no se crea otra: se cierra el seguimiento";
   const id = "sb" + b.tareaId.slice(-8);
   const chips = `<span style="font-weight:600;color:${t.color}">${t.txt}</span> <span class="text-dim">·</span> <b>${ETIQ_ACC[b.accion]}</b>${b.proyectosEnviados ? ` <span class="text-dim">· ya recibió proyectos</span>` : ""}${b.segundoTitular ? ` <span class="text-dim">· sugiere segundo titular</span>` : ""}`;
+  // Maricela escribe desde el panel de Forja: el botón abre ESA conversación con el mensaje ya puesto en la caja de respuesta
+  // (y lo copia al portapapeles por si el navegador recorta el enlace). Sin conversación en el panel, queda WhatsApp.
+  const boton = cand.convId
+    ? `<button type="button" class="bigbtn" style="margin-bottom:12px;cursor:pointer" onclick="var m=document.getElementById('${id}m').value;try{navigator.clipboard.writeText(m)}catch(e){};var u='/admin/conversations?c=${esc(encodeURIComponent(cand.convId))}';var q='&texto='+encodeURIComponent(m);window.open(q.length<1800?u+q:u,'_blank')">💬 Abrir la conversación en el panel de Forja</button><div class="text-dim" style="font-size:10.5px;margin:-6px 0 12px">Se abre el chat con el mensaje listo en la caja de respuesta (también queda copiado).</div>`
+    : tel.length >= 8
+      ? `<button type="button" class="bigbtn" style="margin-bottom:12px;cursor:pointer" onclick="window.open('https://wa.me/${esc(tel)}?text='+encodeURIComponent(document.getElementById('${id}m').value),'_blank')">💬 Abrir WhatsApp con este mensaje</button><div class="text-dim" style="font-size:10.5px;margin:-6px 0 12px">Esta persona todavía no tiene conversación en el panel de Forja.</div>`
+      : "";
   const cuerpo =
     b.accion === "cerrar"
       ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${b.razonCierre === "compro" ? "El cliente ya compró." : "El cliente pidió que no le contactemos más."} No hace falta escribirle.</div>`
       : `${campoCopiable(id + "m", "Mensaje para el cliente (puedes editarlo)", b.mensaje, 5, true)}
-         ${tel.length >= 8 ? `<button type="button" class="bigbtn" style="margin-bottom:12px;cursor:pointer" onclick="window.open('https://wa.me/${esc(tel)}?text='+encodeURIComponent(document.getElementById('${id}m').value),'_blank')">💬 Abrir WhatsApp con este mensaje</button>` : ""}`;
+         ${boton}`;
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
@@ -337,12 +344,16 @@ export async function fragmentoBorrador(env: Env, tareaId: string, forzar: boole
   if (!r.ok) {
     return `<div style="color:var(--bad);font-size:12.5px;margin-top:8px">${esc(r.error)}</div>`;
   }
-  let cand = { movil: "", telefono: "" };
+  let cand: { movil: string; telefono: string; convId?: string } = { movil: "", telefono: "" };
   try {
     const c = (await candidatosPorIds(env, [r.borrador.leadId], f, now)).get(r.borrador.leadId);
-    if (c) cand = { movil: c.movil, telefono: c.telefono };
+    if (c) {
+      cand = { movil: c.movil, telefono: c.telefono };
+      const local = await localDe(env, [c.movil, c.telefono], c.nombre);
+      if (local) cand.convId = local.convId;
+    }
   } catch {
-    /* sin botón de WhatsApp */
+    /* sin botón de conversación */
   }
   return tarjetaBorrador(r.borrador, cand, hoyMadrid(now), r.reutilizado);
 }

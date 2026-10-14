@@ -155,7 +155,17 @@ describe("pantalla", () => {
     expect(html).toContain("Hola Diana");
     expect(html).toContain("Modo borrador: no se cambió nada en Zoho");
     expect(html).toContain("2026-10-20"); // 13 oct + 7 días
+    // Sin conversación en el panel de Forja: queda el respaldo de WhatsApp, avisando por qué.
     expect(html).toContain("wa.me/34600000009");
+    expect(html).toContain("todavía no tiene conversación en el panel de Forja");
+  });
+  it("con conversación en el panel, el botón abre ESA conversación con el mensaje (no WhatsApp)", async () => {
+    await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", ["ycloud:34600000009", "ycloud", "34600000009", "Diana", NOW - 9e6, NOW - 3600_000]);
+    const html = await fragmentoBorrador(env, TAREA, false, NOW, zoho as never);
+    expect(html).toContain("Abrir la conversación en el panel de Forja");
+    expect(html).toContain("/admin/conversations?c=ycloud%3A34600000009");
+    expect(html).toContain("&texto=");
+    expect(html).not.toContain("wa.me/");
   });
 });
 
