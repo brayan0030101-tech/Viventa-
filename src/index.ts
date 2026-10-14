@@ -784,6 +784,11 @@ export default {
         const { runZohoDiag } = await import("../member/zoho-diag.local");
         await runZohoDiag(env).catch((e) => console.error("zohoDiag:", e));
       }
+      {
+        // Reserva puntual en Cal.com (temporal; solo corre si el ajuste cita_manual_pedir trae un JSON).
+        const { runCitaManual } = await import("../member/cita-manual.local");
+        await runCitaManual(env).catch((e) => console.error("citaManual:", e));
+      }
       if (new Date().getUTCMinutes() % 15 < 5) {
         const { runSistemaViventa } = await import("./followup/sistemaViventa");
         await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
