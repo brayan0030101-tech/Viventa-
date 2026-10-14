@@ -361,7 +361,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
           const canal = x.canal ? (x.ventanaAbierta ? "💬 WhatsApp · escribió hace menos de 24 h" : "💬 WhatsApp · lleva más de 24 h sin escribir") : "📵 Sin conversación con el bot";
           const tel = esc(x.cand.movil || x.cand.telefono || "—");
           return `<div class="crm-row" style="grid-template-columns:${COLS};align-items:start">
-            <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span></span>
+            <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span><br><span style="font-size:10.5px;color:${/no iniciada|not started/i.test(x.tarea.estado) ? "var(--accent-2)" : "var(--dim)"}">${esc(x.tarea.estado || "—")}${/no iniciada|not started/i.test(x.tarea.estado) ? " ⚠" : ""}</span></span>
             <span><b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span></span>
             <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Seguimiento")}<br><span class="text-dim" style="font-size:10.5px">${esc(canal)}</span></span>
             <span class="text-dim" style="font-size:11.5px">${x.borrador ? `${ETIQ_TEMP[x.borrador.temperatura].txt}<br>${ETIQ_ACC[x.borrador.accion]}` : "Sin preparar"}</span>
