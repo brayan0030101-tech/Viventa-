@@ -95,6 +95,10 @@ describe("leerBorrador", () => {
   it("«perdido» y «descartado»: sin mensaje ni tarea, con el motivo de la lista de Zoho (o uno neutro si la IA inventa)", () => {
     const p = leerBorrador('{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"precio muy alto"}', base)!;
     expect(p.diasSiguiente).toBeNull();
+    // «perdido» lleva un último mensaje amable (opcional); «descartado» nunca escribe, aunque la IA mande texto
+    const pm = leerBorrador('{"temperatura":"frio","accion":"perdido","mensaje":"Hola [nombre], cuando quieras retomar, aquí estamos.","motivo_cierre":"Nunca me respondió"}', base)!;
+    expect(pm.mensaje).toBe("Hola Diana, cuando quieras retomar, aquí estamos.");
+    expect(leerBorrador('{"temperatura":"frio","accion":"descartado","mensaje":"Hola","motivo_cierre":"Número errado"}', base)!.mensaje).toBe("");
     expect(p.motivoCierre).toBe("Precio muy alto");
     expect(p.tareaSiguiente).toBe("");
     const d = leerBorrador('{"temperatura":"frio","accion":"descartado","mensaje":"","motivo_cierre":"No quiere ser contactado"}', base)!;
@@ -276,6 +280,17 @@ describe("fase 2: actualizar Zoho", () => {
     expect(escrituras.some((e) => e.url.endsWith("/Tasks") && e.method === "POST")).toBe(false);
     expect(escrituras.find((e) => e.url.endsWith(`/Leads/${LEAD}`))?.body).toEqual({ Lead_Status: "Revisar en el futuro" });
     expect(escrituras.some((e) => e.url.endsWith(`/Tasks/${TAREA}`) && e.body.Status === "Completa")).toBe(true);
+  });
+
+  it("la tarjeta de «perdido» ofrece un último mensaje para dejar la puerta abierta y la de «descartado» no", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"perdido","mensaje":"Hola [nombre], si más adelante quieres retomar, aquí estamos.","motivo_cierre":"Nunca me respondió","nota":"Sin respuesta."}' });
+    const perdido = await fragmentoBorrador(env, TAREA, true, NOW, zoho as never);
+    expect(perdido).toContain("Último mensaje para el cliente (opcional");
+    expect(perdido).toContain("Hola Diana, si más adelante quieres retomar");
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"descartado","mensaje":"","motivo_cierre":"No quiere ser contactado","nota":"Pidió no ser contactado."}' });
+    const descartado = await fragmentoBorrador(env, TAREA, true, NOW, zoho as never);
+    expect(descartado).toContain("No hace falta escribirle");
+    expect(descartado).not.toContain("Último mensaje para el cliente");
   });
 
   it("«perdido»: nota + tarea completa + estado y motivo en el campo «motivo», sin tarea nueva", async () => {

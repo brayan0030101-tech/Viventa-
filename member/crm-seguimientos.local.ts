@@ -207,14 +207,16 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
   const accion = String(j["accion"] ?? "").toLowerCase();
   if (accion !== "whatsapp" && accion !== "videollamada" && accion !== "futuro" && accion !== "perdido" && accion !== "descartado") return null;
   const primerNombre = base.nombre.split(/\s+/).find((w) => w.replace(/[^\p{L}]/gu, "").length >= 2) ?? "";
-  const mensaje = String(j["mensaje"] ?? "")
+  const mensajeCrudo = String(j["mensaje"] ?? "");
+  const mensaje = (accion === "descartado" ? "" : mensajeCrudo)
     .replace(/\[\[[^\]]*\]\]/g, "")
     .replace(/\[nombre\]/gi, primerNombre)
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, 700);
-  if (accion !== "futuro" && !esCierre(accion) && !mensaje) return null;
+  // «futuro» y «perdido» llevan un último mensaje amable (opcional); solo «descartado» no escribe.
+  if (accion !== "futuro" && accion !== "perdido" && accion !== "descartado" && !mensaje) return null;
   // El motivo debe ser uno de los de Zoho para ese estado; si la IA inventa otro, queda el más neutro de la lista.
   const lista = accion === "perdido" ? MOTIVOS_PERDIDO : accion === "descartado" ? MOTIVOS_DESCARTADO : [];
   const pedidoMotivo = String(j["motivo_cierre"] ?? "").trim().toLowerCase();
@@ -245,9 +247,9 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 1. Lee las NOTAS: son lo que se hizo y en qué quedó el contacto. A partir de ellas decide si el candidato es CALIENTE (muy interesado, avanza), TIBIO (interesado pero lento) o FRÍO (poco interés o sin respuesta). No hay otra clasificación.
 2. Si es frío, o todavía no se le han enviado proyectos: escríbele por WhatsApp para saber si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada.
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
-4. El seguimiento termina solo cuando el cliente compró, pidió que no lo contactemos más o ya no quiere comprar: en ese caso NO se escribe mensaje ni se deja otra tarea, solo una nota, y el candidato pasa a uno de dos estados de Zoho, cada uno con su MOTIVO:
-   - "descartado": no es trabajable y no se debe insistir ni reactivar. Motivos: ${MOTIVOS_DESCARTADO.join(" | ")}.
-   - "perdido" (Cliente perdido): conoció la propuesta de Viventa y no se decide por nosotros, o los datos son correctos pero nunca contestó. Motivos: ${MOTIVOS_PERDIDO.join(" | ")}.
+4. El seguimiento termina solo cuando el cliente compró, pidió que no lo contactemos más o ya no quiere comprar: en ese caso NO se deja otra tarea, solo una nota, y el candidato pasa a uno de dos estados de Zoho, cada uno con su MOTIVO:
+   - "descartado": no es trabajable y no se debe insistir ni reactivar. Aquí NO se escribe mensaje. Motivos: ${MOTIVOS_DESCARTADO.join(" | ")}.
+   - "perdido" (Cliente perdido): conoció la propuesta de Viventa y no se decide por nosotros, o los datos son correctos pero nunca contestó. Aquí SÍ se escribe un ÚLTIMO mensaje breve y cálido que deje la puerta abierta por si más adelante quiere retomar (sin presionar, sin pedir respuesta). Motivos: ${MOTIVOS_PERDIDO.join(" | ")}.
    Elige el motivo que mejor encaje con lo que dicen las notas y escríbelo exactamente igual que en la lista.
 4b. Si en las notas se ven MÁS DE 3 intentos de contacto (llamadas o WhatsApp) sin que el cliente haya respondido, la acción es "futuro": el candidato pasa al estado «Revisar en el futuro». En ese caso el mensaje es un último mensaje breve y amable, sin presionar (por ejemplo, que no le llenamos de mensajes y que cuando quiera retomar aquí estamos), y NO se escribe siguiente tarea: Zoho la crea solo a los 3 meses al cambiar ese estado.
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
@@ -272,7 +274,7 @@ ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion
  "accion": "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado",
  "proyectos_enviados": true si las notas dicen que ya se le enviaron proyectos; si no, false,
  "segundo_titular": true si recomiendas un segundo titular por ingresos menores a 1.250 euros; si no, false,
- "mensaje": "el mensaje de WhatsApp listo para enviar (vacío si la acción es futuro, perdido o descartado)",
+ "mensaje": "el mensaje de WhatsApp listo para enviar (vacío solo si la acción es descartado; en futuro y perdido es un último mensaje amable que deja la puerta abierta)",
  "motivo": "una frase para Maricela: por qué eliges esa acción y esa temperatura",
  "dias_siguiente": número de días para la siguiente tarea (dentro del rango de la temperatura),
  "motivo_cierre": "uno de los motivos de la lista, solo si la acción es perdido o descartado; si no, vacío",
@@ -474,9 +476,10 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
       ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y cambiar el estado del candidato a «${ESTADO_FUTURO}» (Zoho programa la siguiente a los 3 meses). ¿Confirmas?`
       : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
   const cuerpo =
-    esCierre(b.accion)
-      ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">No hace falta escribirle. El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE[b.accion as "perdido" | "descartado"])}»</b> y solo se deja la nota (ninguna tarea).</div>`
-      : `${campoCopiable(id + "m", "Mensaje para el cliente (puedes editarlo)", b.mensaje, 5, true)}
+    b.accion === "descartado"
+      ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">No hace falta escribirle. El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.descartado)}»</b> y solo se deja la nota (ninguna tarea).</div>`
+      : `${b.accion === "perdido" ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.perdido)}»</b> y solo se deja la nota (ninguna tarea). Antes puedes enviarle un último mensaje dejando la puerta abierta (opcional).</div>` : ""}
+         ${campoCopiable(id + "m", b.accion === "perdido" || b.accion === "futuro" ? "Último mensaje para el cliente (opcional, puedes editarlo)" : "Mensaje para el cliente (puedes editarlo)", b.mensaje, 5, true)}
          ${boton}`;
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
