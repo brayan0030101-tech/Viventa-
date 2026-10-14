@@ -25,9 +25,12 @@ export type Accion = "whatsapp" | "videollamada" | "futuro" | "perdido" | "desca
 /** «Cliente perdido» y «Descartado» son estados de Zoho que piden un MOTIVO, no dejan tarea y solo dejan nota (Maricela, 14 oct 2026). */
 export const esCierre = (a: string): boolean => a === "perdido" || a === "descartado";
 
-/** Motivos que ofrece Zoho al pasar a cada estado (lista vista en la pantalla de Maricela; se confirmará contra Zoho). */
-export const MOTIVOS_PERDIDO = ["Proceso con otro broker", "Precio muy alto", "No le gustaron proyectos", "No cumple perfil", "No interesado", "Paga de contado", "Desistió compra", "Nunca me respondió"];
+/** Motivos que ofrece Zoho al pasar a cada estado. Los valores son EXACTOS como los guarda Zoho en el campo `motivo` (picklist del módulo
+ *  Candidatos, leída por la API el 14 oct 2026; p. ej. «Desistio compra» va sin tilde). */
+export const MOTIVOS_PERDIDO = ["Proceso con otro broker", "Precio muy alto", "No le gustaron proyectos", "No cumple perfil", "No interesado", "Paga de contado", "Desistio compra", "Nunca me respondió"];
 export const MOTIVOS_DESCARTADO = ["No es colombiano", "No quiere ser contactado", "Sin datos de contacto", "Interesado en otro país", "Número errado", "Reside y tiene ingresos en Colombia"];
+/** Nombre del campo de motivo en Zoho (el mismo para los dos estados; se puede cambiar con los ajustes zoho_campo_motivo_*). */
+export const CAMPO_MOTIVO = "motivo";
 export const ESTADOS_CIERRE: Record<"perdido" | "descartado", string> = { perdido: "Cliente perdido", descartado: "Descartado" };
 
 /** Cuántos días esperar para la siguiente tarea según el interés (reglas de Maricela). */
@@ -125,12 +128,11 @@ export async function aplicarEnZoho(
   } catch {
     return { ok: false, error: "El borrador guardado no se pudo leer. Regenéralo.", pasos: {} };
   }
-  // «Cliente perdido» / «Descartado» piden un MOTIVO (campo propio de Zoho). Sin ese campo configurado no se hace NADA a medias.
+  // «Cliente perdido» / «Descartado» piden un MOTIVO (campo `motivo` de Zoho).
   let campoMotivo = "";
   let motivo = "";
   if (esCierre(b.accion)) {
-    campoMotivo = ((await new SettingsRepo(db).get(b.accion === "perdido" ? "zoho_campo_motivo_perdido" : "zoho_campo_motivo_descartado")) ?? "").trim();
-    if (!campoMotivo) return { ok: false, error: `Para «${ESTADOS_CIERRE[b.accion as "perdido" | "descartado"]}» todavía no está conectado el campo «Motivo» de Zoho: por ahora cambia el estado a mano.`, pasos: {} };
+    campoMotivo = ((await new SettingsRepo(db).get(b.accion === "perdido" ? "zoho_campo_motivo_perdido" : "zoho_campo_motivo_descartado")) ?? "").trim() || CAMPO_MOTIVO;
     const lista = b.accion === "perdido" ? MOTIVOS_PERDIDO : MOTIVOS_DESCARTADO;
     motivo = lista.find((m) => m === entrada.motivo) ?? b.motivoCierre;
   }
