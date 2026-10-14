@@ -60,7 +60,10 @@ async function llamar(env: Env, ruta: string, init: RequestInit = {}, f: FetchFn
     if (r.status === 204) return {};
     const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
     if (j["code"] === "OAUTH_SCOPE_MISMATCH") throw new ZohoError(`A la conexión con Zoho le falta un permiso para ${ruta.split("?")[0]}: hay que generar un código nuevo con más permisos.`, r.status);
-    if (!r.ok) throw new ZohoError(`Zoho respondió ${r.status}: ${String(j["message"] ?? j["code"] ?? "error")}`, r.status);
+    if (!r.ok) {
+      const d0 = (j["data"] as Array<Record<string, unknown>> | undefined)?.[0];
+      throw new ZohoError(`Zoho respondió ${r.status}: ${String(d0?.["message"] ?? j["message"] ?? j["code"] ?? "error")}`, r.status);
+    }
     return j;
   }
   throw new ZohoError("Zoho no aceptó el acceso.", 401);
@@ -180,4 +183,40 @@ export async function notasDe(env: Env, leadId: string, n = 8, f: FetchFn = fetc
   if (!/^\d{6,30}$/.test(leadId)) return [];
   const j = (await llamar(env, `/Leads/${leadId}/Notes?fields=Note_Title,Note_Content,Created_Time&sort_by=Created_Time&sort_order=desc&per_page=${Math.min(Math.max(n, 1), 20)}`, {}, f, now)) as { data?: Array<Record<string, unknown>> };
   return (j.data ?? []).map((r) => ({ titulo: String(r["Note_Title"] ?? ""), texto: String(r["Note_Content"] ?? ""), creada: String(r["Created_Time"] ?? "") }));
+}
+
+// ─── Escritura (fase 2) ──────────────────────────────────────────────────────
+// Solo se completan tareas, se agregan notas/tareas y se cambia el estado de UN candidato. Nunca se borra nada.
+
+async function escribir(env: Env, ruta: string, metodo: "POST" | "PUT", dato: Record<string, unknown>, f: FetchFn, now: number): Promise<string> {
+  const j = (await llamar(env, ruta, { method: metodo, body: JSON.stringify({ data: [dato] }) }, f, now)) as { data?: Array<{ status?: string; message?: string; details?: { id?: string } }> };
+  const r = j.data?.[0];
+  if (!r || r.status !== "success") throw new ZohoError(`Zoho no guardó el cambio: ${r?.message ?? "sin respuesta"}`);
+  return r.details?.id ?? "";
+}
+
+const idValido = (id: string): boolean => /^\d{6,30}$/.test(id);
+
+/** Marca una tarea como «Completa». */
+export async function completarTarea(env: Env, tareaId: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!idValido(tareaId)) throw new ZohoError("Tarea no válida.");
+  await escribir(env, `/Tasks/${tareaId}`, "PUT", { Status: "Completa" }, f, now);
+}
+
+/** Agrega una nota al candidato. */
+export async function crearNota(env: Env, leadId: string, texto: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
+  return escribir(env, `/Leads/${leadId}/Notes`, "POST", { Note_Title: "Seguimiento", Note_Content: texto.slice(0, 3000) }, f, now);
+}
+
+/** Crea la siguiente tarea del candidato, a nombre de Maricela y «En Proceso». */
+export async function crearTarea(env: Env, a: { leadId: string; asunto: string; fecha: string; ownerId: string }, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  if (!idValido(a.leadId) || !/^\d{4}-\d{2}-\d{2}$/.test(a.fecha)) throw new ZohoError("Datos de la tarea no válidos.");
+  return escribir(env, "/Tasks", "POST", { Subject: a.asunto.slice(0, 255), Due_Date: a.fecha, Status: "En Proceso", Owner: { id: a.ownerId }, What_Id: { id: a.leadId }, $se_module: "Leads" }, f, now);
+}
+
+/** Cambia el estado de UN candidato (p. ej. «Revisar en el futuro»). */
+export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
+  await escribir(env, `/Leads/${leadId}`, "PUT", { Lead_Status: estado }, f, now);
 }

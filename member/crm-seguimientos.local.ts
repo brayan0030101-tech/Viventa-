@@ -10,8 +10,10 @@ import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM, fechaHora } from "./crm.local";
 import { anonimizar } from "./crm-ia.local";
 import { clavePhone } from "./crm-poragendar.local";
+import { SettingsRepo } from "../src/db/settings";
 import {
-  ZohoError, candidatosPorIds, duenoZoho, notasDe, tareaPorId, tareasPendientes, zohoListo,
+  ZohoError, ESTADOS_HECHOS, candidatosPorIds, cambiarEstadoCandidato, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
+  tareaPorId, tareasPendientes, zohoListo,
   type CandidatoZoho, type FetchFn, type NotaZoho, type TareaZoho,
 } from "./crm-zohoapi.local";
 
@@ -63,6 +65,104 @@ async function asegurarTabla(db: Db): Promise<void> {
        tarea_id TEXT PRIMARY KEY, lead_id TEXT NOT NULL, creado INTEGER NOT NULL, borrador TEXT NOT NULL, modelo TEXT NOT NULL DEFAULT ''
      )`,
   );
+}
+
+// ─── Fase 2: actualizar Zoho ─────────────────────────────────────────────────
+
+/** Interruptor de seguridad: Zoho solo se modifica con el ajuste `zoho_escritura = activo`. */
+export async function escrituraActiva(env: Env): Promise<boolean> {
+  return (((await new SettingsRepo(new Db(env.DB)).get("zoho_escritura")) ?? "").trim().toLowerCase()) === "activo";
+}
+
+async function asegurarTablaHecho(db: Db): Promise<void> {
+  await db.run(
+    `CREATE TABLE IF NOT EXISTS crm_seg_hecho (
+       tarea_id TEXT PRIMARY KEY, lead_id TEXT NOT NULL, creado INTEGER NOT NULL, completo INTEGER NOT NULL DEFAULT 0, pasos TEXT NOT NULL DEFAULT '{}'
+     )`,
+  );
+}
+
+export interface PasosHechos {
+  nota?: string;
+  tarea?: string;
+  completada?: boolean;
+  estado?: boolean;
+}
+
+export type ResultadoZoho =
+  | { ok: true; pasos: PasosHechos; yaHecho: boolean; siguiente: { asunto: string; fecha: string } | null; aviso?: string }
+  | { ok: false; error: string; pasos: PasosHechos };
+
+/**
+ * «Ya lo envié»: deja Zoho al día para ESA tarea. Orden (si algo falla, lo ya hecho NO se repite al reintentar):
+ *  1) nota en el candidato · 2) siguiente tarea «En Proceso» · 3) completa la tarea de hoy · 4) estado (solo «futuro»).
+ * La acción, el candidato y los días salen del borrador guardado en el servidor, no de lo que mande el navegador.
+ */
+export async function aplicarEnZoho(
+  env: Env,
+  tareaId: string,
+  entrada: { nota: string; tareaSiguiente: string },
+  opts: { f?: FetchFn } = {},
+  now = Date.now(),
+): Promise<ResultadoZoho> {
+  const db = new Db(env.DB);
+  await asegurarTabla(db);
+  await asegurarTablaHecho(db);
+  if (!(await escrituraActiva(env))) return { ok: false, error: "Zoho está en modo solo lectura. Avísale a Brayan para activar la escritura.", pasos: {} };
+  const g = await db.first<{ lead_id: string; borrador: string }>("SELECT lead_id, borrador FROM crm_seg_borrador WHERE tarea_id = ?", [tareaId]);
+  if (!g) return { ok: false, error: "Primero prepara el mensaje de esta tarea.", pasos: {} };
+  let b: Borrador;
+  try {
+    b = JSON.parse(g.borrador) as Borrador;
+  } catch {
+    return { ok: false, error: "El borrador guardado no se pudo leer. Regenéralo.", pasos: {} };
+  }
+  const previo = await db.first<{ completo: number; pasos: string }>("SELECT completo, pasos FROM crm_seg_hecho WHERE tarea_id = ?", [tareaId]);
+  const pasos: PasosHechos = previo ? (JSON.parse(previo.pasos) as PasosHechos) : {};
+  if (previo?.completo) return { ok: true, pasos, yaHecho: true, siguiente: null };
+
+  const hoy = hoyMadrid(now);
+  const nota = entrada.nota.replace(/\s+/g, " ").trim().slice(0, 1500) || b.nota;
+  const asunto = (entrada.tareaSiguiente || b.tareaSiguiente || "Seguimiento WhatsApp").replace(/\s+/g, " ").trim().slice(0, 160);
+  const fechaSig = b.diasSiguiente != null ? masDias(hoy, b.diasSiguiente) : "";
+  const guardar = async (completo: boolean) =>
+    db.run("INSERT OR REPLACE INTO crm_seg_hecho (tarea_id, lead_id, creado, completo, pasos) VALUES (?,?,?,?,?)", [tareaId, g.lead_id, now, completo ? 1 : 0, JSON.stringify(pasos)]);
+
+  try {
+    // La tarea debe seguir pendiente y ser de este candidato (si alguien ya la completó en Zoho, no se duplica nada).
+    const t = await tareaPorId(env, tareaId, opts.f, now);
+    if (!t) return { ok: false, error: "No encontré esa tarea en Zoho.", pasos };
+    if (t.leadId !== g.lead_id) return { ok: false, error: "La tarea no corresponde a ese candidato. Regenera el borrador.", pasos };
+    if (ESTADOS_HECHOS.includes(t.estado) && !pasos.nota && !pasos.tarea) {
+      pasos.completada = true;
+      await guardar(true);
+      return { ok: true, pasos, yaHecho: true, siguiente: null, aviso: "Esa tarea ya estaba completa en Zoho: no cambié nada." };
+    }
+    if (!pasos.nota && nota) {
+      pasos.nota = (await crearNota(env, g.lead_id, nota, opts.f, now)) || "ok";
+      await guardar(false);
+    }
+    if (!pasos.tarea && b.diasSiguiente != null && b.accion !== "cerrar" && b.accion !== "futuro") {
+      const dueno = await duenoZoho(env, opts.f, now);
+      pasos.tarea = (await crearTarea(env, { leadId: g.lead_id, asunto, fecha: fechaSig, ownerId: dueno.id }, opts.f, now)) || "ok";
+      await guardar(false);
+    }
+    if (!pasos.completada) {
+      await completarTarea(env, tareaId, opts.f, now);
+      pasos.completada = true;
+      await guardar(false);
+    }
+    if (b.accion === "futuro" && !pasos.estado) {
+      await cambiarEstadoCandidato(env, g.lead_id, ESTADO_FUTURO, opts.f, now);
+      pasos.estado = true;
+    }
+    await guardar(true);
+    return { ok: true, pasos, yaHecho: false, siguiente: pasos.tarea ? { asunto, fecha: fechaSig } : null };
+  } catch (e) {
+    console.error("[crm-seguimientos] aplicarEnZoho:", e);
+    await guardar(false).catch(() => undefined);
+    return { ok: false, error: `${e instanceof ZohoError ? e.message : "No pude actualizar Zoho."} Lo que ya se hizo no se repite si vuelves a intentar.`, pasos };
+  }
 }
 
 // ─── Respuesta de la IA ──────────────────────────────────────────────────────
@@ -315,14 +415,14 @@ const ETIQ_TEMP: Record<Temperatura, { txt: string; color: string }> = {
 };
 const ETIQ_ACC: Record<Accion, string> = { whatsapp: "💬 Escribir por WhatsApp", videollamada: "📞 Proponer videollamada", cerrar: "🏁 Cerrar el seguimiento", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
 
-const campoCopiable = (id: string, titulo: string, valor: string, filas: number, editable = false): string =>
+const campoCopiable = (id: string, titulo: string, valor: string, filas: number, editable = false, nombre = ""): string =>
   `<div style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12px;color:var(--cream)">${esc(titulo)}</b>
       <button type="button" class="ghostbtn" style="border:1px solid var(--line);padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer;background:none;font-family:inherit"
         onclick="var t=document.getElementById('${id}');t.select();try{navigator.clipboard.writeText(t.value)}catch(e){document.execCommand('copy')};this.textContent='✔ Copiado';var b=this;setTimeout(function(){b.textContent='Copiar'},1800)">Copiar</button></div>
-    <textarea id="${id}" ${editable ? "" : "readonly"} rows="${filas}" class="crm-in" style="width:100%;resize:vertical;font-size:12.5px;line-height:1.5">${esc(valor)}</textarea></div>`;
+    <textarea id="${id}" ${nombre ? `name="${nombre}"` : ""} ${editable ? "" : "readonly"} rows="${filas}" class="crm-in" style="width:100%;resize:vertical;font-size:12.5px;line-height:1.5">${esc(valor)}</textarea></div>`;
 
-export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false): string {
+export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false, escritura = false): string {
   const t = ETIQ_TEMP[b.temperatura];
   const tel = (cand.movil || cand.telefono).replace(/\D/g, "");
   const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : b.accion === "futuro" ? `no hace falta crearla: Zoho la programa solo a los 3 meses al pasar a «${ESTADO_FUTURO}»` : "no se crea otra: se cierra el seguimiento";
@@ -337,8 +437,14 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
       : "";
   const avisoFuturo =
     b.accion === "futuro"
-      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: cambia el estado del candidato a <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho (por ahora a mano). Zoho programa solo la siguiente tarea a los 3 meses. El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
+      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: el candidato pasa al estado <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho${escritura ? " (lo hace el botón «Ya lo envié»)" : " (por ahora a mano)"}. Zoho programa solo la siguiente tarea a los 3 meses. El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
       : "";
+  const confirmacion =
+    b.accion === "cerrar"
+      ? "En Zoho se va a: agregar la nota y marcar ESTA tarea como completa (no se crea otra). ¿Confirmas?"
+      : b.accion === "futuro"
+        ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y cambiar el estado del candidato a «${ESTADO_FUTURO}» (Zoho programa la siguiente a los 3 meses). ¿Confirmas?`
+        : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
   const cuerpo =
     b.accion === "cerrar"
       ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${b.razonCierre === "compro" ? "El cliente ya compró." : "El cliente pidió que no le contactemos más."} No hace falta escribirle.</div>`
@@ -348,15 +454,43 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
     ${avisoFuturo}${cuerpo}
-    ${campoCopiable(id + "n", "Nota para dejar en Zoho después de contactarle", b.nota, 2)}
-    ${b.tareaSiguiente ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)}`, b.tareaSiguiente, 1) : ""}
-    <div class="text-muted" style="font-size:12px;margin-bottom:8px">Siguiente tarea: <b style="color:var(--cream)">${esc(sig)}</b></div>
-    <div class="text-dim" style="font-size:10.5px">Borrador de ${esc(fechaHora(b.creado))} (España)${reutilizado ? " · guardado, sin gastar IA" : ""} · <b>Modo borrador: no se cambió nada en Zoho.</b> ·
+    <form hx-post="/crm/seguimientos/hecho" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" hx-confirm="${esc(confirmacion)}" style="margin:0">
+      <input type="hidden" name="tarea" value="${esc(b.tareaId)}">
+      ${campoCopiable(id + "n", "Nota para dejar en Zoho después de contactarle (puedes editarla)", b.nota, 2, true, "nota")}
+      ${b.tareaSiguiente && b.accion !== "futuro" && b.accion !== "cerrar" ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)} (puedes editarla)`, b.tareaSiguiente, 1, true, "tarea_siguiente") : ""}
+      <div class="text-muted" style="font-size:12px;margin-bottom:10px">Siguiente tarea: <b style="color:var(--cream)">${esc(sig)}</b></div>
+      ${escritura
+        ? `<button type="submit" class="bigbtn" style="cursor:pointer;margin-bottom:10px">✅ Ya lo envié: actualizar Zoho</button><div class="text-dim" style="font-size:10.5px;margin:-4px 0 10px">Solo toca este candidato y esta tarea; antes de hacerlo te pide confirmar. Nunca borra nada.</div>`
+        : `<div class="text-dim" style="font-size:11.5px;margin-bottom:10px">Zoho está en modo solo lectura: copia la nota y marca la tarea tú. (Escritura apagada.)</div>`}
+    </form>
+    <div class="text-dim" style="font-size:10.5px">Borrador de ${esc(fechaHora(b.creado))} (España)${reutilizado ? " · guardado, sin gastar IA" : ""} · <b>${escritura ? "Zoho no cambia hasta que pulses «Ya lo envié»." : "Modo borrador: no se cambió nada en Zoho."}</b> ·
       <a href="#" hx-post="/crm/seguimientos/preparar" hx-vals='{"tarea":"${esc(b.tareaId)}","r":"1"}' hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" style="color:var(--accent)">Regenerar</a></div>
   </div>`;
 }
 
+export function tarjetaHechoZoho(r: ResultadoZoho, tareaId: string): string {
+  if (!r.ok) {
+    return `<div style="border-left:4px solid var(--bad);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--bad)">No se terminó de actualizar Zoho.</b><br>${esc(r.error)}
+      <div style="margin-top:6px" class="text-dim">Hecho hasta ahora: ${esc(resumenPasos(r.pasos))}. Pulsa «Ver mensaje» para volver a intentarlo.</div></div>`;
+  }
+  return `<div style="border-left:4px solid var(--ok);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--ok)">✔ ${r.yaHecho ? "Esta tarea ya estaba hecha" : "Zoho actualizado"}.</b> ${esc(r.aviso ?? resumenPasos(r.pasos))}${r.siguiente ? `<br><span class="text-muted">Siguiente tarea: «${esc(r.siguiente.asunto)}» para el ${esc(r.siguiente.fecha)}.</span>` : ""}
+    <div class="text-dim" style="font-size:10.5px;margin-top:4px">Al recargar la página esta tarea ya no aparece en la lista (tarea ${esc(tareaId)}).</div></div>`;
+}
+
+function resumenPasos(p: PasosHechos): string {
+  const hechos = [p.nota ? "nota creada" : "", p.tarea ? "siguiente tarea creada" : "", p.completada ? "tarea marcada como completa" : "", p.estado ? `estado «${ESTADO_FUTURO}»` : ""].filter(Boolean);
+  return hechos.length ? hechos.join(" · ") : "nada todavía";
+}
+
+export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota: string; tareaSiguiente: string }, now = Date.now(), f?: FetchFn): Promise<string> {
+  return tarjetaHechoZoho(await aplicarEnZoho(env, tareaId, entrada, { f }, now), tareaId);
+}
+
 export async function fragmentoBorrador(env: Env, tareaId: string, forzar: boolean, now = Date.now(), f?: FetchFn): Promise<string> {
+  const db0 = new Db(env.DB);
+  await asegurarTablaHecho(db0);
+  const hecho = await db0.first<{ pasos: string }>("SELECT pasos FROM crm_seg_hecho WHERE tarea_id = ? AND completo = 1", [tareaId]);
+  if (hecho) return tarjetaHechoZoho({ ok: true, pasos: JSON.parse(hecho.pasos) as PasosHechos, yaHecho: true, siguiente: null }, tareaId);
   const r = await prepararBorrador(env, tareaId, { forzar, f }, now);
   if (!r.ok) {
     return `<div style="color:var(--bad);font-size:12.5px;margin-top:8px">${esc(r.error)}</div>`;
@@ -372,7 +506,7 @@ export async function fragmentoBorrador(env: Env, tareaId: string, forzar: boole
   } catch {
     /* sin botón de conversación */
   }
-  return tarjetaBorrador(r.borrador, cand, hoyMadrid(now), r.reutilizado);
+  return tarjetaBorrador(r.borrador, cand, hoyMadrid(now), r.reutilizado, await escrituraActiva(env));
 }
 
 export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn): Promise<string> {

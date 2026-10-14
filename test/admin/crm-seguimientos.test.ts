@@ -10,7 +10,7 @@ vi.mock("../../src/llm/work-model", () => ({
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { hoyMadrid, masDias, leerBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos } from "../../member/crm-seguimientos.local";
+import { hoyMadrid, masDias, leerBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho } from "../../member/crm-seguimientos.local";
 import { tokenZoho, tareasPendientes } from "../../member/crm-zohoapi.local";
 import type { Env } from "../../src/env";
 
@@ -22,13 +22,22 @@ const LEAD = "2259602000022222222";
 
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
 const llamadas: string[] = [];
+const escrituras: Array<{ url: string; method: string; body: Record<string, any> }> = [];
+let fallaCrearTarea = false;
+let estadoTarea = "En Proceso";
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   llamadas.push(url);
+  const metodo = init?.method ?? "GET";
+  if ((metodo === "POST" || metodo === "PUT") && url.includes("/crm/v6/") && !url.endsWith("/coql") && !url.includes("/oauth/")) {
+    escrituras.push({ url, method: metodo, body: JSON.parse(String(init?.body)).data[0] });
+    if (fallaCrearTarea && metodo === "POST" && url.endsWith("/Tasks")) return json({ data: [{ status: "error", message: "boom" }] }, 400);
+    return json({ data: [{ status: "success", details: { id: "9990001" } }] });
+  }
   if (url.includes("/oauth/v2/token")) return json({ access_token: "tok-" + llamadas.length, expires_in: 3600 });
   if (url.includes("/users?type=CurrentUser")) return json({ users: [{ id: "555", full_name: "Maricela Naranjo" }] });
   if (url.endsWith("/coql")) {
     const q = String(JSON.parse(String(init?.body)).select_query);
-    const fila = { id: TAREA, Subject: "Seguimiento Diana", Due_Date: "2026-10-12", Status: "En Proceso", Who_Id: { id: LEAD, name: "Diana" }, What_Id: null, $se_module: "Leads", Description: "" };
+    const fila = { id: TAREA, Subject: "Seguimiento Diana", Due_Date: "2026-10-12", Status: estadoTarea, Who_Id: { id: LEAD, name: "Diana" }, What_Id: null, $se_module: "Leads", Description: "" };
     if (q.includes(`where id = '${TAREA}'`)) return json({ data: [fila] });
     return json({ data: [fila, { ...fila, id: "2259602000033333333", Who_Id: { id: "2259602000099999999" } }] });
   }
@@ -47,6 +56,9 @@ beforeEach(async () => {
   db = new Db(d1);
   env = { DB: d1, BUSINESS_NAME: "Viventa", BOT_TIER: "pro", ZOHO_CLIENT_ID: "id", ZOHO_CLIENT_SECRET: "sec", ZOHO_REFRESH_TOKEN: "ref" } as unknown as Env;
   llamadas.length = 0;
+  escrituras.length = 0;
+  fallaCrearTarea = false;
+  estadoTarea = "En Proceso";
   zoho.mockClear();
   generarMock.mockReset().mockResolvedValue({
     text: '```json\n{"temperatura":"tibio","accion":"videollamada","proyectos_enviados":true,"segundo_titular":true,"mensaje":"Hola [nombre], ¿pudiste revisar con tu esposo los proyectos? Podemos verlo en una videollamada corta.","motivo":"Ya vio proyectos y gana menos de 1.250 euros","dias_siguiente":9,"razon_cierre":"","nota":"Se propuso videollamada y segundo titular.","tarea_siguiente":"Confirmar si desea agendar la videollamada"}\n```',
@@ -195,5 +207,97 @@ describe("permisos que faltan", () => {
   it("lo dice claro cuando Zoho rechaza por permisos", async () => {
     const sinPermiso = vi.fn(async (url: string) => (url.includes("/oauth/") ? json({ access_token: "t", expires_in: 3600 }) : json({ code: "OAUTH_SCOPE_MISMATCH", message: "invalid oauth scope" }, 401)));
     await expect(tareasPendientes(env, "2026-10-13", sinPermiso as never, NOW)).rejects.toThrow(/falta un permiso/i);
+  });
+});
+
+
+describe("fase 2: actualizar Zoho", () => {
+  const ENTRADA = { nota: "Se propuso videollamada.", tareaSiguiente: "Confirmar si desea agendar la videollamada" };
+  const activar = () => db.run("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('zoho_escritura','activo',?)", [NOW]);
+
+  it("con la escritura apagada no toca Zoho", async () => {
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    const r = await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("solo lectura");
+    expect(escrituras).toHaveLength(0);
+  });
+
+  it("nota + siguiente tarea «En Proceso» a nombre de Maricela + tarea de hoy completa", async () => {
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    const r = await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW);
+    expect(r.ok && r.siguiente).toEqual({ asunto: "Confirmar si desea agendar la videollamada", fecha: "2026-10-20" }); // tibio, 7 días
+    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`POST /Leads/${LEAD}/Notes`, "POST /Tasks", `PUT /Tasks/${TAREA}`]);
+    expect(escrituras[0].body.Note_Content).toBe("Se propuso videollamada.");
+    expect(escrituras[1].body).toMatchObject({ Subject: "Confirmar si desea agendar la videollamada", Due_Date: "2026-10-20", Status: "En Proceso", Owner: { id: "555" }, What_Id: { id: LEAD }, $se_module: "Leads" });
+    expect(escrituras[2].body).toEqual({ Status: "Completa" });
+    // nunca se borra nada
+    expect(escrituras.some((e) => (e.method as string) === "DELETE")).toBe(false);
+  });
+
+  it("no repite nada si se pulsa dos veces", async () => {
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW);
+    const n = escrituras.length;
+    const otra = await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW + 1000);
+    expect(otra.ok && otra.yaHecho).toBe(true);
+    expect(escrituras).toHaveLength(n);
+  });
+
+  it("si falla un paso, al reintentar no duplica la nota y termina lo que faltaba", async () => {
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    fallaCrearTarea = true;
+    const mal = await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW);
+    expect(mal.ok).toBe(false);
+    expect(mal.pasos.nota).toBeTruthy();
+    expect(mal.pasos.completada).toBeUndefined(); // no se completó la tarea de hoy sin crear la siguiente
+    fallaCrearTarea = false;
+    const bien = await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW + 1000);
+    expect(bien.ok).toBe(true);
+    expect(escrituras.filter((e) => e.url.endsWith("/Notes"))).toHaveLength(1);
+    expect(escrituras.filter((e) => e.method === "PUT" && e.url.includes("/Tasks/"))).toHaveLength(1);
+  });
+
+  it("«futuro»: nota + tarea completa + estado «Revisar en el futuro», sin crear otra tarea", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], cuando quieras, aquí estamos.","motivo":"4 intentos","nota":"Sin respuesta tras 4 intentos.","tarea_siguiente":""}' });
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    const r = await aplicarEnZoho(env, TAREA, { nota: "Sin respuesta tras 4 intentos.", tareaSiguiente: "" }, { f: zoho as never }, NOW);
+    expect(r.ok).toBe(true);
+    expect(escrituras.some((e) => e.url.endsWith("/Tasks") && e.method === "POST")).toBe(false);
+    expect(escrituras.find((e) => e.url.endsWith(`/Leads/${LEAD}`))?.body).toEqual({ Lead_Status: "Revisar en el futuro" });
+    expect(escrituras.some((e) => e.url.endsWith(`/Tasks/${TAREA}`) && e.body.Status === "Completa")).toBe(true);
+  });
+
+  it("«cerrar»: solo nota y tarea completa", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"cerrar","mensaje":"","razon_cierre":"compro","motivo":"ya compró","nota":"El cliente compró."}' });
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    await aplicarEnZoho(env, TAREA, { nota: "El cliente compró.", tareaSiguiente: "" }, { f: zoho as never }, NOW);
+    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`POST /Leads/${LEAD}/Notes`, `PUT /Tasks/${TAREA}`]);
+  });
+
+  it("si la tarea ya estaba completa en Zoho no cambia nada", async () => {
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    estadoTarea = "Completa";
+    const r = await aplicarEnZoho(env, TAREA, ENTRADA, { f: zoho as never }, NOW);
+    expect(r.ok && r.aviso).toContain("ya estaba completa");
+    expect(escrituras).toHaveLength(0);
+  });
+
+  it("la tarjeta muestra el botón solo con la escritura activa y pide confirmar", async () => {
+    const apagada = await fragmentoBorrador(env, TAREA, false, NOW, zoho as never);
+    expect(apagada).toContain("solo lectura");
+    expect(apagada).not.toContain("Ya lo envié: actualizar Zoho");
+    await activar();
+    const activa = await fragmentoBorrador(env, TAREA, false, NOW, zoho as never);
+    expect(activa).toContain("Ya lo envié: actualizar Zoho");
+    expect(activa).toContain("hx-confirm=");
+    expect(activa).toContain("marcar ESTA tarea como completa");
+    expect(activa).toContain('name="tarea_siguiente"');
   });
 });
