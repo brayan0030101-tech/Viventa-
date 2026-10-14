@@ -225,3 +225,40 @@ export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: s
 export async function zohoGet(env: Env, ruta: string, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {
   return llamar(env, ruta, {}, f, now);
 }
+
+// ─── Transiciones de estado (Blueprint) ──────────────────────────────────────
+// Los estados «Cliente perdido», «Descartado» y «Revisar en el futuro» NO se cambian escribiendo `Lead_Status`: Zoho los maneja con
+// transiciones (Plan de acción) que traen su propia lista de motivos válidos y, en «Revisar en el futuro», una nota obligatoria.
+
+export interface TransicionZoho {
+  id: string;
+  nombre: string;
+  /** Motivos que acepta esta transición (campo `motivo`); vacío si no pide motivo. */
+  motivos: string[];
+  /** La transición trae una caja de NOTA obligatoria (se manda como `Notes`). */
+  pideNota: boolean;
+}
+
+/** Transiciones disponibles HOY para ese candidato (dependen de su estado actual). */
+export async function transicionesDe(env: Env, leadId: string, f: FetchFn = fetch, now = Date.now()): Promise<TransicionZoho[]> {
+  if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
+  const j = (await llamar(env, `/Leads/${leadId}/actions/blueprint`, {}, f, now)) as {
+    blueprint?: { transitions?: Array<{ id?: string; name?: string; fields?: Array<Record<string, unknown>> }> };
+  };
+  return (j.blueprint?.transitions ?? []).map((t) => {
+    const campos = t.fields ?? [];
+    const motivo = campos.find((c) => c["api_name"] === "motivo") as { criteria?: { value?: unknown } } | undefined;
+    const valores = Array.isArray(motivo?.criteria?.value) ? (motivo!.criteria!.value as unknown[]).map(String) : [];
+    return { id: String(t.id ?? ""), nombre: String(t.name ?? ""), motivos: valores, pideNota: campos.some((c) => c["data_type"] === "notes") };
+  });
+}
+
+/** Ejecuta UNA transición de un candidato (p. ej. «Cliente perdido» con su motivo). */
+export async function ejecutarTransicion(env: Env, leadId: string, transicionId: string, datos: Record<string, string>, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!idValido(leadId) || !idValido(transicionId)) throw new ZohoError("Transición no válida.");
+  const j = (await llamar(env, `/Leads/${leadId}/actions/blueprint`, { method: "PUT", body: JSON.stringify({ blueprint: [{ transition_id: transicionId, data: datos }] }) }, f, now)) as {
+    data?: Array<{ status?: string; message?: string }>;
+  };
+  const r = j.data?.[0];
+  if (!r || r.status !== "success") throw new ZohoError(`Zoho no hizo el cambio de estado: ${r?.message ?? "sin respuesta"}`);
+}

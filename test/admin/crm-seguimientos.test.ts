@@ -23,13 +23,22 @@ const LEAD = "2259602000022222222";
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
 const llamadas: string[] = [];
 const escrituras: Array<{ url: string; method: string; body: Record<string, any> }> = [];
+let transiciones: Array<{ id: string; name: string; fields: unknown[] }> = [];
+const campoMotivo = (valores: string[]) => ({ api_name: "motivo", criteria: { comparator: "equal", field: "motivo", value: valores } });
+const TRANS_REALES = () => [
+  { id: "2259602001737850663", name: "Cliente perdido", fields: [campoMotivo(["Proceso con otro broker", "Dejó de responder", "Precio muy alto", "No le gustaron proyectos", "No cumple perfil", "No interesado", "Paga de contado", "Desistio compra", "Nunca me respondió"])] },
+  { id: "2259602001737850666", name: "Revisar en el futuro", fields: [campoMotivo(["Interesado más adelante", "En tareas para calificar", "Tiene entrega futura"]), { data_type: "notes", display_label: "Notas", mandatory: true }] },
+  { id: "2259602001737850665", name: "Descartado", fields: [campoMotivo(["No es colombiano", "No quiere ser contactado", "Sin datos de contacto", "Interesado en otro país", "Número errado", "Reside y tiene ingresos en Colombia"])] },
+];
 let fallaCrearTarea = false;
 let estadoTarea = "En Proceso";
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   llamadas.push(url);
   const metodo = init?.method ?? "GET";
+  if (metodo === "GET" && url.includes("/actions/blueprint")) return json({ blueprint: { transitions: transiciones } });
   if ((metodo === "POST" || metodo === "PUT") && url.includes("/crm/v6/") && !url.endsWith("/coql") && !url.includes("/oauth/")) {
-    escrituras.push({ url, method: metodo, body: JSON.parse(String(init?.body)).data[0] });
+    const cuerpo = JSON.parse(String(init?.body)) as { data?: Array<Record<string, any>>; blueprint?: Array<Record<string, any>> };
+    escrituras.push({ url, method: metodo, body: (cuerpo.data?.[0] ?? cuerpo.blueprint?.[0]) as Record<string, any> });
     if (fallaCrearTarea && metodo === "POST" && url.endsWith("/Tasks")) return json({ data: [{ status: "error", message: "boom" }] }, 400);
     return json({ data: [{ status: "success", details: { id: "9990001" } }] });
   }
@@ -57,6 +66,7 @@ beforeEach(async () => {
   env = { DB: d1, BUSINESS_NAME: "Viventa", BOT_TIER: "pro", ZOHO_CLIENT_ID: "id", ZOHO_CLIENT_SECRET: "sec", ZOHO_REFRESH_TOKEN: "ref" } as unknown as Env;
   llamadas.length = 0;
   escrituras.length = 0;
+  transiciones = TRANS_REALES();
   fallaCrearTarea = false;
   estadoTarea = "En Proceso";
   zoho.mockClear();
@@ -271,32 +281,46 @@ describe("fase 2: actualizar Zoho", () => {
     expect(escrituras.filter((e) => e.method === "PUT" && e.url.includes("/Tasks/"))).toHaveLength(1);
   });
 
-  it("«futuro»: solo completa la tarea (la nota va en la ventana de Zoho) y el estado NO se escribe por la API", async () => {
-    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], cuando quieras, aquí estamos.","motivo":"4 intentos","nota":"Sin respuesta tras 4 intentos.","tarea_siguiente":""}' });
+  it("«futuro»: ejecuta la transición con su motivo y la nota obligatoria, completa la tarea y NO crea otra (Zoho la crea a 3 meses)", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], cuando quieras, aquí estamos.","motivo_cierre":"Interesado más adelante","nota":"Sin respuesta tras 4 intentos.","tarea_siguiente":""}' });
     await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
     await activar();
-    const r = await aplicarEnZoho(env, TAREA, { nota: "Sin respuesta tras 4 intentos.", tareaSiguiente: "" }, { f: zoho as never }, NOW);
-    expect(r.ok && r.manual).toMatchObject({ estado: "Revisar en el futuro", nota: "Sin respuesta tras 4 intentos.", notaGuardada: false });
-    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`PUT /Tasks/${TAREA}`]);
-    expect(escrituras.some((e) => e.url.includes("/Leads/"))).toBe(false); // ni nota ni estado: Zoho lo maneja con transiciones
+    const r = await aplicarEnZoho(env, TAREA, { nota: "Sin respuesta tras 4 intentos.", tareaSiguiente: "", motivo: "Tiene entrega futura" }, { f: zoho as never }, NOW);
+    expect(r.ok && r.manual).toBeUndefined();
+    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`PUT /Leads/${LEAD}/actions/blueprint`, `PUT /Tasks/${TAREA}`]);
+    expect(escrituras[0].body).toEqual({ transition_id: "2259602001737850666", data: { motivo: "Tiene entrega futura", Notes: "Sin respuesta tras 4 intentos." } });
+    expect(escrituras[1].body).toEqual({ Status: "Completa" });
   });
 
-  it("«perdido»: guarda la nota, completa la tarea y le deja a Maricela el cambio de estado con el motivo (sin tarea nueva)", async () => {
+  it("«perdido»: guarda la nota, ejecuta la transición «Cliente perdido» con el motivo y completa la tarea (sin tarea nueva)", async () => {
     generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"Desistio compra","nota":"Desistió de comprar."}' });
     await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
     await activar();
     const r = await aplicarEnZoho(env, TAREA, { nota: "Desistió de comprar.", tareaSiguiente: "", motivo: "Precio muy alto" }, { f: zoho as never }, NOW);
-    expect(r.ok && r.manual).toMatchObject({ estado: "Cliente perdido", motivo: "Precio muy alto", notaGuardada: true });
-    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`POST /Leads/${LEAD}/Notes`, `PUT /Tasks/${TAREA}`]);
-    expect(escrituras.some((e) => e.url.endsWith(`/Leads/${LEAD}`))).toBe(false);
+    expect(r.ok && r.manual).toBeUndefined();
+    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`POST /Leads/${LEAD}/Notes`, `PUT /Leads/${LEAD}/actions/blueprint`, `PUT /Tasks/${TAREA}`]);
+    expect(escrituras.some((e) => e.url.endsWith("/Tasks") && e.method === "POST")).toBe(false);
+    expect(escrituras[1].body).toEqual({ transition_id: "2259602001737850663", data: { motivo: "Precio muy alto" } }); // el motivo elegido en pantalla manda
   });
 
-  it("«descartado»: un motivo fuera de la lista se cambia por el del borrador", async () => {
+  it("«descartado»: un motivo que la transición no acepta se cambia por el del borrador; si tampoco vale, no hace nada", async () => {
     generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"descartado","mensaje":"","motivo_cierre":"No quiere ser contactado","nota":"Pidió que no lo llamen."}' });
     await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
     await activar();
-    const r = await aplicarEnZoho(env, TAREA, { nota: "Pidió que no lo llamen.", tareaSiguiente: "", motivo: "inventado" }, { f: zoho as never }, NOW);
-    expect(r.ok && r.manual).toMatchObject({ estado: "Descartado", motivo: "No quiere ser contactado" });
+    const ok = await aplicarEnZoho(env, TAREA, { nota: "Pidió que no lo llamen.", tareaSiguiente: "", motivo: "inventado" }, { f: zoho as never }, NOW);
+    expect(ok.ok).toBe(true);
+    expect(escrituras.find((e) => e.url.endsWith("/actions/blueprint"))?.body).toEqual({ transition_id: "2259602001737850665", data: { motivo: "No quiere ser contactado" } });
+  });
+
+  it("si Zoho no ofrece esa transición desde el estado actual del candidato, completa la tarea y deja el cambio de estado a Maricela", async () => {
+    transiciones = [{ id: "2259602001848643107", name: "Convertir Comercial", fields: [] }];
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"Nunca me respondió","nota":"Sin respuesta."}' });
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    const r = await aplicarEnZoho(env, TAREA, { nota: "Sin respuesta.", tareaSiguiente: "" }, { f: zoho as never }, NOW);
+    expect(r.ok && r.manual).toMatchObject({ estado: "Cliente perdido", motivo: "Nunca me respondió", notaGuardada: true });
+    expect(escrituras.some((e) => e.url.endsWith("/actions/blueprint"))).toBe(false);
+    expect(escrituras.some((e) => e.url.endsWith(`/Tasks/${TAREA}`))).toBe(true);
   });
 
   it("si la tarea ya estaba completa en Zoho no cambia nada", async () => {
