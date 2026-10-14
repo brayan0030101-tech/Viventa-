@@ -216,7 +216,7 @@ export async function crearTarea(env: Env, a: { leadId: string; asunto: string; 
 }
 
 /** Cambia el estado de UN candidato (p. ej. «Revisar en el futuro»). */
-export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: string, f: FetchFn = fetch, now = Date.now(), extra: Record<string, string> = {}): Promise<void> {
   if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
-  await escribir(env, `/Leads/${leadId}`, "PUT", { Lead_Status: estado }, f, now);
+  await escribir(env, `/Leads/${leadId}`, "PUT", { Lead_Status: estado, ...extra }, f, now);
 }

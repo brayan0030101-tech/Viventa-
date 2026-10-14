@@ -92,10 +92,16 @@ describe("leerBorrador", () => {
     expect(b.mensaje).toContain("Hola Diana");
     expect(leerBorrador('{"temperatura":"frio","accion":"futuro","mensaje":""}', base)).not.toBeNull(); // el último aviso es opcional
   });
-  it("cerrar no lleva mensaje ni siguiente tarea", () => {
-    const b = leerBorrador('{"temperatura":"frio","accion":"cerrar","razon_cierre":"compro","mensaje":""}', base)!;
-    expect(b.diasSiguiente).toBeNull();
-    expect(b.razonCierre).toBe("compro");
+  it("«perdido» y «descartado»: sin mensaje ni tarea, con el motivo de la lista de Zoho (o uno neutro si la IA inventa)", () => {
+    const p = leerBorrador('{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"precio muy alto"}', base)!;
+    expect(p.diasSiguiente).toBeNull();
+    expect(p.motivoCierre).toBe("Precio muy alto");
+    expect(p.tareaSiguiente).toBe("");
+    const d = leerBorrador('{"temperatura":"frio","accion":"descartado","mensaje":"","motivo_cierre":"No quiere ser contactado"}', base)!;
+    expect(d.motivoCierre).toBe("No quiere ser contactado");
+    expect(leerBorrador('{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"se mudó a Marte"}', base)!.motivoCierre).toBe("No interesado");
+    expect(leerBorrador('{"temperatura":"frio","accion":"descartado","mensaje":"","motivo_cierre":"x"}', base)!.motivoCierre).toBe("No quiere ser contactado");
+    expect(leerBorrador('{"temperatura":"frio","accion":"cerrar","mensaje":""}', base)).toBeNull(); // la acción vieja ya no existe
   });
 });
 
@@ -272,12 +278,35 @@ describe("fase 2: actualizar Zoho", () => {
     expect(escrituras.some((e) => e.url.endsWith(`/Tasks/${TAREA}`) && e.body.Status === "Completa")).toBe(true);
   });
 
-  it("«cerrar»: solo nota y tarea completa", async () => {
-    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"cerrar","mensaje":"","razon_cierre":"compro","motivo":"ya compró","nota":"El cliente compró."}' });
+  it("«perdido»: sin el campo «Motivo» configurado no hace NADA a medias", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"Desistió compra","nota":"Desistió de comprar."}' });
     await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
     await activar();
-    await aplicarEnZoho(env, TAREA, { nota: "El cliente compró.", tareaSiguiente: "" }, { f: zoho as never }, NOW);
-    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`POST /Leads/${LEAD}/Notes`, `PUT /Tasks/${TAREA}`]);
+    const r = await aplicarEnZoho(env, TAREA, { nota: "Desistió de comprar.", tareaSiguiente: "" }, { f: zoho as never }, NOW);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("«Motivo»");
+    expect(escrituras).toHaveLength(0);
+  });
+
+  it("«perdido» con el campo configurado: nota + tarea completa + estado y motivo, sin tarea nueva", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"Desistió compra","nota":"Desistió de comprar."}' });
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    await db.run("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('zoho_campo_motivo_perdido','Motivo_de_p_rdida',?)", [NOW]);
+    const r = await aplicarEnZoho(env, TAREA, { nota: "Desistió de comprar.", tareaSiguiente: "", motivo: "Precio muy alto" }, { f: zoho as never }, NOW);
+    expect(r.ok).toBe(true);
+    expect(escrituras.some((e) => e.url.endsWith("/Tasks") && e.method === "POST")).toBe(false);
+    expect(escrituras.find((e) => e.url.endsWith(`/Leads/${LEAD}`))?.body).toEqual({ Lead_Status: "Cliente perdido", Motivo_de_p_rdida: "Precio muy alto" });
+    expect(escrituras.map((e) => e.method + " " + e.url.replace(/^.*\/crm\/v6/, ""))).toEqual([`POST /Leads/${LEAD}/Notes`, `PUT /Tasks/${TAREA}`, `PUT /Leads/${LEAD}`]);
+  });
+
+  it("«descartado»: usa su propio campo y un motivo que no esté en la lista se cambia por el del borrador", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"descartado","mensaje":"","motivo_cierre":"No quiere ser contactado","nota":"Pidió que no lo llamen."}' });
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    await db.run("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('zoho_campo_motivo_descartado','Motivo_descarte',?)", [NOW]);
+    await aplicarEnZoho(env, TAREA, { nota: "Pidió que no lo llamen.", tareaSiguiente: "", motivo: "inventado" }, { f: zoho as never }, NOW);
+    expect(escrituras.find((e) => e.url.endsWith(`/Leads/${LEAD}`))?.body).toEqual({ Lead_Status: "Descartado", Motivo_descarte: "No quiere ser contactado" });
   });
 
   it("si la tarea ya estaba completa en Zoho no cambia nada", async () => {

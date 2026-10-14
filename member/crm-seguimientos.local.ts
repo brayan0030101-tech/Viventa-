@@ -21,7 +21,14 @@ const DIA = 86_400_000;
 const H = 3_600_000;
 
 export type Temperatura = "caliente" | "tibio" | "frio";
-export type Accion = "whatsapp" | "videollamada" | "cerrar" | "futuro";
+export type Accion = "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado";
+/** «Cliente perdido» y «Descartado» son estados de Zoho que piden un MOTIVO, no dejan tarea y solo dejan nota (Maricela, 14 oct 2026). */
+export const esCierre = (a: string): boolean => a === "perdido" || a === "descartado";
+
+/** Motivos que ofrece Zoho al pasar a cada estado (lista vista en la pantalla de Maricela; se confirmará contra Zoho). */
+export const MOTIVOS_PERDIDO = ["Proceso con otro broker", "Precio muy alto", "No le gustaron proyectos", "No cumple perfil", "No interesado", "Paga de contado", "Desistió compra", "Nunca me respondió"];
+export const MOTIVOS_DESCARTADO = ["No es colombiano", "No quiere ser contactado", "Sin datos de contacto", "Interesado en otro país", "Número errado", "Reside y tiene ingresos en Colombia"];
+export const ESTADOS_CIERRE: Record<"perdido" | "descartado", string> = { perdido: "Cliente perdido", descartado: "Descartado" };
 
 /** Cuántos días esperar para la siguiente tarea según el interés (reglas de Maricela). */
 export const PLAZO_DIAS: Record<Temperatura, [number, number]> = { caliente: [2, 3], tibio: [5, 7], frio: [14, 14] };
@@ -39,7 +46,8 @@ export interface Borrador {
   mensaje: string;
   motivo: string;
   diasSiguiente: number | null;
-  razonCierre: "" | "compro" | "no_contactar";
+  /** Motivo de «Cliente perdido» / «Descartado» (uno de los de Zoho); vacío en las demás acciones. */
+  motivoCierre: string;
   nota: string;
   /** Asunto de la siguiente tarea en Zoho (lo que hay que hacer la próxima vez). */
   tareaSiguiente: string;
@@ -101,7 +109,7 @@ export type ResultadoZoho =
 export async function aplicarEnZoho(
   env: Env,
   tareaId: string,
-  entrada: { nota: string; tareaSiguiente: string },
+  entrada: { nota: string; tareaSiguiente: string; motivo?: string },
   opts: { f?: FetchFn } = {},
   now = Date.now(),
 ): Promise<ResultadoZoho> {
@@ -116,6 +124,15 @@ export async function aplicarEnZoho(
     b = JSON.parse(g.borrador) as Borrador;
   } catch {
     return { ok: false, error: "El borrador guardado no se pudo leer. Regenéralo.", pasos: {} };
+  }
+  // «Cliente perdido» / «Descartado» piden un MOTIVO (campo propio de Zoho). Sin ese campo configurado no se hace NADA a medias.
+  let campoMotivo = "";
+  let motivo = "";
+  if (esCierre(b.accion)) {
+    campoMotivo = ((await new SettingsRepo(db).get(b.accion === "perdido" ? "zoho_campo_motivo_perdido" : "zoho_campo_motivo_descartado")) ?? "").trim();
+    if (!campoMotivo) return { ok: false, error: `Para «${ESTADOS_CIERRE[b.accion as "perdido" | "descartado"]}» todavía no está conectado el campo «Motivo» de Zoho: por ahora cambia el estado a mano.`, pasos: {} };
+    const lista = b.accion === "perdido" ? MOTIVOS_PERDIDO : MOTIVOS_DESCARTADO;
+    motivo = lista.find((m) => m === entrada.motivo) ?? b.motivoCierre;
   }
   const previo = await db.first<{ completo: number; pasos: string }>("SELECT completo, pasos FROM crm_seg_hecho WHERE tarea_id = ?", [tareaId]);
   const pasos: PasosHechos = previo ? (JSON.parse(previo.pasos) as PasosHechos) : {};
@@ -142,7 +159,7 @@ export async function aplicarEnZoho(
       pasos.nota = (await crearNota(env, g.lead_id, nota, opts.f, now)) || "ok";
       await guardar(false);
     }
-    if (!pasos.tarea && b.diasSiguiente != null && b.accion !== "cerrar" && b.accion !== "futuro") {
+    if (!pasos.tarea && b.diasSiguiente != null && !esCierre(b.accion) && b.accion !== "futuro") {
       const dueno = await duenoZoho(env, opts.f, now);
       pasos.tarea = (await crearTarea(env, { leadId: g.lead_id, asunto, fecha: fechaSig, ownerId: dueno.id }, opts.f, now)) || "ok";
       await guardar(false);
@@ -154,6 +171,10 @@ export async function aplicarEnZoho(
     }
     if (b.accion === "futuro" && !pasos.estado) {
       await cambiarEstadoCandidato(env, g.lead_id, ESTADO_FUTURO, opts.f, now);
+      pasos.estado = true;
+    }
+    if (esCierre(b.accion) && !pasos.estado) {
+      await cambiarEstadoCandidato(env, g.lead_id, ESTADOS_CIERRE[b.accion as "perdido" | "descartado"], opts.f, now, { [campoMotivo]: motivo });
       pasos.estado = true;
     }
     await guardar(true);
@@ -182,7 +203,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
   const t = String(j["temperatura"] ?? "").toLowerCase().replace("í", "i").replace("ó", "o");
   const temperatura: Temperatura = (TEMPS as string[]).includes(t) ? (t as Temperatura) : "tibio";
   const accion = String(j["accion"] ?? "").toLowerCase();
-  if (accion !== "whatsapp" && accion !== "videollamada" && accion !== "cerrar" && accion !== "futuro") return null;
+  if (accion !== "whatsapp" && accion !== "videollamada" && accion !== "futuro" && accion !== "perdido" && accion !== "descartado") return null;
   const primerNombre = base.nombre.split(/\s+/).find((w) => w.replace(/[^\p{L}]/gu, "").length >= 2) ?? "";
   const mensaje = String(j["mensaje"] ?? "")
     .replace(/\[\[[^\]]*\]\]/g, "")
@@ -191,13 +212,15 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, 700);
-  if (accion !== "cerrar" && accion !== "futuro" && !mensaje) return null;
-  const razon = String(j["razon_cierre"] ?? "");
-  const razonCierre = accion === "cerrar" ? (razon === "compro" ? "compro" : "no_contactar") : "";
+  if (accion !== "futuro" && !esCierre(accion) && !mensaje) return null;
+  // El motivo debe ser uno de los de Zoho para ese estado; si la IA inventa otro, queda el más neutro de la lista.
+  const lista = accion === "perdido" ? MOTIVOS_PERDIDO : accion === "descartado" ? MOTIVOS_DESCARTADO : [];
+  const pedidoMotivo = String(j["motivo_cierre"] ?? "").trim().toLowerCase();
+  const motivoCierre = lista.length ? (lista.find((m) => m.toLowerCase() === pedidoMotivo) ?? (accion === "perdido" ? "No interesado" : "No quiere ser contactado")) : "";
   // Días hasta la siguiente tarea: el plazo de su temperatura (la IA puede elegir dentro del rango).
   const [min, max] = PLAZO_DIAS[temperatura];
   const pedido = Number(j["dias_siguiente"]);
-  const diasSiguiente = accion === "cerrar" || accion === "futuro" ? null : Number.isFinite(pedido) ? Math.min(max, Math.max(min, Math.round(pedido))) : min;
+  const diasSiguiente = esCierre(accion) || accion === "futuro" ? null : Number.isFinite(pedido) ? Math.min(max, Math.max(min, Math.round(pedido))) : min;
   return {
     tareaId: base.tareaId,
     leadId: base.leadId,
@@ -208,9 +231,9 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
     mensaje,
     motivo: String(j["motivo"] ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
     diasSiguiente,
-    razonCierre,
+    motivoCierre,
     nota: String(j["nota"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 600),
-    tareaSiguiente: accion === "cerrar" || accion === "futuro" ? "" : String(j["tarea_siguiente"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 160),
+    tareaSiguiente: esCierre(accion) || accion === "futuro" ? "" : String(j["tarea_siguiente"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 160),
     creado: base.creado,
     modelo: base.modelo,
   };
@@ -220,7 +243,10 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 1. Lee las NOTAS: son lo que se hizo y en qué quedó el contacto. A partir de ellas decide si el candidato es CALIENTE (muy interesado, avanza), TIBIO (interesado pero lento) o FRÍO (poco interés o sin respuesta). No hay otra clasificación.
 2. Si es frío, o todavía no se le han enviado proyectos: escríbele por WhatsApp para saber si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada.
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
-4. El seguimiento termina solo cuando el cliente compró o pidió que no lo contactemos más: en ese caso la acción es "cerrar" y no se escribe mensaje.
+4. El seguimiento termina solo cuando el cliente compró, pidió que no lo contactemos más o ya no quiere comprar: en ese caso NO se escribe mensaje ni se deja otra tarea, solo una nota, y el candidato pasa a uno de dos estados de Zoho, cada uno con su MOTIVO:
+   - "descartado": no es trabajable y no se debe insistir ni reactivar. Motivos: ${MOTIVOS_DESCARTADO.join(" | ")}.
+   - "perdido" (Cliente perdido): conoció la propuesta de Viventa y no se decide por nosotros, o los datos son correctos pero nunca contestó. Motivos: ${MOTIVOS_PERDIDO.join(" | ")}.
+   Elige el motivo que mejor encaje con lo que dicen las notas y escríbelo exactamente igual que en la lista.
 4b. Si en las notas se ven MÁS DE 3 intentos de contacto (llamadas o WhatsApp) sin que el cliente haya respondido, la acción es "futuro": el candidato pasa al estado «Revisar en el futuro». En ese caso el mensaje es un último mensaje breve y amable, sin presionar (por ejemplo, que no le llenamos de mensajes y que cuando quiera retomar aquí estamos), y NO se escribe siguiente tarea: Zoho la crea solo a los 3 meses al cambiar ese estado.
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
 6. LA TAREA DE HOY MANDA: el asunto de la tarea (y su descripción) dice exactamente qué hay que hacer hoy con este candidato, y el mensaje debe lograr ESO. Ejemplo: si la tarea es «Confirmar si desea agendar la videollamada», el mensaje pregunta justo eso; si es «Preguntar si revisó los proyectos», pregunta si los revisó. Solo si la tarea es genérica («Seguimiento WhatsApp», «Seguimiento») decides tú según las notas y las reglas anteriores.
@@ -241,15 +267,15 @@ ${notas}
 ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion ? `ÚLTIMOS MENSAJES DE LA CONVERSACIÓN (CLIENTE / EQUIPO):\n${c.conversacion}\n\n` : ""}Responde SOLO con un JSON válido, sin texto antes ni después, con esta forma exacta:
 {
  "temperatura": "caliente" | "tibio" | "frio",
- "accion": "whatsapp" | "videollamada" | "cerrar" | "futuro",
+ "accion": "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado",
  "proyectos_enviados": true si las notas dicen que ya se le enviaron proyectos; si no, false,
  "segundo_titular": true si recomiendas un segundo titular por ingresos menores a 1.250 euros; si no, false,
- "mensaje": "el mensaje de WhatsApp listo para enviar (vacío solo si la acción es cerrar)",
+ "mensaje": "el mensaje de WhatsApp listo para enviar (vacío si la acción es futuro, perdido o descartado)",
  "motivo": "una frase para Maricela: por qué eliges esa acción y esa temperatura",
  "dias_siguiente": número de días para la siguiente tarea (dentro del rango de la temperatura),
- "razon_cierre": "compro" | "no_contactar" (solo si la acción es cerrar; si no, vacío),
+ "motivo_cierre": "uno de los motivos de la lista, solo si la acción es perdido o descartado; si no, vacío",
  "nota": "la nota para dejar en Zoho tras el contacto: qué se hace ahora y en qué quedamos, en 1 o 2 frases",
- "tarea_siguiente": "asunto corto de la siguiente tarea de Zoho (vacío solo si la acción es cerrar)"
+ "tarea_siguiente": "asunto corto de la siguiente tarea de Zoho (vacío si la acción es futuro, perdido o descartado)"
 }`;
 }
 
@@ -316,7 +342,7 @@ export async function prepararBorrador(
       try {
         const viejo = JSON.parse(g.borrador) as Borrador;
         // Los borradores anteriores a «siguiente tarea» (14 oct 2026) se rehacen para que la traigan.
-        if (typeof viejo.tareaSiguiente === "string") return { ok: true, borrador: { ...viejo, tareaId, leadId: g.lead_id, creado: g.creado, modelo: g.modelo }, reutilizado: true };
+        if (typeof viejo.tareaSiguiente === "string" && typeof viejo.motivoCierre === "string") return { ok: true, borrador: { ...viejo, tareaId, leadId: g.lead_id, creado: g.creado, modelo: g.modelo }, reutilizado: true };
       } catch {
         /* se rehace */
       }
@@ -413,7 +439,7 @@ const ETIQ_TEMP: Record<Temperatura, { txt: string; color: string }> = {
   tibio: { txt: "🌤 Tibio", color: "var(--accent-2)" },
   frio: { txt: "⚪ Frío", color: "var(--info)" },
 };
-const ETIQ_ACC: Record<Accion, string> = { whatsapp: "💬 Escribir por WhatsApp", videollamada: "📞 Proponer videollamada", cerrar: "🏁 Cerrar el seguimiento", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
+const ETIQ_ACC: Record<Accion, string> = { whatsapp: "💬 Escribir por WhatsApp", videollamada: "📞 Proponer videollamada", perdido: "🏁 Pasar a «Cliente perdido»", descartado: "🚫 Pasar a «Descartado»", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
 
 const campoCopiable = (id: string, titulo: string, valor: string, filas: number, editable = false, nombre = ""): string =>
   `<div style="margin-bottom:12px">
@@ -425,7 +451,7 @@ const campoCopiable = (id: string, titulo: string, valor: string, filas: number,
 export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false, escritura = false): string {
   const t = ETIQ_TEMP[b.temperatura];
   const tel = (cand.movil || cand.telefono).replace(/\D/g, "");
-  const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : b.accion === "futuro" ? `no hace falta crearla: Zoho la programa solo a los 3 meses al pasar a «${ESTADO_FUTURO}»` : "no se crea otra: se cierra el seguimiento";
+  const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : esCierre(b.accion) ? "ninguna: en este estado solo se deja la nota" : b.accion === "futuro" ? `no hace falta crearla: Zoho la programa solo a los 3 meses al pasar a «${ESTADO_FUTURO}»` : "no se crea otra: se cierra el seguimiento";
   const id = "sb" + b.tareaId.slice(-8);
   const chips = `<span style="font-weight:600;color:${t.color}">${t.txt}</span> <span class="text-dim">·</span> <b>${ETIQ_ACC[b.accion]}</b>${b.proyectosEnviados ? ` <span class="text-dim">· ya recibió proyectos</span>` : ""}${b.segundoTitular ? ` <span class="text-dim">· sugiere segundo titular</span>` : ""}`;
   // Maricela escribe desde el panel de Forja: el botón abre ESA conversación con el mensaje ya puesto en la caja de respuesta
@@ -439,15 +465,15 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
     b.accion === "futuro"
       ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: el candidato pasa al estado <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho${escritura ? " (lo hace el botón «Ya lo envié»)" : " (por ahora a mano)"}. Zoho programa solo la siguiente tarea a los 3 meses. El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
       : "";
-  const confirmacion =
-    b.accion === "cerrar"
-      ? "En Zoho se va a: agregar la nota y marcar ESTA tarea como completa (no se crea otra). ¿Confirmas?"
-      : b.accion === "futuro"
-        ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y cambiar el estado del candidato a «${ESTADO_FUTURO}» (Zoho programa la siguiente a los 3 meses). ¿Confirmas?`
-        : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
+  const listaMotivos = b.accion === "perdido" ? MOTIVOS_PERDIDO : MOTIVOS_DESCARTADO;
+  const confirmacion = esCierre(b.accion)
+    ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y pasar al candidato a «${ESTADOS_CIERRE[b.accion as "perdido" | "descartado"]}» con el motivo elegido (no se deja otra tarea). ¿Confirmas?`
+    : b.accion === "futuro"
+      ? `En Zoho se va a: agregar la nota, marcar ESTA tarea como completa y cambiar el estado del candidato a «${ESTADO_FUTURO}» (Zoho programa la siguiente a los 3 meses). ¿Confirmas?`
+      : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
   const cuerpo =
-    b.accion === "cerrar"
-      ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${b.razonCierre === "compro" ? "El cliente ya compró." : "El cliente pidió que no le contactemos más."} No hace falta escribirle.</div>`
+    esCierre(b.accion)
+      ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">No hace falta escribirle. El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE[b.accion as "perdido" | "descartado"])}»</b> y solo se deja la nota (ninguna tarea).</div>`
       : `${campoCopiable(id + "m", "Mensaje para el cliente (puedes editarlo)", b.mensaje, 5, true)}
          ${boton}`;
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
@@ -456,8 +482,9 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
     ${avisoFuturo}${cuerpo}
     <form hx-post="/crm/seguimientos/hecho" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" hx-confirm="${esc(confirmacion)}" style="margin:0">
       <input type="hidden" name="tarea" value="${esc(b.tareaId)}">
+      ${esCierre(b.accion) ? `<div style="margin-bottom:12px"><b style="font-size:12px;color:var(--cream)">Motivo en Zoho</b><br><select name="motivo_cierre" class="crm-in" style="margin-top:4px;font-size:12.5px">${listaMotivos.map((m) => `<option value="${esc(m)}"${m === b.motivoCierre ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></div>` : ""}
       ${campoCopiable(id + "n", "Nota para dejar en Zoho después de contactarle (puedes editarla)", b.nota, 2, true, "nota")}
-      ${b.tareaSiguiente && b.accion !== "futuro" && b.accion !== "cerrar" ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)} (puedes editarla)`, b.tareaSiguiente, 1, true, "tarea_siguiente") : ""}
+      ${b.tareaSiguiente && b.accion !== "futuro" && !esCierre(b.accion) ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)} (puedes editarla)`, b.tareaSiguiente, 1, true, "tarea_siguiente") : ""}
       <div class="text-muted" style="font-size:12px;margin-bottom:10px">Siguiente tarea: <b style="color:var(--cream)">${esc(sig)}</b></div>
       ${escritura
         ? `<button type="submit" class="bigbtn" style="cursor:pointer;margin-bottom:10px">✅ Ya lo envié: actualizar Zoho</button><div class="text-dim" style="font-size:10.5px;margin:-4px 0 10px">Solo toca este candidato y esta tarea; antes de hacerlo te pide confirmar. Nunca borra nada.</div>`
@@ -478,11 +505,11 @@ export function tarjetaHechoZoho(r: ResultadoZoho, tareaId: string): string {
 }
 
 function resumenPasos(p: PasosHechos): string {
-  const hechos = [p.nota ? "nota creada" : "", p.tarea ? "siguiente tarea creada" : "", p.completada ? "tarea marcada como completa" : "", p.estado ? `estado «${ESTADO_FUTURO}»` : ""].filter(Boolean);
+  const hechos = [p.nota ? "nota creada" : "", p.tarea ? "siguiente tarea creada" : "", p.completada ? "tarea marcada como completa" : "", p.estado ? "estado del candidato cambiado" : ""].filter(Boolean);
   return hechos.length ? hechos.join(" · ") : "nada todavía";
 }
 
-export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota: string; tareaSiguiente: string }, now = Date.now(), f?: FetchFn): Promise<string> {
+export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota: string; tareaSiguiente: string; motivo?: string }, now = Date.now(), f?: FetchFn): Promise<string> {
   return tarjetaHechoZoho(await aplicarEnZoho(env, tareaId, entrada, { f }, now), tareaId);
 }
 
@@ -549,7 +576,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
     }
   }
   const body = `${ESTILO_CRM}
-    <div class="text-dim" style="font-size:12.5px;margin-bottom:14px">Las tareas de seguimiento de Zoho que toca hacer hoy o que ya se pasaron. Pulsa <b style="color:var(--cream)">Preparar mensaje</b> y la IA lee la nota del candidato y te propone qué escribirle (o si ya toca cerrar el seguimiento).</div>
+    <div class="text-dim" style="font-size:12.5px;margin-bottom:14px">Las tareas de seguimiento de Zoho que toca hacer hoy o que ya se pasaron. Pulsa <b style="color:var(--cream)">Preparar mensaje</b> y la IA lee la nota del candidato y te propone qué escribirle (o si hay que pasarlo a «Cliente perdido», «Descartado» o «Revisar en el futuro»).</div>
     ${cuerpo}`;
   return crmLayout({ title: "Seguimientos", activa: "seguimientos", body, env });
 }
