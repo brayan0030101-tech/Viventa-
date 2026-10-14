@@ -1,4 +1,6 @@
 import type { Env } from "../env";
+import { Db } from "../db/client";
+import { SettingsRepo } from "../db/settings";
 
 // Cliente de Cal.com API v2 para los nichos de cita. Dos capacidades:
 //  - getAvailableSlots: horarios reales libres de un event type en un día.
@@ -64,6 +66,21 @@ interface Slot {
  * Horarios libres de un event type para una fecha (YYYY-MM-DD, en la zona dada).
  * Devuelve los ISO `start` de los slots disponibles ese día.
  */
+/**
+ * Días en los que NO se ofrece ni se reserva ninguna cita nueva (ajuste `viventa_dias_bloqueados`, fechas
+ * YYYY-MM-DD separadas por coma, en la zona de la agenda). Las citas que ya existían no se tocan.
+ * Si no hay base de datos o el ajuste está vacío, no se bloquea nada.
+ */
+export async function diasBloqueados(env: Env): Promise<Set<string>> {
+  try {
+    if (!env.DB) return new Set();
+    const raw = await new SettingsRepo(new Db(env.DB)).get("viventa_dias_bloqueados");
+    return new Set((raw ?? "").split(/[,;\s]+/).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)));
+  } catch {
+    return new Set();
+  }
+}
+
 export async function getAvailableSlots(
   env: Env,
   eventTypeId: number,
@@ -71,6 +88,7 @@ export async function getAvailableSlots(
   timeZone: string,
 ): Promise<{ ok: true; slots: string[] } | { ok: false; reason: string }> {
   if (!env.CALCOM_API_KEY) return { ok: false, reason: "not_configured" };
+  if ((await diasBloqueados(env)).has(date)) return { ok: true, slots: [] };
   // Ventana [date, date+1día) para traer solo ese día.
   const end = nextDay(date);
   const url = `${CALCOM_API}/slots?eventTypeId=${eventTypeId}&start=${date}&end=${end}&timeZone=${encodeURIComponent(timeZone)}`;
@@ -121,6 +139,7 @@ export async function getAvailableSlotsRange(
     for (const [date, list] of Object.entries(body.data ?? {})) {
       byDate[date] = (list ?? []).map((s) => s?.start).filter((s): s is string => typeof s === "string");
     }
+    for (const d of await diasBloqueados(env)) delete byDate[d];
     return { ok: true, byDate };
   } catch (e: any) {
     return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
@@ -171,6 +190,10 @@ export async function createBooking(
   | { ok: false; reason: string }
 > {
   if (!env.CALCOM_API_KEY) return { ok: false, reason: "not_configured" };
+  if ((await diasBloqueados(env)).has(args.start.slice(0, 10))) {
+    console.warn(`[calcom] booking bloqueado: ${args.start.slice(0, 10)} está en viventa_dias_bloqueados`);
+    return { ok: false, reason: "dia_bloqueado" };
+  }
   try {
     const res = await fetch(`${CALCOM_API}/bookings`, {
       method: "POST",

@@ -230,8 +230,11 @@ export async function prepararBorrador(
   try {
     const llm = await workModel(env, "smart", "insights");
     modelo = llm.modelId;
-    const r = await llm.generate({ prompt: texto, maxOutputTokens: 900, temperature: 0.3 } as never);
-    b = leerBorrador(String((r as { text?: string }).text ?? ""), { tareaId, leadId: tarea.leadId, nombre: cand.nombre, creado: now, modelo });
+    // Con 900 tokens de tope Sonnet 5.5 gastaba todo razonando y la respuesta llegaba cortada (13 oct 2026).
+    const r = await llm.generate({ prompt: texto, maxOutputTokens: 4000, temperature: 0.3 } as never);
+    const crudo = String((r as { text?: string }).text ?? "");
+    b = leerBorrador(crudo, { tareaId, leadId: tarea.leadId, nombre: cand.nombre, creado: now, modelo });
+    if (!b) console.error(`[crm-seguimientos] respuesta sin JSON válido (${crudo.length} caracteres): ${crudo.slice(0, 200)}`);
   } catch (e) {
     console.error("[crm-seguimientos] IA:", e);
     return { ok: false, error: "No pude consultar a la IA ahora. Inténtalo en unos minutos." };

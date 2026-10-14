@@ -158,3 +158,42 @@ describe("createBooking", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("días bloqueados (viventa_dias_bloqueados)", () => {
+  // Base falsa (solo responde la lectura del ajuste): así se puede espiar fetch sin romper la base.
+  async function conBloqueo(valor: string) {
+    const db = { prepare: () => ({ bind: () => ({ first: async () => (valor ? { value: valor } : null) }) }) };
+    return env({ DB: db as never, CALCOM_API_KEY: "cal_x", CALCOM_EVENT_TYPE_ID: "1" });
+  }
+  const slotsRespuesta = { data: { "2026-10-15": [{ start: "2026-10-15T10:00:00.000+02:00" }], "2026-10-16": [{ start: "2026-10-16T10:00:00.000+02:00" }] } };
+
+  it("un día bloqueado no devuelve horarios, el siguiente sí", async () => {
+    const e = await conBloqueo("2026-10-15");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify(slotsRespuesta), { status: 200 }));
+    const { getAvailableSlots, getAvailableSlotsRange } = await import("../../src/integrations/calcom");
+    expect(await getAvailableSlots(e, 1, "2026-10-15", "Europe/Madrid")).toEqual({ ok: true, slots: [] });
+    const r = await getAvailableSlots(e, 1, "2026-10-16", "Europe/Madrid");
+    expect(r.ok && r.slots).toHaveLength(1);
+    const rango = await getAvailableSlotsRange(e, 1, "2026-10-15", "2026-10-16", "Europe/Madrid");
+    expect(rango.ok && Object.keys(rango.byDate)).toEqual(["2026-10-16"]);
+  });
+
+  it("no se puede reservar en un día bloqueado ni se llama a Cal.com", async () => {
+    const e = await conBloqueo("2026-10-15, 2026-10-22");
+    const f = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}", { status: 200 }));
+    f.mockClear();
+    const r = await createBooking(e, { eventTypeId: 1, start: "2026-10-15T10:00:00.000+02:00", name: "A", email: "a@b.co", timeZone: "Europe/Madrid" });
+    expect(r).toEqual({ ok: false, reason: "dia_bloqueado" });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("sin ajuste (o sin base de datos) no bloquea nada", async () => {
+    const e = await conBloqueo("");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify(slotsRespuesta), { status: 200 }));
+    const { getAvailableSlots } = await import("../../src/integrations/calcom");
+    const r = await getAvailableSlots(e, 1, "2026-10-15", "Europe/Madrid");
+    expect(r.ok && r.slots).toHaveLength(1);
+    const sinDb = await getAvailableSlots(env({ CALCOM_API_KEY: "cal_x" }), 1, "2026-10-15", "Europe/Madrid");
+    expect(sinDb.ok && sinDb.slots).toHaveLength(1);
+  });
+});

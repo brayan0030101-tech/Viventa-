@@ -156,7 +156,7 @@ Interpreta la llamada para Maricela (no es técnica). No inventes nada que no se
   try {
     const llm = await workModel(env, "smart", "insights");
     modelo = llm.modelId;
-    const r = await llm.generate({ prompt, maxOutputTokens: 1600, temperature: 0.2 } as never);
+    const r = await llm.generate({ prompt, maxOutputTokens: 4000, temperature: 0.2 } as never);
     analisis = leerAnalisis(String((r as { text?: string }).text ?? ""));
   } catch (e) {
     console.error("[crm-resultados] analizarLlamada:", e);

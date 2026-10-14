@@ -126,7 +126,7 @@ Responde SOLO con un JSON válido, sin texto extra:
   try {
     const llm = await workModel(env, "smart", "insights");
     modelo = llm.modelId;
-    const r = await llm.generate({ prompt, maxOutputTokens: 700, temperature: 0.2 } as never);
+    const r = await llm.generate({ prompt, maxOutputTokens: 3000, temperature: 0.2 } as never);
     const m = String((r as { text?: string }).text ?? "").match(/\{[\s\S]*\}/);
     const j = m ? (JSON.parse(m[0]) as Record<string, unknown>) : {};
     nota = String(j["nota"] ?? "").replace(/\s+/g, " ").trim().slice(0, 900);
