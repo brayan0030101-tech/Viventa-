@@ -98,3 +98,5 @@
 - **Seguimientos · fallo de la IA (14 oct 2026):** «La IA no devolvió un mensaje claro» en casi todos los candidatos: el tope de 900 tokens de salida se acababa razonando y el JSON llegaba cortado. Subido a 4.000 (también «nota Zoho» 700→3.000 y «resultado de la llamada» 1.600→4.000, que tocaban su tope a veces).
 
 - **Seguimientos · botón al panel de Forja (14 oct 2026):** Maricela escribe desde el panel de Forja, no desde WhatsApp. «Preparar mensaje» ahora muestra «Abrir la conversación en el panel de Forja»: abre `/admin/conversations?c=<id>&texto=<mensaje>` (el panel pone el texto en la caja de respuesta; `src/admin/routes.ts`) y lo copia al portapapeles. La conversación se busca por teléfono (últimos 9 dígitos). Si el candidato no tiene conversación en el panel queda el respaldo de wa.me, avisando por qué.
+
+- **Seguimientos · la tarea manda (14 oct 2026):** el mensaje ahora debe lograr lo que dice el asunto de la tarea de Zoho (p. ej. «Confirmar si desea agendar la videollamada»), y el borrador trae también el asunto de la SIGUIENTE tarea (`tareaSiguiente`) además de la nota y la fecha. Los borradores guardados sin ese campo se rehacen.

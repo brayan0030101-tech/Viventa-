@@ -49,7 +49,7 @@ beforeEach(async () => {
   llamadas.length = 0;
   zoho.mockClear();
   generarMock.mockReset().mockResolvedValue({
-    text: '```json\n{"temperatura":"tibio","accion":"videollamada","proyectos_enviados":true,"segundo_titular":true,"mensaje":"Hola [nombre], ¿pudiste revisar con tu esposo los proyectos? Podemos verlo en una videollamada corta.","motivo":"Ya vio proyectos y gana menos de 1.250 euros","dias_siguiente":9,"razon_cierre":"","nota":"Se propuso videollamada y segundo titular."}\n```',
+    text: '```json\n{"temperatura":"tibio","accion":"videollamada","proyectos_enviados":true,"segundo_titular":true,"mensaje":"Hola [nombre], ¿pudiste revisar con tu esposo los proyectos? Podemos verlo en una videollamada corta.","motivo":"Ya vio proyectos y gana menos de 1.250 euros","dias_siguiente":9,"razon_cierre":"","nota":"Se propuso videollamada y segundo titular.","tarea_siguiente":"Confirmar si desea agendar la videollamada"}\n```',
   });
 });
 
@@ -110,6 +110,9 @@ describe("borrador de seguimiento", () => {
     expect(prompt).toContain("1.200 euros");
     expect(prompt).toContain("1.250 euros");
     expect(r.ok && r.borrador.diasSiguiente).toBe(7); // tibio: 5 a 7
+    expect(prompt).toContain("LA TAREA DE HOY MANDA");
+    expect(prompt).toContain("Seguimiento"); // el asunto de la tarea llega a la IA
+    expect(r.ok && r.borrador.tareaSiguiente).toBe("Confirmar si desea agendar la videollamada");
     const otra = await prepararBorrador(env, TAREA, { f: zoho as never }, NOW + 1000);
     expect(otra.ok && otra.reutilizado).toBe(true);
     expect(generarMock).toHaveBeenCalledTimes(1);
@@ -155,6 +158,8 @@ describe("pantalla", () => {
     expect(html).toContain("Hola Diana");
     expect(html).toContain("Modo borrador: no se cambió nada en Zoho");
     expect(html).toContain("2026-10-20"); // 13 oct + 7 días
+    expect(html).toContain("Siguiente tarea en Zoho");
+    expect(html).toContain("Confirmar si desea agendar la videollamada");
     // Sin conversación en el panel de Forja: queda el respaldo de WhatsApp, avisando por qué.
     expect(html).toContain("wa.me/34600000009");
     expect(html).toContain("todavía no tiene conversación en el panel de Forja");

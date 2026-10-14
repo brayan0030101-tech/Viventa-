@@ -36,6 +36,8 @@ export interface Borrador {
   diasSiguiente: number | null;
   razonCierre: "" | "compro" | "no_contactar";
   nota: string;
+  /** Asunto de la siguiente tarea en Zoho (lo que hay que hacer la próxima vez). */
+  tareaSiguiente: string;
   creado: number;
   modelo: string;
 }
@@ -105,6 +107,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
     diasSiguiente,
     razonCierre,
     nota: String(j["nota"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 600),
+    tareaSiguiente: accion === "cerrar" ? "" : String(j["tarea_siguiente"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 160),
     creado: base.creado,
     modelo: base.modelo,
   };
@@ -116,6 +119,8 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
 4. El seguimiento termina solo cuando el cliente compró o pidió que no lo contactemos más: en ese caso la acción es "cerrar" y no se escribe mensaje.
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
+6. LA TAREA DE HOY MANDA: el asunto de la tarea (y su descripción) dice exactamente qué hay que hacer hoy con este candidato, y el mensaje debe lograr ESO. Ejemplo: si la tarea es «Confirmar si desea agendar la videollamada», el mensaje pregunta justo eso; si es «Preguntar si revisó los proyectos», pregunta si los revisó. Solo si la tarea es genérica («Seguimiento WhatsApp», «Seguimiento») decides tú según las notas y las reglas anteriores.
+7. Además del mensaje, escribe el asunto de la SIGUIENTE tarea que se dejará en Zoho: una frase corta y concreta con lo que habrá que hacer la próxima vez (por ejemplo «Confirmar si desea agendar la videollamada»), según en qué quede este contacto.
 Estilo del mensaje: WhatsApp en español, cálido y cercano, 2 a 4 renglones, UNA sola pregunta o propuesta, sin emojis, sin sonar a folleto. Empieza con "Hola [nombre]," (escribe literalmente [nombre]). No inventes datos ni precios, no nombres proyectos ni constructoras, no menciones notas, tareas ni el sistema, y no prometas cosas que no están en las notas.`;
 
 function prompt(c: { tarea: TareaZoho; nombre: string; notas: NotaZoho[]; conversacion: string; ficha: string; hoy: string }): string {
@@ -139,7 +144,8 @@ ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion
  "motivo": "una frase para Maricela: por qué eliges esa acción y esa temperatura",
  "dias_siguiente": número de días para la siguiente tarea (dentro del rango de la temperatura),
  "razon_cierre": "compro" | "no_contactar" (solo si la acción es cerrar; si no, vacío),
- "nota": "la nota para dejar en Zoho tras el contacto: qué se hace ahora y en qué quedamos, en 1 o 2 frases"
+ "nota": "la nota para dejar en Zoho tras el contacto: qué se hace ahora y en qué quedamos, en 1 o 2 frases",
+ "tarea_siguiente": "asunto corto de la siguiente tarea de Zoho (vacío solo si la acción es cerrar)"
 }`;
 }
 
@@ -204,7 +210,9 @@ export async function prepararBorrador(
     const g = await db.first<{ lead_id: string; creado: number; borrador: string; modelo: string }>("SELECT lead_id, creado, borrador, modelo FROM crm_seg_borrador WHERE tarea_id = ?", [tareaId]);
     if (g && now - g.creado < 12 * H) {
       try {
-        return { ok: true, borrador: { ...(JSON.parse(g.borrador) as Borrador), tareaId, leadId: g.lead_id, creado: g.creado, modelo: g.modelo }, reutilizado: true };
+        const viejo = JSON.parse(g.borrador) as Borrador;
+        // Los borradores anteriores a «siguiente tarea» (14 oct 2026) se rehacen para que la traigan.
+        if (typeof viejo.tareaSiguiente === "string") return { ok: true, borrador: { ...viejo, tareaId, leadId: g.lead_id, creado: g.creado, modelo: g.modelo }, reutilizado: true };
       } catch {
         /* se rehace */
       }
@@ -333,6 +341,7 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
     ${cuerpo}
     ${campoCopiable(id + "n", "Nota para dejar en Zoho después de contactarle", b.nota, 2)}
+    ${b.tareaSiguiente ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)}`, b.tareaSiguiente, 1) : ""}
     <div class="text-muted" style="font-size:12px;margin-bottom:8px">Siguiente tarea: <b style="color:var(--cream)">${esc(sig)}</b></div>
     <div class="text-dim" style="font-size:10.5px">Borrador de ${esc(fechaHora(b.creado))} (España)${reutilizado ? " · guardado, sin gastar IA" : ""} · <b>Modo borrador: no se cambió nada en Zoho.</b> ·
       <a href="#" hx-post="/crm/seguimientos/preparar" hx-vals='{"tarea":"${esc(b.tareaId)}","r":"1"}' hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" style="color:var(--accent)">Regenerar</a></div>
