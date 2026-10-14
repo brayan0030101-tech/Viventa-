@@ -72,10 +72,11 @@ describe("leerBorrador", () => {
     expect(leerBorrador('{"temperatura":"tibio","accion":"whatsapp","mensaje":""}', base)).toBeNull();
     expect(leerBorrador("sin json", base)).toBeNull();
   });
-  it("más de 3 intentos sin respuesta: pasa a «Revisar en el futuro» con un último mensaje y tarea a 30 días", () => {
+  it("más de 3 intentos sin respuesta: pasa a «Revisar en el futuro» con un último mensaje y SIN siguiente tarea (Zoho la crea a 3 meses)", () => {
     const b = leerBorrador('{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], no te llenamos de mensajes; cuando quieras retomar, aquí estamos.","dias_siguiente":3,"tarea_siguiente":"Revisar si quiere retomar"}', base)!;
     expect(b.accion).toBe("futuro");
-    expect(b.diasSiguiente).toBe(30);
+    expect(b.diasSiguiente).toBeNull();
+    expect(b.tareaSiguiente).toBe("");
     expect(b.mensaje).toContain("Hola Diana");
     expect(leerBorrador('{"temperatura":"frio","accion":"futuro","mensaje":""}', base)).not.toBeNull(); // el último aviso es opcional
   });
@@ -166,7 +167,8 @@ describe("pantalla", () => {
     expect((generarMock.mock.calls[0][0] as { prompt: string }).prompt).toContain("MÁS DE 3 intentos");
     expect(html).toContain("Revisar en el futuro");
     expect(html).toContain("más de 3 intentos sin respuesta");
-    expect(html).toContain("2026-11-12"); // 13 oct + 30 días
+    expect(html).toContain("Zoho la programa solo a los 3 meses");
+    expect(html).not.toContain("Siguiente tarea en Zoho ·"); // no se propone otra tarea
   });
   it("el fragmento del borrador trae mensaje, siguiente tarea y aviso de modo borrador", async () => {
     const html = await fragmentoBorrador(env, TAREA, false, NOW, zoho as never);

@@ -23,9 +23,9 @@ export type Accion = "whatsapp" | "videollamada" | "cerrar" | "futuro";
 
 /** Cuántos días esperar para la siguiente tarea según el interés (reglas de Maricela). */
 export const PLAZO_DIAS: Record<Temperatura, [number, number]> = { caliente: [2, 3], tibio: [5, 7], frio: [14, 14] };
-/** Candidato con más de 3 intentos de contacto sin respuesta: pasa a «Revisar en el futuro» y se retoma en ~30 días. */
+/** Candidato con más de 3 intentos de contacto sin respuesta: pasa a «Revisar en el futuro». Zoho mismo crea la tarea de
+ *  dentro de 3 meses al cambiar ese estado (confirmado por Maricela), así que aquí NO se crea otra. */
 export const ESTADO_FUTURO = "Revisar en el futuro";
-export const DIAS_FUTURO = 30;
 
 export interface Borrador {
   tareaId: string;
@@ -97,7 +97,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
   // Días hasta la siguiente tarea: el plazo de su temperatura (la IA puede elegir dentro del rango).
   const [min, max] = PLAZO_DIAS[temperatura];
   const pedido = Number(j["dias_siguiente"]);
-  const diasSiguiente = accion === "cerrar" ? null : accion === "futuro" ? DIAS_FUTURO : Number.isFinite(pedido) ? Math.min(max, Math.max(min, Math.round(pedido))) : min;
+  const diasSiguiente = accion === "cerrar" || accion === "futuro" ? null : Number.isFinite(pedido) ? Math.min(max, Math.max(min, Math.round(pedido))) : min;
   return {
     tareaId: base.tareaId,
     leadId: base.leadId,
@@ -110,7 +110,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
     diasSiguiente,
     razonCierre,
     nota: String(j["nota"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 600),
-    tareaSiguiente: accion === "cerrar" ? "" : String(j["tarea_siguiente"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 160),
+    tareaSiguiente: accion === "cerrar" || accion === "futuro" ? "" : String(j["tarea_siguiente"] ?? "").replace(/\[nombre\]/gi, primerNombre).replace(/\s+/g, " ").trim().slice(0, 160),
     creado: base.creado,
     modelo: base.modelo,
   };
@@ -121,7 +121,7 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 2. Si es frío, o todavía no se le han enviado proyectos: escríbele por WhatsApp para saber si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada.
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
 4. El seguimiento termina solo cuando el cliente compró o pidió que no lo contactemos más: en ese caso la acción es "cerrar" y no se escribe mensaje.
-4b. Si en las notas se ven MÁS DE 3 intentos de contacto (llamadas o WhatsApp) sin que el cliente haya respondido, la acción es "futuro": el candidato pasa al estado «Revisar en el futuro». En ese caso el mensaje es un último mensaje breve y amable, sin presionar (por ejemplo, que no le llenamos de mensajes y que cuando quiera retomar aquí estamos), y la siguiente tarea se deja para dentro de unos 30 días.
+4b. Si en las notas se ven MÁS DE 3 intentos de contacto (llamadas o WhatsApp) sin que el cliente haya respondido, la acción es "futuro": el candidato pasa al estado «Revisar en el futuro». En ese caso el mensaje es un último mensaje breve y amable, sin presionar (por ejemplo, que no le llenamos de mensajes y que cuando quiera retomar aquí estamos), y NO se escribe siguiente tarea: Zoho la crea solo a los 3 meses al cambiar ese estado.
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
 6. LA TAREA DE HOY MANDA: el asunto de la tarea (y su descripción) dice exactamente qué hay que hacer hoy con este candidato, y el mensaje debe lograr ESO. Ejemplo: si la tarea es «Confirmar si desea agendar la videollamada», el mensaje pregunta justo eso; si es «Preguntar si revisó los proyectos», pregunta si los revisó. Solo si la tarea es genérica («Seguimiento WhatsApp», «Seguimiento») decides tú según las notas y las reglas anteriores.
 7. Además del mensaje, escribe el asunto de la SIGUIENTE tarea que se dejará en Zoho: una frase corta y concreta con lo que habrá que hacer la próxima vez (por ejemplo «Confirmar si desea agendar la videollamada»), según en qué quede este contacto.
@@ -325,7 +325,7 @@ const campoCopiable = (id: string, titulo: string, valor: string, filas: number,
 export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false): string {
   const t = ETIQ_TEMP[b.temperatura];
   const tel = (cand.movil || cand.telefono).replace(/\D/g, "");
-  const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : "no se crea otra: se cierra el seguimiento";
+  const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : b.accion === "futuro" ? `no hace falta crearla: Zoho la programa solo a los 3 meses al pasar a «${ESTADO_FUTURO}»` : "no se crea otra: se cierra el seguimiento";
   const id = "sb" + b.tareaId.slice(-8);
   const chips = `<span style="font-weight:600;color:${t.color}">${t.txt}</span> <span class="text-dim">·</span> <b>${ETIQ_ACC[b.accion]}</b>${b.proyectosEnviados ? ` <span class="text-dim">· ya recibió proyectos</span>` : ""}${b.segundoTitular ? ` <span class="text-dim">· sugiere segundo titular</span>` : ""}`;
   // Maricela escribe desde el panel de Forja: el botón abre ESA conversación con el mensaje ya puesto en la caja de respuesta
@@ -337,7 +337,7 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
       : "";
   const avisoFuturo =
     b.accion === "futuro"
-      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: cambia el estado del candidato a <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho (por ahora a mano). El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
+      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: cambia el estado del candidato a <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho (por ahora a mano). Zoho programa solo la siguiente tarea a los 3 meses. El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
       : "";
   const cuerpo =
     b.accion === "cerrar"
