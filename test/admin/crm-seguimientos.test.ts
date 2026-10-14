@@ -72,6 +72,13 @@ describe("leerBorrador", () => {
     expect(leerBorrador('{"temperatura":"tibio","accion":"whatsapp","mensaje":""}', base)).toBeNull();
     expect(leerBorrador("sin json", base)).toBeNull();
   });
+  it("más de 3 intentos sin respuesta: pasa a «Revisar en el futuro» con un último mensaje y tarea a 30 días", () => {
+    const b = leerBorrador('{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], no te llenamos de mensajes; cuando quieras retomar, aquí estamos.","dias_siguiente":3,"tarea_siguiente":"Revisar si quiere retomar"}', base)!;
+    expect(b.accion).toBe("futuro");
+    expect(b.diasSiguiente).toBe(30);
+    expect(b.mensaje).toContain("Hola Diana");
+    expect(leerBorrador('{"temperatura":"frio","accion":"futuro","mensaje":""}', base)).not.toBeNull(); // el último aviso es opcional
+  });
   it("cerrar no lleva mensaje ni siguiente tarea", () => {
     const b = leerBorrador('{"temperatura":"frio","accion":"cerrar","razon_cierre":"compro","mensaje":""}', base)!;
     expect(b.diasSiguiente).toBeNull();
@@ -152,6 +159,14 @@ describe("pantalla", () => {
   it("sin Zoho conectado lo dice en vez de fallar", async () => {
     const html = await renderSeguimientos({ ...env, ZOHO_REFRESH_TOKEN: undefined } as Env, NOW, zoho as never);
     expect(html).toContain("Zoho todavía no está conectado");
+  });
+  it("para «futuro» la tarjeta avisa que hay que cambiar el estado en Zoho y la IA conoce la regla", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], cuando quieras retomar, aquí estamos.","motivo":"4 intentos sin respuesta","nota":"n","tarea_siguiente":"Revisar si quiere retomar"}' });
+    const html = await fragmentoBorrador(env, TAREA, true, NOW, zoho as never);
+    expect((generarMock.mock.calls[0][0] as { prompt: string }).prompt).toContain("MÁS DE 3 intentos");
+    expect(html).toContain("Revisar en el futuro");
+    expect(html).toContain("más de 3 intentos sin respuesta");
+    expect(html).toContain("2026-11-12"); // 13 oct + 30 días
   });
   it("el fragmento del borrador trae mensaje, siguiente tarea y aviso de modo borrador", async () => {
     const html = await fragmentoBorrador(env, TAREA, false, NOW, zoho as never);

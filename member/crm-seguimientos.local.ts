@@ -19,10 +19,13 @@ const DIA = 86_400_000;
 const H = 3_600_000;
 
 export type Temperatura = "caliente" | "tibio" | "frio";
-export type Accion = "whatsapp" | "videollamada" | "cerrar";
+export type Accion = "whatsapp" | "videollamada" | "cerrar" | "futuro";
 
 /** Cuántos días esperar para la siguiente tarea según el interés (reglas de Maricela). */
 export const PLAZO_DIAS: Record<Temperatura, [number, number]> = { caliente: [2, 3], tibio: [5, 7], frio: [14, 14] };
+/** Candidato con más de 3 intentos de contacto sin respuesta: pasa a «Revisar en el futuro» y se retoma en ~30 días. */
+export const ESTADO_FUTURO = "Revisar en el futuro";
+export const DIAS_FUTURO = 30;
 
 export interface Borrador {
   tareaId: string;
@@ -79,7 +82,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
   const t = String(j["temperatura"] ?? "").toLowerCase().replace("í", "i").replace("ó", "o");
   const temperatura: Temperatura = (TEMPS as string[]).includes(t) ? (t as Temperatura) : "tibio";
   const accion = String(j["accion"] ?? "").toLowerCase();
-  if (accion !== "whatsapp" && accion !== "videollamada" && accion !== "cerrar") return null;
+  if (accion !== "whatsapp" && accion !== "videollamada" && accion !== "cerrar" && accion !== "futuro") return null;
   const primerNombre = base.nombre.split(/\s+/).find((w) => w.replace(/[^\p{L}]/gu, "").length >= 2) ?? "";
   const mensaje = String(j["mensaje"] ?? "")
     .replace(/\[\[[^\]]*\]\]/g, "")
@@ -88,13 +91,13 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, 700);
-  if (accion !== "cerrar" && !mensaje) return null;
+  if (accion !== "cerrar" && accion !== "futuro" && !mensaje) return null;
   const razon = String(j["razon_cierre"] ?? "");
   const razonCierre = accion === "cerrar" ? (razon === "compro" ? "compro" : "no_contactar") : "";
   // Días hasta la siguiente tarea: el plazo de su temperatura (la IA puede elegir dentro del rango).
   const [min, max] = PLAZO_DIAS[temperatura];
   const pedido = Number(j["dias_siguiente"]);
-  const diasSiguiente = accion === "cerrar" ? null : Number.isFinite(pedido) ? Math.min(max, Math.max(min, Math.round(pedido))) : min;
+  const diasSiguiente = accion === "cerrar" ? null : accion === "futuro" ? DIAS_FUTURO : Number.isFinite(pedido) ? Math.min(max, Math.max(min, Math.round(pedido))) : min;
   return {
     tareaId: base.tareaId,
     leadId: base.leadId,
@@ -118,6 +121,7 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 2. Si es frío, o todavía no se le han enviado proyectos: escríbele por WhatsApp para saber si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada.
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
 4. El seguimiento termina solo cuando el cliente compró o pidió que no lo contactemos más: en ese caso la acción es "cerrar" y no se escribe mensaje.
+4b. Si en las notas se ven MÁS DE 3 intentos de contacto (llamadas o WhatsApp) sin que el cliente haya respondido, la acción es "futuro": el candidato pasa al estado «Revisar en el futuro». En ese caso el mensaje es un último mensaje breve y amable, sin presionar (por ejemplo, que no le llenamos de mensajes y que cuando quiera retomar aquí estamos), y la siguiente tarea se deja para dentro de unos 30 días.
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
 6. LA TAREA DE HOY MANDA: el asunto de la tarea (y su descripción) dice exactamente qué hay que hacer hoy con este candidato, y el mensaje debe lograr ESO. Ejemplo: si la tarea es «Confirmar si desea agendar la videollamada», el mensaje pregunta justo eso; si es «Preguntar si revisó los proyectos», pregunta si los revisó. Solo si la tarea es genérica («Seguimiento WhatsApp», «Seguimiento») decides tú según las notas y las reglas anteriores.
 7. Además del mensaje, escribe el asunto de la SIGUIENTE tarea que se dejará en Zoho: una frase corta y concreta con lo que habrá que hacer la próxima vez (por ejemplo «Confirmar si desea agendar la videollamada»), según en qué quede este contacto.
@@ -137,7 +141,7 @@ ${notas}
 ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion ? `ÚLTIMOS MENSAJES DE LA CONVERSACIÓN (CLIENTE / EQUIPO):\n${c.conversacion}\n\n` : ""}Responde SOLO con un JSON válido, sin texto antes ni después, con esta forma exacta:
 {
  "temperatura": "caliente" | "tibio" | "frio",
- "accion": "whatsapp" | "videollamada" | "cerrar",
+ "accion": "whatsapp" | "videollamada" | "cerrar" | "futuro",
  "proyectos_enviados": true si las notas dicen que ya se le enviaron proyectos; si no, false,
  "segundo_titular": true si recomiendas un segundo titular por ingresos menores a 1.250 euros; si no, false,
  "mensaje": "el mensaje de WhatsApp listo para enviar (vacío solo si la acción es cerrar)",
@@ -309,7 +313,7 @@ const ETIQ_TEMP: Record<Temperatura, { txt: string; color: string }> = {
   tibio: { txt: "🌤 Tibio", color: "var(--accent-2)" },
   frio: { txt: "⚪ Frío", color: "var(--info)" },
 };
-const ETIQ_ACC: Record<Accion, string> = { whatsapp: "💬 Escribir por WhatsApp", videollamada: "📞 Proponer videollamada", cerrar: "🏁 Cerrar el seguimiento" };
+const ETIQ_ACC: Record<Accion, string> = { whatsapp: "💬 Escribir por WhatsApp", videollamada: "📞 Proponer videollamada", cerrar: "🏁 Cerrar el seguimiento", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
 
 const campoCopiable = (id: string, titulo: string, valor: string, filas: number, editable = false): string =>
   `<div style="margin-bottom:12px">
@@ -331,6 +335,10 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
     : tel.length >= 8
       ? `<button type="button" class="bigbtn" style="margin-bottom:12px;cursor:pointer" onclick="window.open('https://wa.me/${esc(tel)}?text='+encodeURIComponent(document.getElementById('${id}m').value),'_blank')">💬 Abrir WhatsApp con este mensaje</button><div class="text-dim" style="font-size:10.5px;margin:-6px 0 12px">Esta persona todavía no tiene conversación en el panel de Forja.</div>`
       : "";
+  const avisoFuturo =
+    b.accion === "futuro"
+      ? `<div style="border:1px solid var(--accent-2);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">Lleva más de 3 intentos sin respuesta: cambia el estado del candidato a <b>«${esc(ESTADO_FUTURO)}»</b> en Zoho (por ahora a mano). El mensaje de abajo es un último aviso amable; puedes no enviarlo.</div>`
+      : "";
   const cuerpo =
     b.accion === "cerrar"
       ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${b.razonCierre === "compro" ? "El cliente ya compró." : "El cliente pidió que no le contactemos más."} No hace falta escribirle.</div>`
@@ -339,7 +347,7 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
-    ${cuerpo}
+    ${avisoFuturo}${cuerpo}
     ${campoCopiable(id + "n", "Nota para dejar en Zoho después de contactarle", b.nota, 2)}
     ${b.tareaSiguiente ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)}`, b.tareaSiguiente, 1) : ""}
     <div class="text-muted" style="font-size:12px;margin-bottom:8px">Siguiente tarea: <b style="color:var(--cream)">${esc(sig)}</b></div>
