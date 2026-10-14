@@ -118,3 +118,8 @@
 
 ## 2026-10-14 · Reserva manual de Sandy Castillo
 - Maricela pidió agendar a mano a Sandy Castillo (lunes 19-oct-2026 10:00 Madrid). Se reservó en Cal.com con `member/cita-manual.local.ts` (ejecutor temporal de un solo uso, ajuste `cita_manual_pedir`; engancha en el cron de `src/index.ts`). Booking 26913481, estado accepted, con enlace de Meet. Versión desplegada: aa08b6ac. Quitar el ejecutor cuando ya no haga falta.
+
+## 2026-10-14 · CRM: sección «Gastos ChatBot»
+- Nueva sección 💸 «Gastos ChatBot» en el CRM de Maricela (`member/crm-gastos.local.ts`, rutas `GET/POST /gastos`, `POST /gastos/:id/borrar`; menú y pestañas en `crm-shell.local.ts`). Tabla D1 `crm_gastos` (se crea sola). Montos en COP; tipos: Forja, API (Claude), YCloud, Cloudflare, Otro. Muestra total y subtotal por tipo; formulario para agregar y botón borrar con confirmación.
+- Carga inicial única (ajuste `crm_gastos_cargados`): Forja 211.000; API 67.000 + 35.000 + 50.000; YCloud 50.000; Cloudflare 17.000 = 430.000 COP (fecha 2026-10-14 por defecto).
+- Tests: `test/admin/crm-gastos.test.ts` (4). Suite: 1.678 pasan; 1 falla ya existente e ajena (`crm-zohonota`, fecha fija vencida).

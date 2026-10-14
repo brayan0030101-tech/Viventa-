@@ -350,6 +350,23 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
   });
 
+  // Gastos del chatbot
+  app.get("/gastos", async (c) => {
+    const { renderGastos } = await import("./crm-gastos.local");
+    return pagina(c, await renderGastos(c.env, { ok: c.req.query("ok") === "1", error: c.req.query("error") ?? undefined }));
+  });
+  app.post("/gastos", async (c) => {
+    const { agregarGasto } = await import("./crm-gastos.local");
+    const f = await c.req.parseBody();
+    const r = await agregarGasto(c.env, { fecha: String(f["fecha"] ?? ""), categoria: String(f["categoria"] ?? ""), detalle: String(f["detalle"] ?? ""), monto: String(f["monto"] ?? "") });
+    return c.redirect(`${BASE}/gastos?${r.ok ? "ok=1" : `error=${encodeURIComponent(r.error)}`}`);
+  });
+  app.post("/gastos/:id/borrar", async (c) => {
+    const { borrarGasto } = await import("./crm-gastos.local");
+    await borrarGasto(c.env, c.req.param("id"));
+    return c.redirect(`${BASE}/gastos`);
+  });
+
   // Seguimientos (tareas de Zoho de Maricela)
   app.get("/seguimientos", async (c) => {
     const { renderSeguimientos } = await import("./crm-seguimientos.local");
