@@ -607,8 +607,13 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
    * del cliente SIN guardarlo otra vez. Si falla de nuevo, registrarFalloIA decide
    * si hay otro reintento o si ya toca avisar a una persona.
    */
-  async retryFailedTurn(): Promise<void> {
+  async retryFailedTurn(conv?: { id: string; channel: string; channelUserId: string }): Promise<void> {
     try {
+      // Un agente recién creado (p. ej. al fijar AGENT_LOCATION_HINT el nombre del DO cambia) no tiene
+      // estado: sin esto el reintento no encontraba la conversación y no hacía nada.
+      if (conv && !this.state.conversationId) {
+        this.setState({ ...this.state, channel: conv.channel as any, channelUserId: conv.channelUserId, conversationId: conv.id });
+      }
       await this.processBufferTurn(true);
     } catch (e) {
       await this.notifyOwnerTurnFailed("el turno falló de forma inesperada", e);
@@ -968,6 +973,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       // la del dashboard en vez de tumbar cada respuesta (modelAcceptsTemperature).
       const { modelAcceptsTemperature } = await import("./llm/provider");
       const conTemp = cfg.temperature !== undefined && modelAcceptsTemperature(mId);
+      let streamErr: unknown = null;
       const result = streamText({
         model: m,
         system,
@@ -978,11 +984,17 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         stopWhen: ({ steps }) => steps.length >= 6,
         ...(effortOptions(this.env, mId) ? { providerOptions: effortOptions(this.env, mId) } : {}),
         ...(conTemp ? { temperature: cfg.temperature } : {}),
+        // streamText NO lanza los errores del proveedor: los deja pasar y el turno termina con
+        // «No output generated» (sin causa). Se guardan para lanzar el error real (ai_fallos lo muestra).
+        onError: ({ error }: { error: unknown }) => {
+          streamErr = error;
+        },
       });
       let text = "";
       for await (const chunk of result.textStream) {
         text += chunk;
       }
+      if (streamErr && !text.trim()) throw streamErr;
       assistantText = text;
       const usage = await result.usage;
       inputTokens = usage?.inputTokens ?? 0;

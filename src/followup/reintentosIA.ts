@@ -132,7 +132,7 @@ export async function runReintentosIA(env: Env, now = Date.now()): Promise<{ ret
     );
     if ((r.meta?.changes ?? 0) === 0) continue;
     try {
-      await agentStub(env, c.channel, c.channel_user_id).retryFailedTurn();
+      await agentStub(env, c.channel, c.channel_user_id).retryFailedTurn({ id: c.id, channel: c.channel, channelUserId: c.channel_user_id });
       retried++;
     } catch (e) {
       console.error(`[reintentosIA] reintento ${c.id}:`, e);

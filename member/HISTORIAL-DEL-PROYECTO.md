@@ -123,3 +123,8 @@
 - Nueva sección 💸 «Gastos ChatBot» en el CRM de Maricela (`member/crm-gastos.local.ts`, rutas `GET/POST /gastos`, `POST /gastos/:id/borrar`; menú y pestañas en `crm-shell.local.ts`). Tabla D1 `crm_gastos` (se crea sola). Montos en COP; tipos: Forja, API (Claude), YCloud, Cloudflare, Otro. Muestra total y subtotal por tipo; formulario para agregar y botón borrar con confirmación.
 - Carga inicial única (ajuste `crm_gastos_cargados`): Forja 211.000; API 67.000 + 35.000 + 50.000; YCloud 50.000; Cloudflare 17.000 = 430.000 COP (fecha 2026-10-14 por defecto).
 - Tests: `test/admin/crm-gastos.test.ts` (4). Suite: 1.678 pasan; 1 falla ya existente e ajena (`crm-zohonota`, fecha fija vencida).
+
+## 2026-10-16 · Bot mudo con un cliente nuevo (+34 678 87 28 77): causa real de «No output generated»
+- `streamText` no lanza los errores del proveedor: terminaba con «No output generated» sin causa. Ahora `onError` guarda el error real y se lanza (src/agent.ts); `ai_fallos` muestra la causa.
+- Causa real: 403 «Request not allowed» de Anthropic. El agente (Durable Object) de ciertas conversaciones nace en un colo de una región vetada por Anthropic (según desde dónde mande YCloud el webhook) y TODAS sus llamadas fallan, también los reintentos. Arreglo (ya previsto en el código): `AGENT_LOCATION_HINT = "enam"` en wrangler.toml → los agentes corren en Norteamérica.
+- `retryFailedTurn` ahora recibe la conversación (un agente nuevo no tenía estado y el reintento no hacía nada). Verificado: el bot ya contestó a este cliente. Versión: 334dc608.

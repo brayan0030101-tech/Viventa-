@@ -108,7 +108,7 @@ YCLOUD_WA_FROM = "+34611688609"
 # del agente a Norteamérica con la línea de abajo y redeploy. Misma API key,
 # misma cuenta de Anthropic — solo cambia dónde corre el agente. Guía completa:
 # skill conectar-mi-ia.md → "Error 403 Request not allowed".
-# AGENT_LOCATION_HINT = "enam"
+AGENT_LOCATION_HINT = "enam"
 # Plan B del mismo 403 (si el hint no bastara): rutear Anthropic por un AI
 # Gateway gratuito de TU cuenta de Cloudflare (dashboard → AI → AI Gateway).
 # Debe terminar en ".../anthropic/v1" (el bot le anexa "/messages").
