@@ -13,6 +13,7 @@
  *
  * Claim-before-send en reengage_sends (PRIMARY KEY = candado). Best-effort.
  */
+import { puedeEscribirAhora } from "../lib/horarioCliente";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { MessagesRepo } from "../db/messages";
@@ -110,6 +111,10 @@ export async function runReengage(
   const out = { ...empty };
 
   for (const cand of rows) {
+    if (!(await puedeEscribirAhora(db, cand, now))) {
+      out.skipped++;
+      continue;
+    }
     const inWindow = now - cand.last_user_at < WA_WINDOW_MS;
     // Zernio es multi-plataforma: SOLO sus conversaciones de WhatsApp necesitan
     // plantilla fuera de la ventana de 24h (IG/Telegram/etc. mandan free-form).

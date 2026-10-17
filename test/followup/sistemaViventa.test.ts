@@ -120,6 +120,23 @@ describe("seguimiento del guion", () => {
     expect(sendOutboundMock).toHaveBeenCalledTimes(1);
   });
 
+  it("de madrugada (hora local del cliente) no escribe; a otra hora del día, sí, y sin quemar el aviso", async () => {
+    await seedGuion("34600000009", 21); // cliente de España
+    const noche = Date.UTC(2026, 9, 20, 0, 15); // 02:15 en Madrid
+    // el mensaje del cliente queda en NOW - 21 h; se mide en la misma pasada con el reloj de la madrugada
+    expect((await runGuionSeguimiento(env, noche + 0)).sent).toBe(0);
+    expect(sendOutboundMock).not.toHaveBeenCalled();
+    expect((await runGuionSeguimiento(env, NOW)).sent).toBe(1); // 14:00 en Madrid
+  });
+
+  it("un cliente de Colombia (prefijo 57) sí recibe a las 02:15 de Madrid (19:15 allá)", async () => {
+    const id = await seedConv("ycloud", "573001112233");
+    const noche = Date.UTC(2026, 9, 20, 0, 15);
+    await msgs.append(id, "user", "hola", { createdAt: noche - 21 * H });
+    await msgs.append(id, "assistant", "¿Me confirmas tu nombre y apellido?", { createdAt: noche - 21 * H + 1000 });
+    expect((await runGuionSeguimiento(env, noche)).sent).toBe(1);
+  });
+
   it("no escribe si hace menos de 20 h, ni si ya pasó la ventana", async () => {
     await seedGuion("34600000002", 10);
     await seedGuion("34600000003", 25);

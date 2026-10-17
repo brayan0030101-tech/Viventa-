@@ -25,6 +25,7 @@
  * Todos reclaman antes de enviar (marca en metadata) → imposible duplicar.
  * Best-effort: un candidato que falla no frena a los demás.
  */
+import { puedeEscribirAhora } from "../lib/horarioCliente";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { MessagesRepo } from "../db/messages";
@@ -185,6 +186,7 @@ export async function runGuionSeguimiento(env: Env, now = Date.now()): Promise<{
     if (c.last_role !== "assistant" || c.last_user_at == null) continue;
     const idle = now - c.last_user_at;
     if (idle < 20 * H || idle > 23.5 * H) continue;
+    if (!(await puedeEscribirAhora(db, c, now))) continue; // de madrugada (hora del cliente) no se escribe; se reintenta en la próxima pasada
     if (!(await claim(db, "conversations", c.id, "viventa_guion24", now))) continue;
 
     const nombre = primerNombre(c.display_name);
@@ -257,6 +259,7 @@ export async function runSeguimientoProyectos(env: Env, now = Date.now()): Promi
     const desde = now - c.projects_at;
     if (desde < 48 * H || desde > 7 * 24 * H) continue;
     if (c.last_user_at != null && c.last_user_at > c.projects_at) continue; // ya respondió
+    if (!(await puedeEscribirAhora(db, c, now))) continue;
     if (!(await claim(db, "conversations", c.id, "viventa_proy48", now))) continue;
 
     const nombre = primerNombre(c.display_name);
@@ -362,7 +365,7 @@ export async function runRecordatoriosLlamada(
     const ref: ConvRef = { id: conv.id, channel: conv.channel, channel_user_id: conv.channel_user_id, display_name: conv.display_name };
 
     // Recordatorio 24 h: solo si la cita se agendó con ≥ 24 h de antelación.
-    if (falta <= 24 * H && falta > 2 * H && lead.created_at <= inicio - 24 * H && (await claim(db, "leads", lead.id, "viventa_r24", now))) {
+    if (falta <= 24 * H && falta > 2 * H && lead.created_at <= inicio - 24 * H && (await puedeEscribirAhora(db, ref, now)) && (await claim(db, "leads", lead.id, "viventa_r24", now))) {
       const text =
         `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Te recuerdo que mañana tienes tu videollamada con Maricela a las ${hora} (hora de España${local}). ` +
         `¿Sigue en pie, o prefieres reprogramarla?` +
@@ -525,10 +528,6 @@ const MAX_POR_PASADA_DATOS = 5;
 const VENTANA_DATOS: Record<string, number> = { ycloud: 23 * H, zernio: 22 * H };
 
 export async function runPedirDatos(env: Env, now = Date.now()): Promise<{ sent: number }> {
-  const horaMadrid = Number(
-    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hour12: false }).format(new Date(now)),
-  );
-  const enHorario = horaMadrid >= 9 && horaMadrid < 21;
 
   const db = new Db(env.DB);
   const { leadsPendientes, faltantes, enlaceRegistro } = await import("./resumenDia");
@@ -549,7 +548,6 @@ export async function runPedirDatos(env: Env, now = Date.now()): Promise<{ sent:
     await avisarEquipo(env, "✅ Cliente completó sus datos", `${lead.nombre} ya respondió. Listo para registrar.\n\n${await enlaceRegistro(env, db, conv.id)}`);
   }
 
-  if (!enHorario) return { sent: 0 };
   const pend = todos.filter(({ conv }) => !marca(conv.metadata, "viventa_pidedatos"));
   if (pend.length === 0) return { sent: 0 };
 
@@ -580,6 +578,7 @@ export async function runPedirDatos(env: Env, now = Date.now()): Promise<{ sent:
     } catch { /* metadata rota */ }
     if (yaPidioTel) falta = falta.filter((f) => f !== "teléfono");
     if (falta.length === 0) continue;
+    if (!(await puedeEscribirAhora(db, conv, now))) continue;
     if (!(await claim(db, "conversations", conv.id, "viventa_pidedatos", now))) continue;
     try {
       await enviarACliente(env, db, conv, textoPedirDatos(primerNombre(lead.nombre, conv.display_name), falta), null, u.user, now);
@@ -635,14 +634,10 @@ const MAX_POR_PASADA_OFERTA = 5;
  * `viventa_oferta_lista`, ids de conversación separados por coma) para ofrecerles
  * la videollamada con botones de día. Apagado por defecto: solo corre con
  * `viventa_oferta_llamada = activo` Y `viventa_llamada_modo = activo`. Solo a quien
- * escribió hace menos de 22 h (ventana libre), de 9 a 21 h de España, sin llamada
+ * escribió hace menos de 22 h (ventana libre), de 9 a 21 h locales del cliente, sin llamada
  * ya agendada y sin que una persona del equipo esté hablando con él.
  */
 export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ sent: number }> {
-  const horaMadrid = Number(
-    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hour12: false }).format(new Date(now)),
-  );
-  if (horaMadrid < 9 || horaMadrid >= 21) return { sent: 0 };
   const db = new Db(env.DB);
   const settings = new SettingsRepo(db);
   if (((await settings.get("viventa_oferta_llamada")) ?? "").trim().toLowerCase() !== "activo") return { sent: 0 };
@@ -690,6 +685,7 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
     // WhatsApp fuera de ventana: solo con la plantilla aprobada (setting viventa_tpl_oferta).
     const porPlantilla = !ventanaAbierta && c.channel === "ycloud" && !!((await settings.get(TPL_OFERTA)) ?? "").trim();
     if (!ventanaAbierta && !porPlantilla) continue;
+    if (!(await puedeEscribirAhora(db, c, now))) continue;
     if (!(await claim(db, "conversations", c.id, "viventa_oferta", now))) continue;
     const leadName = (await db.first<{ name: string | null }>("SELECT name FROM leads WHERE conversation_id = ? AND name IS NOT NULL AND intent NOT LIKE 'Cita ·%' ORDER BY created_at DESC LIMIT 1", [c.id]))?.name;
     const nombre = primerNombre(leadName, c.display_name);

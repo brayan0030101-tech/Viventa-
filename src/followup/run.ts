@@ -19,6 +19,7 @@
  * se persiste como mensaje del asistente (visible en la Bandeja) y sale por el
  * adapter del canal. Corre en el cron frecuente de scheduled().
  */
+import { puedeEscribirAhora } from "../lib/horarioCliente";
 import type { Env } from "../env";
 import { isPro } from "../config";
 import { Db } from "../db/client";
@@ -163,6 +164,10 @@ export async function runFollowups(
   let errors = 0;
 
   for (const cand of candidates) {
+    if (!(await puedeEscribirAhora(db, cand, now))) {
+      skipped++; // madrugada del cliente: no se le escribe; sigue elegible para la próxima pasada
+      continue;
+    }
     // Claim ANTES de enviar: si otra corrida (o un tick concurrente) ya lo
     // tomó, INSERT OR IGNORE no escribe y saltamos — imposible duplicar.
     const claim = await db.run(

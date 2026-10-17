@@ -128,3 +128,9 @@
 - `streamText` no lanza los errores del proveedor: terminaba con «No output generated» sin causa. Ahora `onError` guarda el error real y se lanza (src/agent.ts); `ai_fallos` muestra la causa.
 - Causa real: 403 «Request not allowed» de Anthropic. El agente (Durable Object) de ciertas conversaciones nace en un colo de una región vetada por Anthropic (según desde dónde mande YCloud el webhook) y TODAS sus llamadas fallan, también los reintentos. Arreglo (ya previsto en el código): `AGENT_LOCATION_HINT = "enam"` en wrangler.toml → los agentes corren en Norteamérica.
 - `retryFailedTurn` ahora recibe la conversación (un agente nuevo no tenía estado y el reintento no hacía nada). Verificado: el bot ya contestó a este cliente. Versión: 334dc608.
+
+## 2026-10-17 · El bot ya no escribe de madrugada (hora del cliente)
+- Caso: a Lucero Lizcano le llegaron el «¿Seguimos con las preguntas?» a las 02:15 y un «confirmar la invitación» a las 05:00 (hora de España). Los envíos automáticos no tenían filtro de horario (solo pedir datos/oferta/teléfono miraban la hora de Madrid).
+- Nuevo `src/lib/horarioCliente.ts`: 9:00–21:00 en la hora LOCAL del cliente. Zona: ficha (`zonaCliente` de la cita o `ciudadResidencia`) → prefijo del teléfono (WhatsApp) → España. Se aplica a todo mensaje que el bot inicia: seguimiento del guion 24 h, seguimiento de proyectos 48 h, recordatorio de llamada 24 h (el de 1 h no se frena), pedir datos, oferta de videollamada, Cazador de ventas (`followups`), reenganche y encuestas/reseñas. Fuera de horario no se «quema» el aviso: se reintenta en la siguiente pasada (puede perderse si la ventana de 24 h de WhatsApp se cierra antes de las 9:00).
+- Responder a un mensaje que el cliente acaba de escribir (y los reintentos por fallo de IA) NO se frena.
+- Tests: `test/lib/horarioCliente.test.ts`, 2 nuevos en `sistemaViventa.test.ts`; las suites de run/reengage/outreach simulan el filtro (usan la hora real).

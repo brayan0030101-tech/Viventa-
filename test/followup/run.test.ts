@@ -43,6 +43,9 @@ import {
 } from "../../src/followup/run";
 import type { Env } from "../../src/env";
 
+// Estas pruebas usan la hora real; el filtro de horario del cliente se prueba aparte (test/lib/horarioCliente.test.ts y sistemaViventa.test.ts).
+vi.mock("../../src/lib/horarioCliente", async (orig) => ({ ...(await orig<typeof import("../../src/lib/horarioCliente")>()), puedeEscribirAhora: async () => true }));
+
 let env: Env;
 let db: Db;
 let convs: ConversationsRepo;

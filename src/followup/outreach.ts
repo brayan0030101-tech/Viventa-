@@ -15,6 +15,7 @@
  * Claim-before-send (survey_sends / review_requests) igual que el follow-up:
  * imposible mandar dos veces. Corre en el cron frecuente. Best-effort.
  */
+import { puedeEscribirAhora } from "../lib/horarioCliente";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { MessagesRepo } from "../db/messages";
@@ -158,6 +159,10 @@ export async function runOutreach(
   const out = { ...empty };
 
   for (const cand of rows) {
+    if (!(await puedeEscribirAhora(db, cand, now))) {
+      out.skipped++;
+      continue;
+    }
     try {
       const history = await msgs.lastN(cand.id, 8);
       const transcript = history
