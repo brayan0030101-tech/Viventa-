@@ -222,7 +222,7 @@ export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mens
     const acciones =
       f.estado === "pendiente" ? `${abrir} ${unico("registrado", "✔ Ya subido", "zh-ok")}`
       : f.estado === "incompleto" ? `<a class="zh-btn" href="/crm/c/${cid}">Ver ficha</a>`
-      : unico("deshacer", "↩ Deshacer");
+      : `${f.estado === "subido" ? `<button type="button" class="zh-btn" hx-post="/crm/zoho/nuevo" hx-vals='{"conv":"${esc(l.convId)}"}' hx-target="#zn-${l.convId.replace(/\W/g, "_")}" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="¿Buscar a este cliente en Zoho y crearle la nota y la tarea?">📝 Crear nota y tarea en Zoho</button> ` : ""}${unico("deshacer", "↩ Deshacer")}<div id="zn-${l.convId.replace(/\W/g, "_")}"></div>`;
     return `<div class="zh-row">
       <span>${f.estado === "pendiente" ? `<input type="checkbox" name="ids" value="${esc(l.convId)}" form="zh-lote" class="zh-chk">` : ""}</span>
       <span class="text-dim">${i + 1}</span>

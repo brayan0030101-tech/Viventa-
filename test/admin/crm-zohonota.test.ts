@@ -45,11 +45,14 @@ describe("nota y tarea para Zoho", () => {
   });
 
   it("con videollamada agendada la tarea es «Videollamada programada» con su fecha", async () => {
+    // La tarjeta usa el reloj real: la llamada se fija 3 días por delante de hoy para que siga «agendada» (antes era una fecha fija que venció).
+    const inicio = Date.now() + 3 * 86_400_000;
+    const diaMadrid = new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", day: "numeric" }).format(new Date(inicio));
     await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-      ["cita1", CONV, "x", "", "Cita · Videollamada Viventa · x", JSON.stringify({ calStart: "2026-10-14T09:00:00.000Z", estado: "Reservada (Cal.com)" }), "new", NOW - 1000, NOW - 1000]);
+      ["cita1", CONV, "x", "", "Cita · Videollamada Viventa · x", JSON.stringify({ calStart: new Date(inicio).toISOString(), estado: "Reservada (Cal.com)" }), "new", NOW - 1000, NOW - 1000]);
     const r = await notaZoho(env, CONV, {}, NOW);
     expect(r.ok && r.nota.tarea).toBe("Videollamada programada");
-    expect(r.ok && r.nota.cuando).toContain("14");
+    expect(r.ok && r.nota.cuando).toContain(diaMadrid);
     const html = await tarjetaNotaZohoContenido(env, CONV);
     expect(html).toContain("Videollamada programada —");
     expect(html).toContain("Copiar");

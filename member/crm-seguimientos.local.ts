@@ -10,9 +10,10 @@ import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM, fechaHora } from "./crm.local";
 import { anonimizar } from "./crm-ia.local";
 import { clavePhone } from "./crm-poragendar.local";
+import { MAX_TAREAS_DIA, fechaDisponibleZoho, nombreDia } from "./crm-agenda.local";
 import { SettingsRepo } from "../src/db/settings";
 import {
-  ZohoError, ESTADOS_HECHOS, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
+  ZohoError, ESTADOS_HECHOS, cambiarFechaTarea, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
   tareaPorId, tareasPendientes, transicionesDe, ejecutarTransicion, zohoListo,
   type CandidatoZoho, type FetchFn, type NotaZoho, type TareaZoho,
 } from "./crm-zohoapi.local";
@@ -103,7 +104,7 @@ export interface PasosHechos {
 }
 
 export type ResultadoZoho =
-  | { ok: true; pasos: PasosHechos; yaHecho: boolean; siguiente: { asunto: string; fecha: string } | null; aviso?: string; manual?: { estado: string; motivo: string; nota: string; notaGuardada: boolean } }
+  | { ok: true; pasos: PasosHechos; yaHecho: boolean; siguiente: { asunto: string; fecha: string; ajuste?: string } | null; aviso?: string; manual?: { estado: string; motivo: string; nota: string; notaGuardada: boolean } }
   | { ok: false; error: string; pasos: PasosHechos };
 
 /**
@@ -139,7 +140,9 @@ export async function aplicarEnZoho(
   const hoy = hoyMadrid(now);
   const nota = entrada.nota.replace(/\s+/g, " ").trim().slice(0, 1500) || b.nota;
   const asunto = (entrada.tareaSiguiente || b.tareaSiguiente || "Seguimiento WhatsApp").replace(/\s+/g, " ").trim().slice(0, 160);
-  const fechaSig = b.diasSiguiente != null ? masDias(hoy, b.diasSiguiente) : "";
+  const fechaPedida = b.diasSiguiente != null ? masDias(hoy, b.diasSiguiente) : "";
+  let fechaSig = fechaPedida;
+  let ajusteFecha = "";
   const guardar = async (completo: boolean) =>
     db.run("INSERT OR REPLACE INTO crm_seg_hecho (tarea_id, lead_id, creado, completo, pasos) VALUES (?,?,?,?,?)", [tareaId, g.lead_id, now, completo ? 1 : 0, JSON.stringify(pasos)]);
 
@@ -180,6 +183,10 @@ export async function aplicarEnZoho(
     }
     if (!pasos.tarea && b.diasSiguiente != null && !esCierre(b.accion) && b.accion !== "futuro") {
       const dueno = await duenoZoho(env, opts.f, now);
+      // Reglas de Maricela: ni sábados ni domingos, y máximo 25 tareas por día (si no, al siguiente día con espacio).
+      const disp = await fechaDisponibleZoho(env, fechaPedida, hoy, opts.f, now).catch(() => ({ fecha: fechaPedida, motivo: "" }));
+      fechaSig = disp.fecha;
+      ajusteFecha = disp.motivo;
       pasos.tarea = (await crearTarea(env, { leadId: g.lead_id, asunto, fecha: fechaSig, ownerId: dueno.id }, opts.f, now)) || "ok";
       await guardar(false);
     }
@@ -189,12 +196,40 @@ export async function aplicarEnZoho(
       await guardar(false);
     }
     await guardar(true);
-    return { ok: true, pasos, yaHecho: false, siguiente: pasos.tarea ? { asunto, fecha: fechaSig } : null, ...(manual ? { manual } : {}) };
+    return { ok: true, pasos, yaHecho: false, siguiente: pasos.tarea ? { asunto, fecha: fechaSig, ...(ajusteFecha ? { ajuste: ajusteFecha } : {}) } : null, ...(manual ? { manual } : {}) };
   } catch (e) {
     console.error("[crm-seguimientos] aplicarEnZoho:", e);
     await guardar(false).catch(() => undefined);
     return { ok: false, error: `${e instanceof ZohoError ? e.message : "No pude actualizar Zoho."} Lo que ya se hizo no se repite si vuelves a intentar.`, pasos };
   }
+}
+
+// ─── Cambiar la fecha de una tarea ───────────────────────────────────────────
+
+export type ResultadoFecha = { ok: true; fecha: string; aviso: string } | { ok: false; error: string };
+
+/** Mueve UNA tarea pendiente a otra fecha (con las reglas de agenda: sin fines de semana y máximo 25 por día). */
+export async function cambiarFecha(env: Env, tareaId: string, fecha: string, now = Date.now(), f?: FetchFn): Promise<ResultadoFecha> {
+  if (!(await escrituraActiva(env))) return { ok: false, error: "Zoho está en modo solo lectura. Avísale a Brayan para activar la escritura." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(`${fecha}T12:00:00Z`))) return { ok: false, error: "Elige una fecha válida." };
+  try {
+    const t = await tareaPorId(env, tareaId, f, now);
+    if (!t) return { ok: false, error: "No encontré esa tarea en Zoho." };
+    if (ESTADOS_HECHOS.includes(t.estado)) return { ok: false, error: "Esa tarea ya está completa." };
+    const disp = await fechaDisponibleZoho(env, fecha, hoyMadrid(now), f, now);
+    if (disp.fecha === t.vence) return { ok: true, fecha: disp.fecha, aviso: disp.motivo || "La tarea ya estaba para esa fecha." };
+    await cambiarFechaTarea(env, tareaId, disp.fecha, f, now);
+    return { ok: true, fecha: disp.fecha, aviso: disp.motivo };
+  } catch (e) {
+    console.error("[crm-seguimientos] cambiarFecha:", e);
+    return { ok: false, error: e instanceof ZohoError ? e.message : "No pude cambiar la fecha en Zoho. Inténtalo en unos minutos." };
+  }
+}
+
+export async function fragmentoFecha(env: Env, tareaId: string, fecha: string, now = Date.now(), f?: FetchFn): Promise<string> {
+  const r = await cambiarFecha(env, tareaId, fecha, now, f);
+  if (!r.ok) return `<span style="color:var(--bad);font-size:11px">${esc(r.error)}</span>`;
+  return `<span style="color:var(--ok);font-size:11px">✔ Nueva fecha: <b>${esc(nombreDia(r.fecha))} ${esc(r.fecha)}</b>. ${esc(r.aviso)} Al recargar la lista la tarea se mueve.</span>`;
 }
 
 // ─── Respuesta de la IA ──────────────────────────────────────────────────────
@@ -464,7 +499,7 @@ const campoCopiable = (id: string, titulo: string, valor: string, filas: number,
 export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false, escritura = false): string {
   const t = ETIQ_TEMP[b.temperatura];
   const tel = (cand.movil || cand.telefono).replace(/\D/g, "");
-  const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"})` : esCierre(b.accion) ? "ninguna: en este estado solo se deja la nota" : b.accion === "futuro" ? `no hace falta crearla: Zoho la programa solo a los 3 meses al pasar a «${ESTADO_FUTURO}»` : "no se crea otra: se cierra el seguimiento";
+  const sig = b.diasSiguiente != null ? `${masDias(hoy, b.diasSiguiente)} (en ${b.diasSiguiente} día${b.diasSiguiente === 1 ? "" : "s"}; si cae en fin de semana o ese día ya tiene ${MAX_TAREAS_DIA} tareas, pasa al siguiente día con espacio)` : esCierre(b.accion) ? "ninguna: en este estado solo se deja la nota" : b.accion === "futuro" ? `no hace falta crearla: Zoho la programa solo a los 3 meses al pasar a «${ESTADO_FUTURO}»` : "no se crea otra: se cierra el seguimiento";
   const id = "sb" + b.tareaId.slice(-8);
   const chips = `<span style="font-weight:600;color:${t.color}">${t.txt}</span> <span class="text-dim">·</span> <b>${ETIQ_ACC[b.accion]}</b>${b.proyectosEnviados ? ` <span class="text-dim">· ya recibió proyectos</span>` : ""}${b.segundoTitular ? ` <span class="text-dim">· sugiere segundo titular</span>` : ""}`;
   // Maricela escribe desde el panel de Forja: el botón abre ESA conversación con el mensaje ya puesto en la caja de respuesta
@@ -516,7 +551,7 @@ export function tarjetaHechoZoho(r: ResultadoZoho, tareaId: string): string {
   const manual = r.manual
     ? `<div style="border:1px solid var(--accent-2);padding:10px 12px;margin-top:10px"><b style="color:var(--cream)">Falta un paso tuyo en Zoho:</b> en el «Plan de acción» del candidato pulsa <b>«${esc(r.manual.estado)}»</b>${r.manual.motivo ? ` y elige el motivo «${esc(r.manual.motivo)}»` : " y elige un motivo válido para esa transición"}. ${r.manual.notaGuardada ? "La nota ya quedó guardada en el candidato." : `En la ventana pega esta nota:${campoCopiable("nm" + tareaId.slice(-8), "Nota", r.manual.nota, 3)}`}<div class="text-dim" style="font-size:10.5px;margin-top:4px">Zoho no permite pasar a ese estado desde el estado actual del candidato desde aquí.</div></div>`
     : "";
-  return `${manual ? "" : ""}<div style="border-left:4px solid var(--ok);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--ok)">✔ ${r.yaHecho ? "Esta tarea ya estaba hecha" : r.manual ? "Tarea completada" : "Zoho actualizado"}.</b> ${esc(r.aviso ?? resumenPasos(r.pasos))}${r.siguiente ? `<br><span class="text-muted">Siguiente tarea: «${esc(r.siguiente.asunto)}» para el ${esc(r.siguiente.fecha)}.</span>` : ""}
+  return `${manual ? "" : ""}<div style="border-left:4px solid var(--ok);padding:10px 12px;margin-top:10px;font-size:12.5px"><b style="color:var(--ok)">✔ ${r.yaHecho ? "Esta tarea ya estaba hecha" : r.manual ? "Tarea completada" : "Zoho actualizado"}.</b> ${esc(r.aviso ?? resumenPasos(r.pasos))}${r.siguiente ? `<br><span class="text-muted">Siguiente tarea: «${esc(r.siguiente.asunto)}» para el ${esc(r.siguiente.fecha)} (${esc(nombreDia(r.siguiente.fecha))}).${r.siguiente.ajuste ? ` <b>${esc(r.siguiente.ajuste)}</b>` : ""}</span>` : ""}
     <div class="text-dim" style="font-size:10.5px;margin-top:4px">Al recargar la página esta tarea ya no aparece en la lista (tarea ${esc(tareaId)}).</div></div>${manual}`;
 }
 
@@ -562,14 +597,17 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
       const hoy = hoyMadrid(now);
       const vencidas = filas.filter((x) => x.atraso > 0).length;
       const deHoy = filas.length - vencidas;
-      const COLS = "100px minmax(160px,1fr) minmax(160px,1.2fr) 150px 130px";
+      const COLS = "150px minmax(160px,1fr) minmax(160px,1.2fr) 150px 130px";
       const filasHtml = filas
         .map((x) => {
           const atr = x.atraso > 0 ? `<b style="color:var(--bad)">Vencida hace ${x.atraso} día${x.atraso === 1 ? "" : "s"}</b>` : `<b style="color:var(--ok)">Hoy</b>`;
           const canal = x.canal ? (x.ventanaAbierta ? "💬 WhatsApp · escribió hace menos de 24 h" : "💬 WhatsApp · lleva más de 24 h sin escribir") : "📵 Sin conversación con el bot";
           const tel = esc(x.cand.movil || x.cand.telefono || "—");
           return `<div class="crm-row" style="grid-template-columns:${COLS};align-items:start">
-            <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span><br><span style="font-size:10.5px;color:${/no iniciada|not started/i.test(x.tarea.estado) ? "var(--accent-2)" : "var(--dim)"}">${esc(x.tarea.estado || "—")}${/no iniciada|not started/i.test(x.tarea.estado) ? " ⚠" : ""}</span></span>
+            <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span><br><span style="font-size:10.5px;color:${/no iniciada|not started/i.test(x.tarea.estado) ? "var(--accent-2)" : "var(--dim)"}">${esc(x.tarea.estado || "—")}${/no iniciada|not started/i.test(x.tarea.estado) ? " ⚠" : ""}</span>
+              <form hx-post="/crm/seguimientos/fecha" hx-target="#fec-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="find button" style="margin:6px 0 0;display:flex;gap:4px;flex-wrap:wrap" title="Cambiar la fecha de esta tarea (sin fines de semana, máximo ${MAX_TAREAS_DIA} por día)">
+                <input type="hidden" name="tarea" value="${esc(x.tarea.id)}"><input type="date" name="fecha" min="${esc(hoy)}" value="${esc(masDias(hoy, 1))}" required class="crm-in" style="font-size:11px;padding:3px 4px;width:118px">
+                <button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar</button></form><span id="fec-${esc(x.tarea.id)}" style="display:block;margin-top:3px"></span></span>
             <span><b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span></span>
             <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Seguimiento")}<br><span class="text-dim" style="font-size:10.5px">${esc(canal)}</span></span>
             <span class="text-dim" style="font-size:11.5px">${x.borrador ? `${ETIQ_TEMP[x.borrador.temperatura].txt}<br>${ETIQ_ACC[x.borrador.accion]}` : "Sin preparar"}</span>
@@ -585,7 +623,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
           <div class="crm-row crm-head" style="grid-template-columns:${COLS}"><span>Vence</span><span>Candidato</span><span>Tarea</span><span>Mensaje</span><span></span></div>
           ${filas.length ? filasHtml : `<div style="padding:44px 18px;text-align:center;color:var(--dim)">No hay tareas vencidas ni para hoy 🎉</div>`}
         </div></div></div>
-        <p class="text-dim" style="font-size:11px;margin-top:10px">Tareas de ${esc(dueno || "Maricela")} en Zoho (Candidatos) con fecha de hoy (${esc(hoy)}) o anterior que no están en «Completa». «Preparar mensaje» usa la IA una vez por candidato (unos 0,02 USD) y lee la nota de Zoho; el mensaje queda guardado 12 horas. Por ahora es solo un borrador: tú lo envías y no se cambia nada en Zoho.</p>`;
+        <p class="text-dim" style="font-size:11px;margin-top:10px">Tareas de ${esc(dueno || "Maricela")} en Zoho (Candidatos) con fecha de hoy (${esc(hoy)}) o anterior que no están en «Completa». «Preparar mensaje» usa la IA una vez por candidato (unos 0,02 USD) y lee la nota de Zoho; el mensaje queda guardado 12 horas. Zoho no cambia hasta que pulses «Ya lo envié». Las tareas nuevas que crea el CRM nunca caen en sábado o domingo ni en un día con más de ${MAX_TAREAS_DIA} tareas (pasan al siguiente día con espacio). Con «Cambiar» mueves la fecha de una tarea.</p>`;
     } catch (e) {
       console.error("[crm-seguimientos] cargar:", e);
       cuerpo = `<div class="crm-card" style="padding:24px;color:var(--bad)">${e instanceof ZohoError ? esc(e.message) : "No pude leer Zoho ahora. Inténtalo en unos minutos."}</div>`;

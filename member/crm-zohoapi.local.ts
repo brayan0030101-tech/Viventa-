@@ -262,3 +262,56 @@ export async function ejecutarTransicion(env: Env, leadId: string, transicionId:
   const r = j.data?.[0];
   if (!r || r.status !== "success") throw new ZohoError(`Zoho no hizo el cambio de estado: ${r?.message ?? "sin respuesta"}`);
 }
+
+/** Cambia la fecha de vencimiento de una tarea. */
+export async function cambiarFechaTarea(env: Env, tareaId: string, fecha: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!idValido(tareaId) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ZohoError("Datos de la tarea no válidos.");
+  await escribir(env, `/Tasks/${tareaId}`, "PUT", { Due_Date: fecha }, f, now);
+}
+
+// ─── Buscar y listar candidatos ──────────────────────────────────────────────
+
+export interface CandidatoLista extends CandidatoZoho {
+  creado: string; // ISO de Zoho
+}
+
+const sinComilla = (v: string): string => v.replace(/['\\]/g, "");
+
+/**
+ * Busca UN candidato por correo (exacto) o por teléfono (los últimos 9 dígitos, tal como estén escritos en Zoho). Devuelve el más reciente.
+ * Los teléfonos de Zoho vienen con espacios o prefijos distintos: se pide por los últimos 3 dígitos y se confirma comparando dígitos.
+ */
+export async function buscarCandidato(env: Env, q: { correos: string[]; telefono: string }, f: FetchFn = fetch, now = Date.now()): Promise<CandidatoLista | null> {
+  const campos = "id, First_Name, Last_Name, Full_Name, Mobile, Phone, Email, Country, Lead_Status, Created_Time";
+  const correos = [...new Set(q.correos.map((c) => c.trim().toLowerCase()).filter((c) => /^[^\s@']+@[^\s@']+\.[^\s@']+$/.test(c)))];
+  for (const c of correos) {
+    const filas = await coql(env, `select ${campos} from Leads where Email = '${sinComilla(c)}' order by Created_Time desc limit 5`, f, now).catch(() => []);
+    if (filas[0]) return { ...candidatoDe(filas[0]), creado: String(filas[0]["Created_Time"] ?? "") };
+  }
+  const dig = q.telefono.replace(/\D/g, "");
+  if (dig.length >= 8) {
+    const ult9 = dig.slice(-9);
+    const cola = ult9.slice(-3);
+    const filas = await coql(env, `select ${campos} from Leads where (Mobile like '%${cola}' or Phone like '%${cola}') order by Created_Time desc limit 200`, f, now).catch(() => []);
+    const hit = filas.find((r) => [r["Mobile"], r["Phone"]].some((t) => String(t ?? "").replace(/\D/g, "").endsWith(ult9)));
+    if (hit) return { ...candidatoDe(hit), creado: String(hit["Created_Time"] ?? "") };
+  }
+  return null;
+}
+
+/** Candidatos de Maricela en un estado, del más antiguo al más nuevo (hasta 1.000). */
+export async function candidatosEnEstado(env: Env, estado: string, f: FetchFn = fetch, now = Date.now()): Promise<CandidatoLista[]> {
+  const dueno = await duenoZoho(env, f, now);
+  const out: CandidatoLista[] = [];
+  for (let off = 0; off < 1000; off += 200) {
+    const filas = await coql(
+      env,
+      `select id, First_Name, Last_Name, Full_Name, Mobile, Phone, Email, Country, Lead_Status, Created_Time from Leads where (Owner = '${dueno.id}' and Lead_Status = '${sinComilla(estado)}') order by Created_Time asc limit ${off}, 200`,
+      f,
+      now,
+    );
+    for (const r of filas) out.push({ ...candidatoDe(r), creado: String(r["Created_Time"] ?? "") });
+    if (filas.length < 200) break;
+  }
+  return out;
+}

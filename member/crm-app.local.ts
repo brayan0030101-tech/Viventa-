@@ -350,6 +350,16 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
   });
 
+  // Candidatos en «En Prospección» (más de un mes = en rojo)
+  app.get("/prospeccion", async (c) => {
+    const { renderProspeccion } = await import("./crm-prospeccion.local");
+    return pagina(c, await renderProspeccion(c.env, { ver: c.req.query("ver") }));
+  });
+  app.get("/prospeccion.xlsx", async (c) => {
+    const { excelProspeccion } = await import("./crm-prospeccion.local");
+    return xlsx(await excelProspeccion(c.env), "prospeccion");
+  });
+
   // Gastos del chatbot
   app.get("/gastos", async (c) => {
     const { renderGastos } = await import("./crm-gastos.local");
@@ -376,6 +386,11 @@ export function crmApp(): Hono<Vars> {
     const { fragmentoHecho } = await import("./crm-seguimientos.local");
     const f = await c.req.parseBody();
     return c.html(await fragmentoHecho(c.env, String(f["tarea"] ?? ""), { nota: String(f["nota"] ?? ""), tareaSiguiente: String(f["tarea_siguiente"] ?? ""), motivo: String(f["motivo_cierre"] ?? "") }));
+  });
+  app.post("/seguimientos/fecha", async (c) => {
+    const { fragmentoFecha } = await import("./crm-seguimientos.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoFecha(c.env, String(f["tarea"] ?? ""), String(f["fecha"] ?? "")));
   });
   app.post("/seguimientos/preparar", async (c) => {
     const { fragmentoBorrador } = await import("./crm-seguimientos.local");
@@ -479,6 +494,11 @@ export function crmApp(): Hono<Vars> {
   app.get("/zoho", async (c) => {
     const { renderCrmZoho, pestanaValida } = await import("./crm-zoho.local");
     return pagina(c, await renderCrmZoho(c.env, pestanaValida(c.req.query("tab")), { orden: c.req.query("orden") ?? undefined, nivel: c.req.query("nivel") ?? undefined, mensaje: c.req.query("ok") ? `✔ ${decodeURIComponent(c.req.query("ok")!)}` : undefined }));
+  });
+  app.post("/zoho/nuevo", async (c) => {
+    const { fragmentoNuevo } = await import("./crm-zohonuevo.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoNuevo(c.env, String(f["conv"] ?? "")));
   });
   app.post("/zoho/marcar", async (c) => {
     const { marcarZoho, pestanaValida } = await import("./crm-zoho.local");
