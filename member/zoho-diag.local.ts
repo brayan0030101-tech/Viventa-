@@ -4,7 +4,8 @@
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
-import { candidatosPorIds, coql, duenoZoho, tareasPendientes, zohoGet, zohoListo } from "./crm-zohoapi.local";
+import { buscarCandidato, candidatosEnEstado, candidatosPorIds, coql, duenoZoho, tareasPendientes, zohoGet, zohoListo } from "./crm-zohoapi.local";
+import { tareasDelDia } from "./crm-agenda.local";
 import { hoyMadrid } from "./crm-seguimientos.local";
 
 async function blueprintDe(env: Env, leadId: string, now: number): Promise<unknown> {
@@ -19,10 +20,44 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
   if (!zohoListo(env)) return;
   const st = new SettingsRepo(new Db(env.DB));
   const pedido = ((await st.get("zoho_diag_pedir")) ?? "").trim();
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados") return;
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
-  if (pedido === "estados") {
+  if (pedido === "agenda") {
+    // Prueba en vivo (solo lectura, sin datos personales) de las consultas de prospección, carga por día y búsqueda por teléfono/correo.
+    const paso = async <T,>(f: () => Promise<T>): Promise<T | { error: string }> => {
+      try {
+        return await f();
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const dueno = await duenoZoho(env, fetch, now);
+    const hoy = hoyMadrid(now);
+    const campos = ["id", "First_Name", "Last_Name", "Mobile", "Phone", "Email", "Lead_Status", "Created_Time"];
+    const porCampo: Record<string, unknown> = {};
+    for (const c of campos) porCampo[c] = await paso(async () => (await coql(env, `select ${c} from Leads where Owner = '${dueno.id}' limit 1`, fetch, now)).length);
+    const lista = await paso(() => candidatosEnEstado(env, "En Prospección", fetch, now));
+    const ok = Array.isArray(lista) ? lista : [];
+    const prueba = ok.find((c) => (c.movil || c.telefono).replace(/\D/g, "").length >= 8 && c.correo);
+    out = {
+      campos: porCampo,
+      prospeccion: Array.isArray(lista) ? lista.length : lista,
+      masAntiguo: ok[0]?.creado,
+      masReciente: ok[ok.length - 1]?.creado,
+      tareasHoy: await paso(() => tareasDelDia(env, hoy, fetch, now)),
+      formaTelefono: prueba ? (prueba.movil || prueba.telefono).replace(/\d/g, "d") : null,
+      consultaLike: prueba
+        ? await paso(async () => {
+            const dig = (prueba.movil || prueba.telefono).replace(/\D/g, "");
+            const filas = await coql(env, `select id, Mobile, Phone from Leads where (Mobile like '%${dig.slice(-3)}' or Phone like '%${dig.slice(-3)}') limit 200`, fetch, now);
+            return { filas: filas.length, coincide: filas.filter((r) => [r["Mobile"], r["Phone"]].some((t) => String(t ?? "").replace(/\D/g, "").endsWith(dig.slice(-9)))).length };
+          })
+        : null,
+      buscarPorTelefonoEncuentra: prueba ? (await paso(() => buscarCandidato(env, { correos: [], telefono: prueba.movil || prueba.telefono }, fetch, now)) as { id?: string } | null)?.id === prueba.id : null,
+      buscarPorCorreoEncuentra: prueba ? (await paso(() => buscarCandidato(env, { correos: [prueba.correo], telefono: "" }, fetch, now)) as { id?: string } | null)?.id === prueba.id : null,
+    };
+  } else if (pedido === "estados") {
     // Cuántos candidatos hay por estado y el más antiguo de cada uno (sin datos personales).
     try {
       const dueno = await duenoZoho(env, fetch, now);

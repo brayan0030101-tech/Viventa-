@@ -282,7 +282,7 @@ const sinComilla = (v: string): string => v.replace(/['\\]/g, "");
  * Los teléfonos de Zoho vienen con espacios o prefijos distintos: se pide por los últimos 3 dígitos y se confirma comparando dígitos.
  */
 export async function buscarCandidato(env: Env, q: { correos: string[]; telefono: string }, f: FetchFn = fetch, now = Date.now()): Promise<CandidatoLista | null> {
-  const campos = "id, First_Name, Last_Name, Full_Name, Mobile, Phone, Email, Country, Lead_Status, Created_Time";
+  const campos = "id, First_Name, Last_Name, Mobile, Phone, Email, Lead_Status, Created_Time";
   const correos = [...new Set(q.correos.map((c) => c.trim().toLowerCase()).filter((c) => /^[^\s@']+@[^\s@']+\.[^\s@']+$/.test(c)))];
   for (const c of correos) {
     const filas = await coql(env, `select ${campos} from Leads where Email = '${sinComilla(c)}' order by Created_Time desc limit 5`, f, now).catch(() => []);
@@ -291,10 +291,20 @@ export async function buscarCandidato(env: Env, q: { correos: string[]; telefono
   const dig = q.telefono.replace(/\D/g, "");
   if (dig.length >= 8) {
     const ult9 = dig.slice(-9);
+    const coincide = (r: Record<string, unknown>) => [r["Mobile"], r["Phone"]].some((t) => String(t ?? "").replace(/\D/g, "").endsWith(ult9));
+    // 1) formatos habituales exactos (+34600000001, 34600000001, 600000001): rápido y sin ambigüedad.
+    const variantes = [...new Set([`+${dig}`, dig, ult9])].map((v) => `'${v}'`).join(",");
+    const exactas = await coql(env, `select ${campos} from Leads where (Mobile in (${variantes}) or Phone in (${variantes})) order by Created_Time desc limit 20`, f, now).catch(() => []);
+    const h1 = exactas.find(coincide);
+    if (h1) return { ...candidatoDe(h1), creado: String(h1["Created_Time"] ?? "") };
+    // 2) formatos con espacios o guiones: se piden por los últimos 3 dígitos (un «like» amplio) y se confirma comparando dígitos.
     const cola = ult9.slice(-3);
-    const filas = await coql(env, `select ${campos} from Leads where (Mobile like '%${cola}' or Phone like '%${cola}') order by Created_Time desc limit 200`, f, now).catch(() => []);
-    const hit = filas.find((r) => [r["Mobile"], r["Phone"]].some((t) => String(t ?? "").replace(/\D/g, "").endsWith(ult9)));
-    if (hit) return { ...candidatoDe(hit), creado: String(hit["Created_Time"] ?? "") };
+    for (let off = 0; off < 1000; off += 200) {
+      const filas = await coql(env, `select ${campos} from Leads where (Mobile like '%${cola}' or Phone like '%${cola}') order by Created_Time desc limit ${off}, 200`, f, now).catch(() => []);
+      const h2 = filas.find(coincide);
+      if (h2) return { ...candidatoDe(h2), creado: String(h2["Created_Time"] ?? "") };
+      if (filas.length < 200) break;
+    }
   }
   return null;
 }
@@ -306,12 +316,25 @@ export async function candidatosEnEstado(env: Env, estado: string, f: FetchFn = 
   for (let off = 0; off < 1000; off += 200) {
     const filas = await coql(
       env,
-      `select id, First_Name, Last_Name, Full_Name, Mobile, Phone, Email, Country, Lead_Status, Created_Time from Leads where (Owner = '${dueno.id}' and Lead_Status = '${sinComilla(estado)}') order by Created_Time asc limit ${off}, 200`,
+      `select id, First_Name, Last_Name, Mobile, Phone, Email, Lead_Status, Created_Time from Leads where (Owner = '${dueno.id}' and Lead_Status = '${sinComilla(estado)}') order by Created_Time asc limit ${off}, 200`,
       f,
       now,
     );
     for (const r of filas) out.push({ ...candidatoDe(r), creado: String(r["Created_Time"] ?? "") });
     if (filas.length < 200) break;
+  }
+  // COQL no deja pedir «Country»: el país (y el nombre completo) se completan con la API normal, por lotes de 100.
+  try {
+    const completos = await candidatosPorIds(env, out.map((c) => c.id), f, now);
+    for (const c of out) {
+      const x = completos.get(c.id);
+      if (x) {
+        c.pais = x.pais;
+        if (x.nombre) c.nombre = x.nombre;
+      }
+    }
+  } catch (e) {
+    console.error("[zohoapi] completar candidatos:", e);
   }
   return out;
 }
