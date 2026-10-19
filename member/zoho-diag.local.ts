@@ -20,10 +20,61 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
   if (!zohoListo(env)) return;
   const st = new SettingsRepo(new Db(env.DB));
   const pedido = ((await st.get("zoho_diag_pedir")) ?? "").trim();
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda") return;
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
-  if (pedido === "agenda") {
+  if (pedido === "reactivacion") {
+    // Prueba en vivo (solo lectura, sin datos personales) de la lista de reactivación.
+    try {
+      const { cargarReactivacion } = await import("./crm-reactivacion.local");
+      const { telefonoInternacional } = await import("./crm-reactivacion.local");
+      const filas = await cargarReactivacion(env, now);
+      const cuenta: Record<string, number> = {};
+      for (const f of filas) cuenta[f.fase] = (cuenta[f.fase] ?? 0) + 1;
+      out = {
+        total: filas.length,
+        porFase: cuenta,
+        conTelefonoUtil: filas.filter((f) => telefonoInternacional(f.cand.movil, f.cand.telefono, f.cand.pais)).length,
+        diasMinMax: filas.length ? [filas[filas.length - 1]!.dias, filas[0]!.dias] : null,
+        ejemploTarea: filas[0] ? { dias: filas[0].dias, vence: filas[0].vence, estado: filas[0].cand.estado } : null,
+      };
+    } catch (e) {
+      out = { error: e instanceof Error ? e.message : String(e) };
+    }
+  } else if (pedido === "futuro") {
+    // Solo lectura, sin datos personales: campos de fecha del candidato y, para algunos «Revisar en el futuro», cuándo se movieron y qué tareas tienen.
+    const paso = async <T,>(f: () => Promise<T>): Promise<T | { error: string }> => {
+      try {
+        return await f();
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const dueno = await duenoZoho(env, fetch, now);
+    const campos = await paso(async () => {
+      const j = (await zohoGet(env, "/settings/fields?module=Leads", fetch, now)) as { fields?: Array<{ api_name?: string; field_label?: string; data_type?: string }> };
+      return (j.fields ?? []).filter((x) => /date|fecha|time|futuro|revis|motivo|pr[oó]xim|asesor|owner/i.test(`${x.api_name} ${x.field_label}`)).map((x) => `${x.api_name}|${x.field_label}|${x.data_type}`);
+    });
+    const filas = await paso(() => coql(env, `select id, Created_Time, Modified_Time, Last_Activity_Time, Fecha_cambio_de_estado, Fecha_de_Reactivacion, Fecha_Asignado, Fecha_reasignaci_n, Fecha_contacto_1, Fecha_contacto_2 from Leads where (Owner = '${dueno.id}' and Lead_Status = 'Revisar en el futuro') order by Fecha_cambio_de_estado asc limit 12`, fetch, now));
+    const muestra = Array.isArray(filas) ? filas : [];
+    const detalle: unknown[] = [];
+    for (const r of muestra.slice(0, 10)) {
+      const id = String(r["id"]);
+      detalle.push({
+        creado: r["Created_Time"],
+        modificado: r["Modified_Time"],
+        cambioEstado: r["Fecha_cambio_de_estado"],
+        reactivacion: r["Fecha_de_Reactivacion"],
+        asignado: r["Fecha_Asignado"],
+        reasignacion: r["Fecha_reasignaci_n"],
+        contacto1: r["Fecha_contacto_1"],
+        contacto2: r["Fecha_contacto_2"],
+        tareas: await paso(async () => (await coql(env, `select Subject, Due_Date, Status, Created_Time from Tasks where What_Id = '${id}' order by Created_Time desc limit 5`, fetch, now)).map((t) => `${t["Created_Time"]} | vence ${t["Due_Date"]} | ${t["Status"]} | ${String(t["Subject"] ?? "").slice(0, 50)}`)),
+        notas: await paso(async () => ((await zohoGet(env, `/Leads/${id}/Notes?fields=Created_Time,Note_Title&per_page=5`, fetch, now)) as { data?: Array<Record<string, unknown>> }).data?.map((n) => `${n["Created_Time"]} | ${String(n["Note_Title"] ?? "").slice(0, 40)}`)),
+      });
+    }
+    out = { total: Array.isArray(filas) ? filas.length : filas, detalle: detalle.map((d) => ({ ...(d as object), tareas: undefined, notas: undefined })) };
+  } else if (pedido === "agenda") {
     // Prueba en vivo (solo lectura, sin datos personales) de las consultas de prospección, carga por día y búsqueda por teléfono/correo.
     const paso = async <T,>(f: () => Promise<T>): Promise<T | { error: string }> => {
       try {

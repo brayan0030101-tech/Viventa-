@@ -360,6 +360,32 @@ export function crmApp(): Hono<Vars> {
     return xlsx(await excelProspeccion(c.env), "prospeccion");
   });
 
+  // Reactivación de los clientes «Revisar en el futuro»
+  app.get("/reactivacion", async (c) => {
+    const { renderReactivacion } = await import("./crm-reactivacion.local");
+    return pagina(c, await renderReactivacion(c.env));
+  });
+  app.post("/reactivacion/preparar", async (c) => {
+    const { fragmentoPreparar } = await import("./crm-reactivacion.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoPreparar(c.env, String(f["lead"] ?? ""), f["r"] === "1"));
+  });
+  app.post("/reactivacion/enviar", async (c) => {
+    const { fragmentoEnviar } = await import("./crm-reactivacion.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoEnviar(c.env, String(f["lead"] ?? ""), String(f["mensaje"] ?? "")));
+  });
+  app.post("/reactivacion/perdido", async (c) => {
+    const { fragmentoPerdido } = await import("./crm-reactivacion.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoPerdido(c.env, String(f["lead"] ?? "")));
+  });
+  app.post("/reactivacion/omitir", async (c) => {
+    const { fragmentoOmitir } = await import("./crm-reactivacion.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoOmitir(c.env, String(f["lead"] ?? "")));
+  });
+
   // Gastos del chatbot
   app.get("/gastos", async (c) => {
     const { renderGastos } = await import("./crm-gastos.local");

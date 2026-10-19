@@ -46,9 +46,11 @@ const WINDOW_MS = 24 * H - 5 * MIN;
 export const TPL_SEGUIMIENTO = "viventa_tpl_seguimiento";
 export const TPL_RECORDATORIO = "viventa_tpl_recordatorio";
 export const TPL_OFERTA = "viventa_tpl_oferta";
+export const TPL_REACTIVACION = "viventa_tpl_reactivacion";
+export const TPL_REACTIVACION_TEXTO = "viventa_tpl_reactivacion_texto";
 const TPL_LANG = "viventa_tpl_lang";
 
-interface ConvRef {
+export interface ConvRef {
   id: string;
   channel: string;
   channel_user_id: string;
@@ -95,7 +97,7 @@ type SendResult = "libre" | "plantilla";
  * plantilla aprobada; el resto de canales va en texto libre. Lanza
  * "sin_plantilla" si hace falta plantilla y no está configurada.
  */
-async function enviarACliente(
+export async function enviarACliente(
   env: Env,
   db: Db,
   conv: ConvRef,
