@@ -290,4 +290,23 @@ describe("envío masivo con el mensaje de Maricela", () => {
     sendTemplateMock.mockReset().mockResolvedValue(undefined);
     expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(3); // reintenta cuando ya se puede
   });
+
+  it("con la llave de YCloud, espera a que Meta apruebe la plantilla y arranca sola al aprobarse", async () => {
+    await configurar();
+    (env as any).YCLOUD_API_KEY = "k";
+    (env as any).YCLOUD_WA_FROM = "+34611688609";
+    let estado = "PENDING";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (String(url).includes("/phoneNumbers")) return json({ items: [{ phoneNumber: "+34611688609", wabaId: "w1" }] });
+      return json({ items: [{ name: "viventa_reactivacion_futuro", status: estado }] });
+    }));
+    try {
+      expect((await runReactivacionMasiva(env, HORA, zoho)).sent).toBe(0);
+      expect(sendTemplateMock).not.toHaveBeenCalled();
+      estado = "APPROVED";
+      expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

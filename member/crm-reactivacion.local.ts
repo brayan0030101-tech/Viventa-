@@ -487,6 +487,27 @@ export const AJUSTE_MASIVO = "viventa_reactivacion_masiva";
 export const OFERTA_MASIVA = "Bogotá y Playa (mensaje de Maricela)";
 const MAX_POR_PASADA = 8;
 
+/** ¿Meta ya aprobó la plantilla? Solo se consulta hasta que sale APPROVED (después queda guardado). Sin llave de YCloud no se puede verificar: se deja pasar y el envío fallará solo. */
+export async function plantillaAprobada(env: Env, nombre: string): Promise<boolean> {
+  const settings = new SettingsRepo(new Db(env.DB));
+  const marca = `${TPL_REACTIVACION}_aprobada`;
+  if (((await settings.get(marca)) ?? "") === nombre) return true;
+  if (!env.YCLOUD_API_KEY) return true;
+  try {
+    const h = { "X-API-Key": env.YCLOUD_API_KEY };
+    const numeros = (await (await fetch("https://api.ycloud.com/v2/whatsapp/phoneNumbers?limit=20", { headers: h })).json()) as { items?: Array<{ phoneNumber?: string; wabaId?: string }> };
+    const mio = (numeros.items ?? []).find((n) => String(n.phoneNumber ?? "").replace(/\D/g, "") === (env.YCLOUD_WA_FROM ?? "").replace(/\D/g, "")) ?? numeros.items?.[0];
+    if (!mio?.wabaId) return false;
+    const t = (await (await fetch(`https://api.ycloud.com/v2/whatsapp/templates?limit=100&filter.wabaId=${encodeURIComponent(mio.wabaId)}`, { headers: h })).json()) as { items?: Array<{ name?: string; status?: string }> };
+    const ok = (t.items ?? []).some((x) => x.name === nombre && x.status === "APPROVED");
+    if (ok) await settings.set(marca, nombre);
+    return ok;
+  } catch (e) {
+    console.error("[reactivacionMasiva] estado de la plantilla:", e);
+    return false;
+  }
+}
+
 export async function runReactivacionMasiva(env: Env, now = Date.now(), f?: FetchFn): Promise<{ sent: number; omitidos: number; fallos: number }> {
   const out = { sent: 0, omitidos: 0, fallos: 0 };
   const settings = new SettingsRepo(new Db(env.DB));
@@ -495,6 +516,8 @@ export async function runReactivacionMasiva(env: Env, now = Date.now(), f?: Fetc
   const texto = ((await settings.get(TPL_REACTIVACION_TEXTO)) ?? "").trim();
   const plantilla = ((await settings.get(TPL_REACTIVACION)) ?? "").trim();
   if (!texto || !plantilla) return out;
+  // Mientras Meta no apruebe la plantilla no se intenta nada (así no hay envíos fallidos ni avisos de más): arranca sola al aprobarse.
+  if (!(await plantillaAprobada(env, plantilla))) return out;
   const db = new Db(env.DB);
   await asegurar(db);
   const hechos = new Set((await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_reactiva WHERE enviado_en IS NOT NULL OR resultado <> ''")).map((r) => r.lead_id));
