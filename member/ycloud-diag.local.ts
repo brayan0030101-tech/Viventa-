@@ -50,6 +50,28 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         items: (r.json?.items ?? []).map((x: any) => ({ tipo: x.type, estado: x.status, creado: x.createTime, enviado: x.sendTime, entregado: x.deliverTime, leido: x.readTime, origen: x.bizType ?? x.source ?? x.channel, error: x.errorCode ?? x.whatsappApiError?.code })),
         error: r.status >= 400 ? r.json : undefined,
       };
+    } else if (pedido.startsWith("reenviar:")) {
+      // Reenvía la última respuesta del bot (ya guardada en el hilo) a clientes cuyo envío falló por saldo de YCloud agotado.
+      const { pickAdapter } = await import("../src/replies/sender");
+      const { MessagesRepo } = await import("../src/db/messages");
+      const db = new Db(env.DB);
+      const hechos: Record<string, string> = {};
+      for (const id of pedido.slice(9).split(",").map((x) => x.trim()).filter(Boolean)) {
+        const conv = await db.first<{ channel: string; channel_user_id: string }>("SELECT channel, channel_user_id FROM conversations WHERE id = ?", [id]);
+        const ult = await db.first<{ role: string; content: string }>("SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user','assistant','owner') ORDER BY created_at DESC LIMIT 1", [id]);
+        if (!conv || !ult || ult.role !== "assistant") {
+          hechos[id] = "omitido: la última palabra no es del bot";
+          continue;
+        }
+        try {
+          await pickAdapter(conv.channel as never).sendReply({ channel: conv.channel as never, channelUserId: conv.channel_user_id, chunks: [ult.content], interChunkDelayMs: 0 }, env, { strict: true });
+          await new MessagesRepo(db).append(id, "note", "✔ Reenviado: el mensaje anterior no había llegado por saldo agotado en YCloud; ya se mandó.");
+          hechos[id] = "reenviado";
+        } catch (e) {
+          hechos[id] = `error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
+        }
+      }
+      out = { reenvio: hechos };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
       const r = await ycloud(env, "/whatsapp/templates", {

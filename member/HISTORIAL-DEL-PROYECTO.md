@@ -186,3 +186,9 @@
 - Arreglo 2: `src/followup/fallosYCloud.ts` (cada 5 min): lista los últimos mensajes de YCloud, y por cada `failed` nuevo deja la nota «⚠️ NO LLEGÓ al cliente…» en el hilo y avisa a Camila una sola vez (ajuste `ycloud_fallos_vistos` evita repetir). Test: `test/followup/fallosYCloud.test.ts`.
 - Para escribirle a un cliente fuera de las 24 h: desde la app de WhatsApp Business del teléfono, o una plantilla aprobada (`viventa_oferta_llamada`; la de reactivación está pendiente en Meta).
 - `ycloud-diag` ganó el modo `msgs:<teléfono>` (estado de entrega de los últimos mensajes a un número; sin texto).
+
+## 2026-10-19 · Saldo de YCloud agotado (BALANCE_INSUFFICIENT) y reenvío
+- 19 oct: el saldo de YCloud pasó de 6.69 USD a 0.01 USD en un día (565 mensajes de clientes, ~3× lo normal; desde el 1 oct las respuestas se cobran tras 1.000 gratis al mes). Con la billetera en cero YCloud rechaza todo envío (403 BALANCE_INSUFFICIENT) desde ~17:45 UTC: 10 clientes sin recibir su mensaje (3 eran respuestas a preguntas del cliente, 7 recordatorios del guion a ~22 h). Instagram (Zernio) no se afectó.
+- El detector `fallosYCloud` no lo mostraba como fallo de Meta; los avisos salieron por `alertarFalloEnvio`. Recarga de Brayan: 63.01 USD.
+- Reenvío: `ycloud-diag` modo `reenviar:<conv>,<conv>` manda la última respuesta del bot (ya guardada) y deja nota «✔ Reenviado». Se reenviaron las 3 respuestas. Los 7 recordatorios del guion NO se reenviaron: los clientes (España/Polonia) estaban ya fuera del horario 9–21 h locales y su ventana de 24 h se cierra esta noche.
+- Pendiente de decidir: subir el umbral de alerta de saldo (hoy 3 USD) a ~10 USD o aviso por consumo diario.
