@@ -20,10 +20,74 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
   if (!zohoListo(env)) return;
   const st = new SettingsRepo(new Db(env.DB));
   const pedido = ((await st.get("zoho_diag_pedir")) ?? "").trim();
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion") return;
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
-  if (pedido === "reactivacion") {
+  if (pedido === "modulos") {
+    // Solo lectura, sin datos personales: módulos, etapas, ramas SV/VC y a qué módulo pertenecen las tareas pendientes de Maricela.
+    const paso = async <T,>(f: () => Promise<T>): Promise<T | { error: string }> => {
+      try {
+        return await f();
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const dueno = await duenoZoho(env, fetch, now);
+    const mods = await paso(async () => {
+      const j = (await zohoGet(env, "/settings/modules", fetch, now)) as { modules?: Array<{ api_name?: string; plural_label?: string; generated_type?: string; visible?: boolean }> };
+      return (j.modules ?? []).filter((m) => m.visible !== false && m.generated_type !== "subform").map((m) => `${m.api_name}|${m.plural_label}|${m.generated_type}`);
+    });
+    const camposDe = async (modulo: string) =>
+      paso(async () => {
+        const j = (await zohoGet(env, `/settings/fields?module=${modulo}`, fetch, now)) as { fields?: Array<{ api_name?: string; field_label?: string; data_type?: string; pick_list_values?: Array<{ display_value?: string }> }> };
+        return (j.fields ?? [])
+          .filter((x) => /stage|etapa|pipeline|servicio|vive|sv|vc|tipo|estado|status|lead_source|origen|viabilidad/i.test(`${x.api_name} ${x.field_label}`))
+          .map((x) => `${x.api_name}|${x.field_label}|${x.data_type}${x.pick_list_values?.length ? `|${x.pick_list_values.slice(0, 14).map((v) => v.display_value).join("/")}` : ""}`);
+      });
+    const cuenta = async (modulo: string, campo: string) =>
+      paso(async () => {
+        const t = new Map<string, number>();
+        for (let off = 0; off < 2000; off += 200) {
+          const filas = await coql(env, `select ${campo} from ${modulo} where Owner = '${dueno.id}' limit ${off}, 200`, fetch, now);
+          for (const r of filas) t.set(String(r[campo] ?? "(vacío)"), (t.get(String(r[campo] ?? "(vacío)")) ?? 0) + 1);
+          if (filas.length < 200) break;
+        }
+        return Object.fromEntries(t);
+      });
+    const tareasPorModulo = await paso(async () => {
+      const t = new Map<string, number>();
+      for (let off = 0; off < 2000; off += 200) {
+        const filas = await coql(env, `select $se_module from Tasks where (Owner = '${dueno.id}' and Status not in ('Completa','Completed')) limit ${off}, 200`, fetch, now);
+        for (const r of filas) t.set(String(r["$se_module"] ?? "(sin)"), (t.get(String(r["$se_module"] ?? "(sin)")) ?? 0) + 1);
+        if (filas.length < 200) break;
+      }
+      return Object.fromEntries(t);
+    });
+    void mods; void camposDe;
+    out = {
+      etapasOportunidades: await cuenta("Deals", "Stage"),
+      tipoOportunidades: await cuenta("Deals", "Type"),
+      pipelineOportunidades: await cuenta("Deals", "Pipeline"),
+      tareasPendientesPorModulo: tareasPorModulo,
+      contactosTotal: await paso(async () => {
+        let n = 0;
+        for (let off = 0; off < 5000; off += 200) {
+          const filas = await coql(env, `select id from Contacts where Owner = '${dueno.id}' limit ${off}, 200`, fetch, now);
+          n += filas.length;
+          if (filas.length < 200) break;
+        }
+        return n;
+      }),
+      camposVC: await paso(async () => {
+        const j = (await zohoGet(env, "/settings/fields?module=Deals", fetch, now)) as { fields?: Array<{ api_name?: string; field_label?: string; data_type?: string }> };
+        return (j.fields ?? []).filter((x) => /vive|casa|vc|sv|servicio/i.test(`${x.api_name} ${x.field_label}`)).map((x) => `${x.api_name}|${x.field_label}|${x.data_type}`);
+      }),
+      camposContactoRamas: await paso(async () => {
+        const j = (await zohoGet(env, "/settings/fields?module=Contacts", fetch, now)) as { fields?: Array<{ api_name?: string; field_label?: string; data_type?: string }> };
+        return (j.fields ?? []).filter((x) => /vivecasa|vivecasam|vc\b|servicio_viventa|^sv|asesor|reasign/i.test(`${x.api_name} ${x.field_label}`)).map((x) => `${x.api_name}|${x.field_label}|${x.data_type}`);
+      }),
+    };
+  } else if (pedido === "reactivacion") {
     // Prueba en vivo (solo lectura, sin datos personales) de la lista de reactivación.
     try {
       const { cargarReactivacion } = await import("./crm-reactivacion.local");
