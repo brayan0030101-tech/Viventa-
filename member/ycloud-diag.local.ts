@@ -121,6 +121,66 @@ export async function runYcloudDiag(env: Env): Promise<void> {
       const r = await fetch(`${base}/comment-automations`, { method: "POST", headers: { Authorization: `Bearer ${env.ZERNIO_API_KEY ?? ""}`, "Content-Type": "application/json" }, body: pedido.slice(13) });
       const t = await r.text();
       out = { status: r.status, respuesta: t.slice(0, 2500) };
+    } else if (pedido === "comentarios") {
+      // Solo lectura: comentarios de Instagram de los últimos 7 días, clasificados con el mismo filtro de la automatización.
+      const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
+      const acc = "6ac47c954467c71397881810";
+      const get = async (ruta: string) => {
+        const r = await fetch(`${base}${ruta}`, { headers: { Authorization: `Bearer ${env.ZERNIO_API_KEY ?? ""}` } });
+        const t = await r.text();
+        try {
+          return { status: r.status, j: JSON.parse(t) as any };
+        } catch {
+          return { status: r.status, j: { raw: t.slice(0, 200) } as any };
+        }
+      };
+      const INTERES = ["info", "información", "informacion", "precio", "cuánto", "cuanto", "costo", "valor", "quiero", "interesa", "interesad", "invertir", "inversión", "inversion", "comprar", "compra", "apartamento", "apto", "proyecto", "vivienda", "cuota", "financi", "crédito", "credito", "ahorro", "detalles", "dm", "privado", "me interesa"];
+      const EXCLUIR = ["estafa", "estafador", "fraude", "ladrón", "ladron", "mentira", "basura", "mierda", "puta", "puto", "gonorrea", "malparido", "hijueputa", "idiota", "imbecil", "imbécil", "estupid", "estúpid", "pendejo", "robo", "engaño", "engano", "spam"];
+      const posts = await get(`/inbox/comments?platform=instagram&accountId=${acc}&limit=50&sortBy=date`);
+      const lista: any[] = posts.j?.data ?? [];
+      const ahora = Date.now();
+      const filas: any[] = [];
+      const clases = { interes: 0, excluido: 0, sin_interes: 0, propios: 0, fuera_7d: 0, con_respuesta: 0 };
+      let leidos = 0;
+      for (const p of lista.filter((x) => (x.commentCount ?? 0) > 0).slice(0, 40)) {
+        const c = await get(`/inbox/comments/${encodeURIComponent(p.id)}?accountId=${acc}&limit=100`);
+        for (const m of c.j?.comments ?? []) {
+          leidos++;
+          if (m.from?.isOwner) {
+            clases.propios++;
+            continue;
+          }
+          const dias = (ahora - Date.parse(m.createdTime ?? "")) / 86_400_000;
+          if (dias > 6.8) {
+            clases.fuera_7d++;
+            continue;
+          }
+          const txt = String(m.message ?? "").toLowerCase();
+          const cls = EXCLUIR.some((k) => txt.includes(k)) ? "excluido" : INTERES.some((k) => txt.includes(k)) ? "interes" : "sin_interes";
+          clases[cls as "interes" | "excluido" | "sin_interes"]++;
+          if ((m.replyCount ?? 0) > 0) clases.con_respuesta++;
+          filas.push({ p: p.id, c: m.id, d: Math.round(dias * 10) / 10, u: m.from?.username, r: m.replyCount ?? 0, k: cls, m: String(m.message ?? "").replace(/\s+/g, " ").slice(0, 70) });
+        }
+      }
+      out = { postsStatus: posts.status, posts: lista.length, conComentarios: lista.filter((x) => (x.commentCount ?? 0) > 0).length, leidos, clases, filas: filas.slice(0, 45), error: posts.status >= 400 ? posts.j : undefined };
+    } else if (pedido.startsWith("responder:")) {
+      // Responde comentarios pendientes de Instagram (mensaje privado y/o respuesta pública) con los textos aprobados por el dueño.
+      const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
+      const acc = "6ac47c954467c71397881810";
+      const lista = JSON.parse(pedido.slice(10)) as Array<{ p: string; c: string; dm: string; pub?: string }>;
+      const hechos: Record<string, unknown> = {};
+      for (const x of lista) {
+        const h: Record<string, unknown> = {};
+        const post = async (ruta: string, cuerpo: unknown) => {
+          const r = await fetch(`${base}${ruta}`, { method: "POST", headers: { Authorization: `Bearer ${env.ZERNIO_API_KEY ?? ""}`, "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
+          return `${r.status}${r.ok ? "" : " " + (await r.text()).slice(0, 160)}`;
+        };
+        h.privado = await post(`/inbox/comments/${encodeURIComponent(x.p)}/${encodeURIComponent(x.c)}/private-reply`, { accountId: acc, message: x.dm });
+        if (x.pub && String(h.privado).startsWith("200")) h.publico = await post(`/inbox/comments/${encodeURIComponent(x.p)}`, { accountId: acc, commentId: x.c, message: x.pub });
+        hechos[x.c] = h;
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+      out = { respondidos: hechos };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
       const r = await ycloud(env, "/whatsapp/templates", {
