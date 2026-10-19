@@ -487,6 +487,21 @@ export const AJUSTE_MASIVO = "viventa_reactivacion_masiva";
 export const OFERTA_MASIVA = "Bogotá y Playa (mensaje de Maricela)";
 const MAX_POR_PASADA = 8;
 
+/** Avisa UNA vez por cada estado (al dueño y al equipo comercial). Nunca tumba el flujo. */
+async function avisarDueno(env: Env, heading: string, body: string, clave: string, estado: string, settings: SettingsRepo): Promise<void> {
+  try {
+    if (((await settings.get(clave)) ?? "") === estado) return;
+    await settings.set(clave, estado);
+    const { messageOwner } = await import("../src/tools/handoffHuman");
+    await messageOwner(env, { heading, body });
+    const { notifyCamila } = await import("../src/lib/camila");
+    const { selfOrigin } = await import("../src/lib/self-origin");
+    await notifyCamila(env, { heading, body, url: `${await selfOrigin(env)}/admin` }).catch(() => false);
+  } catch (e) {
+    console.error("[reactivacionMasiva] aviso:", e);
+  }
+}
+
 /** ¿Meta ya aprobó la plantilla? Solo se consulta hasta que sale APPROVED (después queda guardado). Sin llave de YCloud no se puede verificar: se deja pasar y el envío fallará solo. */
 export async function plantillaAprobada(env: Env, nombre: string): Promise<boolean> {
   const settings = new SettingsRepo(new Db(env.DB));
@@ -499,8 +514,14 @@ export async function plantillaAprobada(env: Env, nombre: string): Promise<boole
     const mio = (numeros.items ?? []).find((n) => String(n.phoneNumber ?? "").replace(/\D/g, "") === (env.YCLOUD_WA_FROM ?? "").replace(/\D/g, "")) ?? numeros.items?.[0];
     if (!mio?.wabaId) return false;
     const t = (await (await fetch(`https://api.ycloud.com/v2/whatsapp/templates?limit=100&filter.wabaId=${encodeURIComponent(mio.wabaId)}`, { headers: h })).json()) as { items?: Array<{ name?: string; status?: string }> };
-    const ok = (t.items ?? []).some((x) => x.name === nombre && x.status === "APPROVED");
-    if (ok) await settings.set(marca, nombre);
+    const estado = (t.items ?? []).find((x) => x.name === nombre)?.status ?? "";
+    const ok = estado === "APPROVED";
+    if (ok) {
+      await settings.set(marca, nombre);
+      await avisarDueno(env, "✅ Meta aprobó la plantilla de reactivación", `La plantilla «${nombre}» ya está APROBADA. El envío del mensaje de Maricela a los clientes de «Revisar en el futuro» empieza en la próxima pasada (de a 8 cada 15 min, de 9 a 21 h de cada cliente).`, `${marca}_aviso`, "aprobada", settings);
+    } else if (/REJECTED|PAUSED|DISABLED/.test(estado)) {
+      await avisarDueno(env, "⚠️ Meta NO aprobó la plantilla de reactivación", `La plantilla «${nombre}» quedó en estado ${estado}. No se enviará nada hasta crear otra versión del texto.`, `${marca}_aviso`, estado, settings);
+    }
     return ok;
   } catch (e) {
     console.error("[reactivacionMasiva] estado de la plantilla:", e);
