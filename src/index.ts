@@ -785,6 +785,11 @@ export default {
         await runZohoDiag(env).catch((e) => console.error("zohoDiag:", e));
       }
       {
+        // Gestión temporal de plantillas de WhatsApp en YCloud (solo corre si el ajuste ycloud_diag_pedir trae algo).
+        const { runYcloudDiag } = await import("../member/ycloud-diag.local");
+        await runYcloudDiag(env).catch((e) => console.error("ycloudDiag:", e));
+      }
+      {
         // Reserva puntual en Cal.com (temporal; solo corre si el ajuste cita_manual_pedir trae un JSON).
         const { runCitaManual } = await import("../member/cita-manual.local");
         await runCitaManual(env).catch((e) => console.error("citaManual:", e));

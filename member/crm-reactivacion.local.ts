@@ -91,10 +91,14 @@ export async function cargarReactivacion(env: Env, now = Date.now(), f?: FetchFn
     }
     if (filas.length < 200) break;
   }
-  if (tareas.length === 0) return [];
-  const cands = await candidatosPorIds(env, tareas.map((t) => t.leadId), f, now);
   const db = new Db(env.DB);
   await asegurar(db);
+  // Quienes ya recibieron el mensaje (p. ej. el masivo) aunque no tengan la tarea «Retomar…»: se siguen mostrando para ver si respondieron.
+  const escritos = (await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_reactiva WHERE enviado_en IS NOT NULL AND resultado = ''")).map((r) => r.lead_id);
+  const conTarea = new Set(tareas.map((t) => t.leadId));
+  const sinTarea = escritos.filter((id) => !conTarea.has(id));
+  if (tareas.length === 0 && sinTarea.length === 0) return [];
+  const cands = await candidatosPorIds(env, [...tareas.map((t) => t.leadId), ...sinTarea], f, now);
   const reg = new Map((await db.all<{ lead_id: string; conv_id: string; enviado_en: number | null; canal: string; resultado: string }>("SELECT lead_id, conv_id, enviado_en, canal, resultado FROM crm_reactiva")).map((r) => [r.lead_id, r]));
   const out: FilaReactiva[] = [];
   for (const t of tareas) {
@@ -114,6 +118,16 @@ export async function cargarReactivacion(env: Env, now = Date.now(), f?: FetchFn
       else if (now - r.enviado_en > DIAS_SIN_RESPUESTA * DIA) envio = "sin_respuesta";
     }
     out.push({ tareaId: t.id, leadId: t.leadId, cand, entrada: t.creada, dias, vence: t.vence, fase: faseDe(dias), envio, enviadoEn: r?.enviado_en ?? null, canal: r?.canal ?? "" });
+  }
+  for (const id of sinTarea) {
+    const cand = cands.get(id);
+    const r = reg.get(id);
+    if (!cand || cand.estado !== ESTADO_FUTURO_ZOHO || !r?.enviado_en) continue;
+    let envio: EstadoEnvio = "escrito";
+    const resp = r.conv_id ? await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'user' AND created_at > ?", [r.conv_id, r.enviado_en]) : null;
+    if ((resp?.n ?? 0) > 0) envio = "respondio";
+    else if (now - r.enviado_en > DIAS_SIN_RESPUESTA * DIA) envio = "sin_respuesta";
+    out.push({ tareaId: "", leadId: id, cand, entrada: r.enviado_en, dias: 0, vence: "", fase: "toca", envio, enviadoEn: r.enviado_en, canal: r.canal });
   }
   return out.sort((a, b) => b.dias - a.dias);
 }
@@ -248,14 +262,25 @@ ${catalogo}`;
 
 export type ResultadoEnvio = { ok: true; via: "libre" | "plantilla"; zoho: string } | { ok: false; error: string };
 
-export async function enviarReactivacion(env: Env, leadId: string, mensajeEditado: string, opts: { f?: FetchFn } = {}, now = Date.now()): Promise<ResultadoEnvio> {
+export async function enviarReactivacion(
+  env: Env,
+  leadId: string,
+  mensajeEditado: string,
+  opts: { f?: FetchFn; /** Mensaje fijo de Maricela (envío masivo): no hace falta borrador de la IA. */ fijo?: { oferta: string }; cand?: CandidatoZoho } = {},
+  now = Date.now(),
+): Promise<ResultadoEnvio> {
   if (!idLead(leadId)) return { ok: false, error: "Candidato no válido." };
   const db = new Db(env.DB);
   await asegurar(db);
-  const reg = await db.first<{ borrador: string; oferta: string; enviado_en: number | null }>("SELECT borrador, oferta, enviado_en FROM crm_reactiva WHERE lead_id = ?", [leadId]);
-  if (!reg?.borrador) return { ok: false, error: "Primero prepara el mensaje de este cliente." };
-  if (reg.enviado_en) return { ok: false, error: "A este cliente ya se le escribió. No se envía dos veces." };
-  const cand = (await candidatosPorIds(env, [leadId], opts.f, now).catch(() => new Map<string, CandidatoZoho>())).get(leadId);
+  let reg = await db.first<{ borrador: string; oferta: string; enviado_en: number | null }>("SELECT borrador, oferta, enviado_en FROM crm_reactiva WHERE lead_id = ?", [leadId]);
+  if (opts.fijo) {
+    if (!reg) {
+      await db.run("INSERT INTO crm_reactiva (lead_id, creado, oferta) VALUES (?,?,?)", [leadId, now, opts.fijo.oferta]);
+      reg = { borrador: "", oferta: opts.fijo.oferta, enviado_en: null };
+    }
+  } else if (!reg?.borrador) return { ok: false, error: "Primero prepara el mensaje de este cliente." };
+  if (reg!.enviado_en) return { ok: false, error: "A este cliente ya se le escribió. No se envía dos veces." };
+  const cand = opts.cand ?? (await candidatosPorIds(env, [leadId], opts.f, now).catch(() => new Map<string, CandidatoZoho>())).get(leadId);
   if (!cand) return { ok: false, error: "No encontré a ese candidato en Zoho." };
   if (cand.estado !== ESTADO_FUTURO_ZOHO) return { ok: false, error: `Ese candidato ya no está en «${ESTADO_FUTURO_ZOHO}» (está en «${cand.estado}»). No se le escribe.` };
   const tel = telefonoInternacional(cand.movil, cand.telefono, cand.pais);
@@ -267,14 +292,16 @@ export async function enviarReactivacion(env: Env, leadId: string, mensajeEditad
   if (conv.taken_by) return { ok: false, error: "Una persona del equipo tiene tomada esa conversación; escríbele desde ahí." };
   if (!(await puedeEscribirAhora(db, ref, now))) return { ok: false, error: "Para este cliente es de madrugada. Envíalo a partir de las 9:00 de su hora." };
 
-  const texto = mensajeEditado.replace(/\s+/g, " ").trim().slice(0, 900) || (JSON.parse(reg.borrador) as BorradorReactiva).mensaje;
+  const texto = opts.fijo ? mensajeEditado.trim().slice(0, 1500) : mensajeEditado.replace(/\s+/g, " ").trim().slice(0, 900) || (JSON.parse(reg!.borrador) as BorradorReactiva).mensaje;
   const ult = await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [conv.id]);
   const settings = new SettingsRepo(db);
-  const plantillaTexto = (((await settings.get(TPL_REACTIVACION_TEXTO)) ?? "").trim() || TEXTO_PLANTILLA_POR_DEFECTO).replace(/\{\{1\}\}/g, nombre || "hola");
+  const plantillaBase = ((await settings.get(TPL_REACTIVACION_TEXTO)) ?? "").trim() || TEXTO_PLANTILLA_POR_DEFECTO;
+  const usaNombre = plantillaBase.includes("{{1}}"); // la plantilla de Maricela no lleva variables
+  const plantillaTexto = plantillaBase.replace(/\{\{1\}\}/g, nombre || "hola");
   const dentro = ult?.t != null && now - ult.t < 24 * 3600_000 - 300_000;
   let via: "libre" | "plantilla";
   try {
-    via = await enviarACliente(env, db, ref, dentro ? texto : plantillaTexto, { setting: TPL_REACTIVACION, params: [nombre || "hola"] }, ult?.t ?? null, now);
+    via = await enviarACliente(env, db, ref, dentro ? texto : plantillaTexto, { setting: TPL_REACTIVACION, params: usaNombre ? [nombre || "hola"] : [] }, ult?.t ?? null, now);
   } catch (e) {
     if ((e as Error).message === "sin_plantilla") {
       return { ok: false, error: `WhatsApp ya cerró la ventana de 24 h con este cliente y todavía no hay plantilla aprobada para reactivaciones (ajuste ${TPL_REACTIVACION}). Avísale a Brayan para crearla en YCloud/Meta.` };
@@ -286,13 +313,13 @@ export async function enviarReactivacion(env: Env, leadId: string, mensajeEditad
   await new MessagesRepo(db).append(
     conv.id,
     "note",
-    `Reactivación (cliente que quedó «para después»): se le escribió${via === "plantilla" ? " con la plantilla de reactivación" : ""}. Oferta preparada para cuando responda: ${reg.oferta || "general (nuevas oportunidades de vivienda)"}. Mensaje pensado: «${texto}». Si responde con interés, retoma esto, pregúntale por su ciudad y presupuesto y ofrécele la videollamada con Maricela.`,
+    `Reactivación (cliente que quedó «para después»): se le escribió${via === "plantilla" ? " con la plantilla de reactivación" : ""}. Oferta preparada para cuando responda: ${reg!.oferta || "general (nuevas oportunidades de vivienda)"}. Mensaje enviado${opts.fijo ? " (texto de Maricela)" : ""}: «${(via === "plantilla" ? plantillaTexto : texto).slice(0, 900)}». Si responde con interés (Bogotá, playa u otra ciudad), retoma esto, pregúntale por su ciudad y presupuesto y ofrécele la videollamada con Maricela. Si responde que no le interesa, agradécele con amabilidad y no insistas.`,
   );
   await db.run("UPDATE crm_reactiva SET enviado_en = ?, canal = ?, conv_id = ? WHERE lead_id = ?", [now, via, conv.id, leadId]);
   let zoho = "";
   if (await escrituraActiva(env)) {
     try {
-      await crearNota(env, leadId, `Reactivación por WhatsApp (${hoyMadrid(now)}): se le escribió${reg.oferta ? ` ofreciendo ${reg.oferta}` : " con novedades de proyectos"}.`, opts.f, now);
+      await crearNota(env, leadId, `Reactivación por WhatsApp (${hoyMadrid(now)}): se le escribió${reg!.oferta ? ` ofreciendo ${reg!.oferta}` : " con novedades de proyectos"}.`, opts.f, now);
       zoho = "nota guardada en Zoho";
     } catch (e) {
       console.error("[crm-reactivacion] nota Zoho:", e);
@@ -449,4 +476,67 @@ export async function fragmentoPerdido(env: Env, leadId: string, now = Date.now(
 export async function fragmentoOmitir(env: Env, leadId: string, now = Date.now()): Promise<string> {
   await omitir(env, leadId, now);
   return `<div style="font-size:12px;color:var(--ok);margin-top:6px">✔ Omitido. Al recargar sale de la lista (Zoho no cambió).</div>`;
+}
+
+// ─── Envío masivo con el mensaje de Maricela ─────────────────────────────────
+// Maricela aprobó (19-oct-2026) escribirles a TODOS los clientes en «Revisar en el futuro» con un mensaje fijo (Bogotá o playa + enlace).
+// Va por la plantilla aprobada `viventa_tpl_reactivacion` (sin variables) y SOLO corre con el ajuste `viventa_reactivacion_masiva = activo`.
+// Se envía de a pocos por pasada (cada 15 min), solo de 9 a 21 h del cliente, una sola vez por cliente.
+
+export const AJUSTE_MASIVO = "viventa_reactivacion_masiva";
+export const OFERTA_MASIVA = "Bogotá y Playa (mensaje de Maricela)";
+const MAX_POR_PASADA = 8;
+
+export async function runReactivacionMasiva(env: Env, now = Date.now(), f?: FetchFn): Promise<{ sent: number; omitidos: number; fallos: number }> {
+  const out = { sent: 0, omitidos: 0, fallos: 0 };
+  const settings = new SettingsRepo(new Db(env.DB));
+  if (((await settings.get(AJUSTE_MASIVO)) ?? "").trim().toLowerCase() !== "activo") return out;
+  if (!zohoListo(env)) return out;
+  const texto = ((await settings.get(TPL_REACTIVACION_TEXTO)) ?? "").trim();
+  const plantilla = ((await settings.get(TPL_REACTIVACION)) ?? "").trim();
+  if (!texto || !plantilla) return out;
+  const db = new Db(env.DB);
+  await asegurar(db);
+  const hechos = new Set((await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_reactiva WHERE enviado_en IS NOT NULL OR resultado <> ''")).map((r) => r.lead_id));
+  const { candidatosEnEstado } = await import("./crm-zohoapi.local");
+  const todos = (await candidatosEnEstado(env, ESTADO_FUTURO_ZOHO, f, now)).filter((c) => !hechos.has(c.id));
+  if (todos.length === 0) return out;
+  const vistos = new Set<string>();
+  let seguidosFallidos = 0;
+  for (const cand of todos) {
+    if (out.sent >= MAX_POR_PASADA || seguidosFallidos >= 2) break;
+    const tel = telefonoInternacional(cand.movil, cand.telefono, cand.pais);
+    if (!tel || vistos.has(tel)) {
+      out.omitidos++;
+      continue;
+    }
+    vistos.add(tel);
+    const r = await enviarReactivacion(env, cand.id, texto, { f, fijo: { oferta: OFERTA_MASIVA }, cand }, now);
+    if (r.ok) {
+      out.sent++;
+      seguidosFallidos = 0;
+    } else if (/madrugada/.test(r.error)) {
+      out.omitidos++; // se reintenta en la próxima pasada
+    } else if (/plantilla|No se pudo enviar/.test(r.error)) {
+      out.fallos++;
+      seguidosFallidos++;
+      console.error(`[reactivacionMasiva] ${cand.id}: ${r.error}`);
+    } else {
+      out.omitidos++;
+    }
+  }
+  if (out.sent > 0 || out.fallos > 0) {
+    try {
+      const { notifyCamila } = await import("../src/lib/camila");
+      const { selfOrigin } = await import("../src/lib/self-origin");
+      await notifyCamila(env, {
+        heading: out.fallos ? "⚠️ Reactivación: hubo envíos que fallaron" : "♻️ Reactivación enviada",
+        body: `Mensaje de Maricela (Bogotá / playa) enviado a ${out.sent} cliente(s) que estaban en «Revisar en el futuro».${out.fallos ? ` ${out.fallos} fallaron (¿la plantilla ya está aprobada?).` : ""} Las respuestas se ven en Reactivación del CRM y el bot las atiende.`,
+        url: `${await selfOrigin(env)}/admin`,
+      }).catch(() => false);
+    } catch {
+      /* el aviso nunca tumba el envío */
+    }
+  }
+  return out;
 }

@@ -20,7 +20,7 @@ import { Db } from "../../src/db/client";
 import { SettingsRepo } from "../../src/db/settings";
 import {
   cargarReactivacion, faseDe, leerBorradorReactiva, prepararMensaje, enviarReactivacion, pasarAPerdido, omitir, telefonoInternacional,
-  renderReactivacion, fragmentoPreparar,
+  renderReactivacion, fragmentoPreparar, runReactivacionMasiva,
 } from "../../member/crm-reactivacion.local";
 import type { Env } from "../../src/env";
 
@@ -40,6 +40,7 @@ const iso = (ms: number) => new Date(ms).toISOString().replace("Z", "+00:00");
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
 const escrituras: Array<{ url: string; method: string; body: Record<string, any> }> = [];
 let transiciones: Array<{ id: string; name: string; fields: unknown[] }> = [];
+let leadsEnEstado: Array<Record<string, unknown>> = [];
 let kbMatches: Array<{ score: number; metadata: Record<string, string> }> = [];
 
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
@@ -51,6 +52,9 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
     const cuerpo = JSON.parse(String(init?.body)) as { data?: Array<Record<string, any>>; blueprint?: Array<Record<string, any>> };
     escrituras.push({ url, method: metodo, body: (cuerpo.data?.[0] ?? cuerpo.blueprint?.[0]) as Record<string, any> });
     return json({ data: [{ status: "success", details: { id: "9990001" } }] });
+  }
+  if (url.endsWith("/coql") && String(JSON.parse(String(init?.body)).select_query).includes("from Leads")) {
+    return json({ data: leadsEnEstado });
   }
   if (url.endsWith("/coql")) {
     const t = (id: string, lead: string, diasAtras: number, vence: string) => ({ id, Due_Date: vence, Created_Time: iso(NOW - diasAtras * DIA), What_Id: { id: lead }, Who_Id: null, $se_module: "Leads" });
@@ -74,6 +78,12 @@ beforeEach(async () => {
     KB: { query: async () => ({ matches: kbMatches }) },
   } as unknown as Env;
   escrituras.length = 0;
+  leadsEnEstado = [
+    { id: LEAD_A, First_Name: "Ana", Last_Name: "Pérez", Mobile: "+34 600 000 001", Email: "ana@c.com", Lead_Status: "Revisar en el futuro", Created_Time: "2021-06-19T19:10:06+02:00" },
+    { id: LEAD_B, First_Name: "Beto", Last_Name: "Ruiz", Mobile: "+34600000002", Lead_Status: "Revisar en el futuro", Created_Time: "2022-06-19T19:10:06+02:00" },
+    { id: LEAD_C, First_Name: "Cami", Last_Name: "Gómez", Mobile: "3001234567", Lead_Status: "Revisar en el futuro", Created_Time: "2023-06-19T19:10:06+02:00" },
+    { id: "2259602000055555555", First_Name: "Sin", Last_Name: "Telefono", Mobile: "123", Lead_Status: "Revisar en el futuro", Created_Time: "2023-06-19T19:10:06+02:00" },
+  ];
   transiciones = [{ id: "2259602001737850663", name: "Cliente perdido", fields: [{ api_name: "motivo", criteria: { value: ["Dejó de responder", "Nunca me respondió"] } }] }];
   kbMatches = [{ score: 0.8, metadata: { title: "Proyecto Pereira Centro", content: "Apartamentos en Pereira, entrega inmediata, descuento del 5% en cuota inicial durante noviembre." } }];
   sendOutboundMock.mockReset().mockResolvedValue(undefined);
@@ -218,5 +228,66 @@ describe("sin respuesta → perdido u omitir", () => {
     const html = await fragmentoPreparar(env, LEAD_A, false, NOW, zoho);
     expect(html).toContain("Enviar por WhatsApp");
     expect(html).toContain("NO está configurada");
+  });
+});
+
+describe("envío masivo con el mensaje de Maricela", () => {
+  const HORA = Date.UTC(2026, 9, 20, 16, 0); // 18:00 en Madrid, 11:00 en Bogotá
+  const TEXTO = "Hola 😊 ¿Cómo estás?\n\nSé que habíamos dejado tu proyecto...\n\n🔗 https://vivehome.viventa.co/quota-information?id=2387";
+  async function configurar(activo = true) {
+    const st = new SettingsRepo(db);
+    await st.set("viventa_tpl_reactivacion", "viventa_reactivacion_futuro");
+    await st.set("viventa_tpl_reactivacion_texto", TEXTO);
+    if (activo) await st.set("viventa_reactivacion_masiva", "activo");
+  }
+  it("apagado por defecto: no envía nada", async () => {
+    await configurar(false);
+    expect(await runReactivacionMasiva(env, HORA, zoho)).toEqual({ sent: 0, omitidos: 0, fallos: 0 });
+    expect(sendTemplateMock).not.toHaveBeenCalled();
+  });
+  it("sin plantilla configurada no envía aunque esté activo", async () => {
+    await new SettingsRepo(db).set("viventa_reactivacion_masiva", "activo");
+    expect((await runReactivacionMasiva(env, HORA, zoho)).sent).toBe(0);
+    expect(sendTemplateMock).not.toHaveBeenCalled();
+  });
+  it("envía a todos los que están en «Revisar en el futuro» por la plantilla SIN variables, una sola vez, y omite el teléfono corto", async () => {
+    await configurar();
+    const r = await runReactivacionMasiva(env, HORA, zoho);
+    expect(r.sent).toBe(3);
+    expect(r.omitidos).toBe(1);
+    expect(sendTemplateMock).toHaveBeenCalledTimes(3);
+    const llamadas = sendTemplateMock.mock.calls.map((c) => [c[1], c[2], c[4]]);
+    expect(llamadas).toContainEqual(["34600000001", "viventa_reactivacion_futuro", []]);
+    expect(llamadas).toContainEqual(["573001234567", "viventa_reactivacion_futuro", []]);
+    // el bot queda con el contexto para cuando respondan
+    const nota = await db.first<{ content: string }>("SELECT content FROM messages WHERE conversation_id = 'ycloud:34600000001' AND role = 'note'");
+    expect(nota?.content).toContain("texto de Maricela");
+    expect(nota?.content).toContain("Bogotá");
+    // segunda pasada: no repite
+    const otra = await runReactivacionMasiva(env, HORA + 15 * 60_000, zoho);
+    expect(otra.sent).toBe(0);
+    expect(sendTemplateMock).toHaveBeenCalledTimes(3);
+    // y los ya escritos aparecen en la lista de reactivación aunque no tengan tarea
+    const lista = await cargarReactivacion(env, HORA + 60_000, zoho);
+    expect(lista.filter((x) => x.envio === "escrito").length).toBe(3);
+  });
+  it("respeta el horario del cliente y el tope por pasada", async () => {
+    await configurar();
+    const madrugada = Date.UTC(2026, 9, 20, 1, 0); // 03:00 en Madrid, 20:00 del día anterior en Bogotá
+    const r = await runReactivacionMasiva(env, madrugada, zoho);
+    expect(r.sent).toBe(1); // solo el de Colombia (+57) es hora de escribir
+    expect(sendTemplateMock.mock.calls[0]![1]).toBe("573001234567");
+    leadsEnEstado = Array.from({ length: 12 }, (_, i) => ({ id: `22596020000600000${String(i).padStart(2, "0")}`, First_Name: "N", Last_Name: String(i), Mobile: `+346000001${String(i).padStart(2, "0")}`, Lead_Status: "Revisar en el futuro", Created_Time: "2021-06-19T19:10:06+02:00" }));
+    sendTemplateMock.mockClear();
+    expect((await runReactivacionMasiva(env, HORA, zoho)).sent).toBe(8);
+  });
+  it("si la plantilla falla (no aprobada) no marca como enviado y corta tras 2 fallos seguidos", async () => {
+    await configurar();
+    sendTemplateMock.mockRejectedValue(new Error("ycloud template 400: template not approved"));
+    const r = await runReactivacionMasiva(env, HORA, zoho);
+    expect(r.sent).toBe(0);
+    expect(r.fallos).toBe(2);
+    sendTemplateMock.mockReset().mockResolvedValue(undefined);
+    expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(3); // reintenta cuando ya se puede
   });
 });
