@@ -31,6 +31,13 @@ export async function runSaldoYCloud(env: Env, now = Date.now()): Promise<{ sald
     saldo = Number(j.amount);
     if (!Number.isFinite(saldo)) return { saldo: null, avisado: false };
     await settings.set("ycloud_saldo_ultimo", `${saldo} ${j.currency ?? "USD"} (${new Date(now).toISOString()})`);
+    // Historial para «Gastos ChatBot» del CRM (lo gastado = bajadas de saldo). Nunca tumba la vigilancia.
+    try {
+      const { registrarSaldo } = await import("../../member/crm-consumo.local");
+      await registrarSaldo(env, saldo, now);
+    } catch (e) {
+      console.error("[saldo-ycloud] historial:", e);
+    }
   } catch (e) {
     console.error("[saldo-ycloud]", e);
     return { saldo: null, avisado: false };

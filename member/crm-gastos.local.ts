@@ -6,6 +6,7 @@ import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
 import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM } from "./crm.local";
+import { cargarConsumo, htmlConsumo } from "./crm-consumo.local";
 
 export const CATEGORIAS = ["Forja", "API (Claude)", "YCloud", "Cloudflare", "Otro"] as const;
 export type Categoria = (typeof CATEGORIAS)[number];
@@ -95,8 +96,14 @@ export async function renderGastos(env: Env, opts: { hoy?: string; error?: strin
     )
     .join("");
   const campo = "background:var(--panel,transparent);border:1px solid var(--line);color:var(--cream);padding:8px 10px;font-size:13px;font-family:inherit";
+  const consumo = await cargarConsumo(env).then(htmlConsumo).catch((e) => {
+    console.error("[crm-gastos] consumo:", e);
+    return "";
+  });
   const body = `${ESTILO_CRM}
-    <div class="text-dim" style="font-size:12.5px;margin-bottom:14px">Lo que cuesta mantener el chatbot. Montos en pesos colombianos (COP).</div>
+    <div class="text-dim" style="font-size:12.5px;margin-bottom:14px">Lo que cuesta mantener el chatbot. Los gastos de abajo van en pesos colombianos (COP); el consumo automático, en dólares.</div>
+    ${consumo}
+    <div class="crm-sec" style="margin:4px 0 8px">Gastos pagados <span class="text-dim" style="font-weight:400;font-size:11px">· los registras tú</span></div>
     ${opts.error ? `<div style="background:rgba(255,122,138,.12);border:1px solid var(--bad);color:var(--bad);padding:9px 12px;font-size:12.5px;margin-bottom:14px">${esc(opts.error)}</div>` : ""}
     ${opts.ok ? `<div style="color:var(--ok);font-size:12.5px;margin-bottom:12px">✔ Gasto guardado.</div>` : ""}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
