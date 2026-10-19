@@ -523,15 +523,37 @@ export function renderSuggestionBox(text: string, tr: Traductor = traductorNeutr
 // Pane derecho de UNA conversación: el poller del hilo + el composer. Lo usa
 // renderInbox y el fragment /admin/conversations/pane/:id — el click en la
 // lista cambia SOLO esto (HTMX), sin recargar la página completa.
+/**
+ * WhatsApp solo deja mandar texto libre dentro de las 24 h del último mensaje DEL CLIENTE. Pasado ese plazo el envío desde el panel
+ * falla; este aviso lo explica de antemano (y qué hacer) en vez de dejar al equipo sin saber por qué «no deja enviar».
+ */
+export async function avisoVentana24h(env: Env, convId: string, now = Date.now()): Promise<string> {
+  try {
+    const db = new Db(env.DB);
+    const conv = await db.first<{ channel: string }>("SELECT channel FROM conversations WHERE id = ?", [convId]);
+    if (conv?.channel !== "ycloud") return "";
+    const u = await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [convId]);
+    const horas = u?.t ? (now - u.t) / 3_600_000 : Infinity;
+    if (horas < 23.5) return "";
+    const hace = !u?.t ? "nunca ha escrito" : horas < 48 ? `escribió hace ${Math.floor(horas)} horas` : `escribió hace ${Math.floor(horas / 24)} días`;
+    return `<div style="border-top:1px solid var(--line);background:rgba(245,166,35,.12);color:var(--cream);padding:9px 14px;font-size:12px;line-height:1.5">
+      <b>⚠ WhatsApp no deja enviar texto libre desde aquí:</b> este cliente ${esc(hace)} y pasaron más de 24 horas. Para escribirle: (1) hazlo desde la app de <b>WhatsApp Business</b> de tu teléfono (ahí sí puedes), o (2) usa una <b>plantilla aprobada</b> (menú «Plantillas»). Si responde, la ventana se abre otra vez y ya puedes escribirle desde el panel.</div>`;
+  } catch {
+    return "";
+  }
+}
+
 export async function renderConvPane(env: Env, selectedId: string): Promise<string> {
   const tr = traductor(env);
   const thread = await renderThreadLive(env, selectedId);
+  const ventana = await avisoVentana24h(env, selectedId);
   return `
       <div id="thread-live" class="flex flex-col flex-1 min-h-0"
            hx-get="/admin/conversations/thread/${encodeURIComponent(selectedId)}"
            hx-trigger="every 5s[window.puedeRefrescar('thread-live')]" hx-swap="innerHTML">
         ${thread}
       </div>
+      ${ventana}
       ${renderComposer(selectedId, tr)}`;
 }
 

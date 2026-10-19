@@ -1365,6 +1365,10 @@ adminApp.post("/conversations/:id/reply", async (c) => {
   } catch (e) {
     // Nothing persisted on failure: the customer never got the message.
     const msg = e instanceof Error ? e.message : String(e);
+    // Fuera de las 24 h de WhatsApp (Meta 131047 / «re-engagement»): se explica en español y qué hacer.
+    if (conv.channel === "ycloud" && /131047|re-?engagement|24.?h|24 hours|outside.*window/i.test(msg)) {
+      return c.html(`<span class="text-red-600">✗ No se pudo enviar: pasaron más de 24 horas desde que el cliente escribió y WhatsApp no deja mandar texto libre desde aquí. Escríbele desde la app de WhatsApp Business de tu teléfono o usa una plantilla aprobada (menú «Plantillas»).</span>`);
+    }
     return c.html(`<span class="text-red-600">✗ No se pudo enviar: ${escapeHtml(msg)}</span>`);
   }
 
