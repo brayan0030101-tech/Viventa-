@@ -37,7 +37,8 @@ export async function tokenZoho(env: Env, now = Date.now(), f: FetchFn = fetch):
     grant_type: "refresh_token",
     client_id: env.ZOHO_CLIENT_ID!,
     client_secret: env.ZOHO_CLIENT_SECRET!,
-    refresh_token: env.ZOHO_REFRESH_TOKEN!,
+    // Si se renovó la conexión con más permisos (código nuevo), el token nuevo vive en `zoho_refresh_nuevo` y manda sobre el del secreto.
+    refresh_token: ((await st.get("zoho_refresh_nuevo")) ?? "").trim() || env.ZOHO_REFRESH_TOKEN!,
   });
   const r = await f(`${cuentas(env)}/oauth/v2/token`, { method: "POST", body });
   const j = (await r.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string };

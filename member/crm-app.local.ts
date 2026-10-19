@@ -350,6 +350,18 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
   });
 
+  // Oportunidades (Deals de Zoho: SV y VC en un solo tablero)
+  app.get("/oportunidades", async (c) => {
+    const { renderOportunidades } = await import("./crm-oportunidades.local");
+    return pagina(c, await renderOportunidades(c.env, { rama: c.req.query("rama") }));
+  });
+  app.post("/oportunidades/completar", async (c) => {
+    const { completarTareaOp } = await import("./crm-oportunidades.local");
+    const f = await c.req.parseBody();
+    const r = await completarTareaOp(c.env, String(f["tarea"] ?? ""));
+    return c.html(r.ok ? `<span style="color:var(--ok);font-size:11px">✔ Tarea completada en Zoho. Al recargar sale de la lista.</span>` : `<span style="color:var(--bad);font-size:11px">${r.error.replace(/[<>&]/g, "")}</span>`);
+  });
+
   // Candidatos en «En Prospección» (más de un mes = en rojo)
   app.get("/prospeccion", async (c) => {
     const { renderProspeccion } = await import("./crm-prospeccion.local");

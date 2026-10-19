@@ -629,8 +629,22 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
       cuerpo = `<div class="crm-card" style="padding:24px;color:var(--bad)">${e instanceof ZohoError ? esc(e.message) : "No pude leer Zoho ahora. Inténtalo en unos minutos."}</div>`;
     }
   }
+  // Tareas de oportunidades (SV / VC): antes no se veían aquí (solo las de candidatos).
+  let seccionOps = "";
+  if (zohoListo(env)) {
+    try {
+      const { tareasDeOportunidades, htmlTareasOportunidades } = await import("./crm-oportunidades.local");
+      const filasOp = await tareasDeOportunidades(env, now, f);
+      seccionOps = `<div class="crm-sec" style="margin:22px 0 8px">💼 Oportunidades (SV y VC) · ${filasOp.length} tarea${filasOp.length === 1 ? "" : "s"} vencida${filasOp.length === 1 ? "" : "s"} o de hoy</div>
+        <div class="crm-card"><div style="overflow-x:auto"><div style="min-width:900px">${htmlTareasOportunidades(filasOp, hoyMadrid(now), await escrituraActiva(env))}</div></div></div>
+        <p class="text-dim" style="font-size:11px;margin-top:8px">Tareas de las oportunidades de Maricela en Zoho (Servicio Viventa y Vivecasa) con fecha de hoy o anterior que no están «Completa». Puedes cambiar su fecha o marcarlas completas; el tablero completo está en <a href="/crm/oportunidades" style="color:var(--accent)">💼 Oportunidades</a>.</p>`;
+    } catch (e) {
+      console.error("[crm-seguimientos] oportunidades:", e);
+      seccionOps = `<div class="crm-sec" style="margin:22px 0 8px">💼 Oportunidades (SV y VC)</div><div class="crm-card" style="padding:16px;color:var(--bad);font-size:12.5px">${e instanceof ZohoError ? esc(e.message) : "No pude leer las oportunidades ahora."}</div>`;
+    }
+  }
   const body = `${ESTILO_CRM}
     <div class="text-dim" style="font-size:12.5px;margin-bottom:14px">Las tareas de seguimiento de Zoho que toca hacer hoy o que ya se pasaron. Pulsa <b style="color:var(--cream)">Preparar mensaje</b> y la IA lee la nota del candidato y te propone qué escribirle (o si hay que pasarlo a «Cliente perdido», «Descartado» o «Revisar en el futuro»).</div>
-    ${cuerpo}`;
+    ${cuerpo}${seccionOps}`;
   return crmLayout({ title: "Seguimientos", activa: "seguimientos", body, env });
 }

@@ -20,10 +20,75 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
   if (!zohoListo(env)) return;
   const st = new SettingsRepo(new Db(env.DB));
   const pedido = ((await st.get("zoho_diag_pedir")) ?? "").trim();
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos") return;
+  if (/^codigo:1000\.[0-9a-f]{20,}\.[0-9a-f]{20,}$/.test(pedido)) {
+    // Cambia un código de autorización de Zoho (Self Client) por un refresh token NUEVO con los permisos pedidos. No se imprime el token.
+    await st.set("zoho_diag_pedir", "");
+    let res: Record<string, unknown>;
+    try {
+      const r = await fetch(`${(env.ZOHO_ACCOUNTS_URL || "https://accounts.zoho.com").replace(/\/+$/, "")}/oauth/v2/token`, {
+        method: "POST",
+        body: new URLSearchParams({ grant_type: "authorization_code", client_id: env.ZOHO_CLIENT_ID ?? "", client_secret: env.ZOHO_CLIENT_SECRET ?? "", code: pedido.slice(7) }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { refresh_token?: string; access_token?: string; scope?: string; error?: string };
+      if (r.ok && j.refresh_token) {
+        await st.set("zoho_refresh_nuevo", j.refresh_token);
+        await st.set("zoho_at_exp", "0");
+        res = { ok: true, scope: j.scope ?? "(no informado)", conRefresh: true };
+      } else {
+        res = { ok: false, status: r.status, error: j.error ?? "sin detalle" };
+      }
+    } catch (e) {
+      res = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    await st.set("zoho_diag_resultado", JSON.stringify(res));
+    return;
+  }
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
-  if (pedido === "modulos") {
+  if (pedido === "oportunidades") {
+    // Prueba en vivo (solo lectura, sin datos personales) del tablero y de las tareas de oportunidades.
+    try {
+      const { cargarOportunidades, tareasDeOportunidades, columnasEtapas } = await import("./crm-oportunidades.local");
+      const { ops, contactos } = await cargarOportunidades(env, now);
+      const tareas = await tareasDeOportunidades(env, now);
+      out = {
+        ops: ops.length,
+        sv: ops.filter((o) => o.rama === "SV").length,
+        vc: ops.filter((o) => o.rama === "VC").length,
+        contactos,
+        conNombreDeContacto: ops.filter((o) => o.contacto).length,
+        conTelefono: ops.filter((o) => o.telefono).length,
+        conTareas: ops.filter((o) => o.tareas.length).length,
+        tareasPendientesTotal: ops.reduce((n, o) => n + o.tareas.length, 0),
+        tareasVencidasOHoy: tareas.length,
+        columnas: columnasEtapas(ops),
+      };
+    } catch (e) {
+      out = { error: e instanceof Error ? e.message : String(e) };
+    }
+  } else if (pedido === "deals") {
+    // Solo lectura, sin datos personales: etapas por rama y qué campos trae un Deal vía COQL.
+    try {
+      const dueno = await duenoZoho(env, fetch, now);
+      const filas: Array<Record<string, unknown>> = [];
+      for (let off = 0; off < 1000; off += 200) {
+        const r = await coql(env, `select id, Deal_Name, Stage, Type, Pipeline, Created_Time, Modified_Time, Last_Activity_Time, Contact_Name, Link_Oportunidad_SV, Link_Oportunidad_Vivecasa from Deals where Owner = '${dueno.id}' limit ${off}, 200`, fetch, now);
+        filas.push(...r);
+        if (r.length < 200) break;
+      }
+      const porRama: Record<string, Record<string, number>> = {};
+      for (const f of filas) {
+        const rama = String(f["Pipeline"] ?? "") === "Standard (Vivecasa)" ? "VC" : "SV";
+        const e = String(f["Stage"] ?? "(vacío)");
+        (porRama[rama] ??= {})[e] = ((porRama[rama] ??= {})[e] ?? 0) + 1;
+      }
+      const ej = filas[0] ?? {};
+      out = { total: filas.length, porRama, formaContacto: typeof ej["Contact_Name"] === "object" ? Object.keys(ej["Contact_Name"] as object) : typeof ej["Contact_Name"], conContacto: filas.filter((f) => f["Contact_Name"]).length, conLinkSV: filas.filter((f) => f["Link_Oportunidad_SV"]).length, conLinkVC: filas.filter((f) => f["Link_Oportunidad_Vivecasa"]).length, masReciente: filas.map((f) => String(f["Modified_Time"] ?? "")).sort().pop() };
+    } catch (e) {
+      out = { error: e instanceof Error ? e.message : String(e) };
+    }
+  } else if (pedido === "modulos") {
     // Solo lectura, sin datos personales: módulos, etapas, ramas SV/VC y a qué módulo pertenecen las tareas pendientes de Maricela.
     const paso = async <T,>(f: () => Promise<T>): Promise<T | { error: string }> => {
       try {
