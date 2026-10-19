@@ -62,6 +62,7 @@ import { LeadsRepo, LEAD_STATUSES, type Lead } from "../db/leads";
 import { TicketsRepo } from "../db/tickets";
 import { ConversationsRepo } from "../db/conversations";
 import { MessagesRepo } from "../db/messages";
+import { computeWindow } from "../lib/wa-window";
 import { SettingsRepo, SETTING_KEYS, type SettingKey, resolveTakeoverMs, MANUAL_RESUME_MS } from "../db/settings";
 import { CONTROLS, levelToValue } from "./control-levels";
 
@@ -1350,6 +1351,14 @@ adminApp.post("/conversations/:id/reply", async (c) => {
   const conv = await convs.getById(id);
   if (!conv) return c.html(`<span class="text-red-600">${traductor(c.env)("inbox.conversacionNoEncontrada")}</span>`);
 
+  // YCloud contesta 200 aunque Meta rechace el mensaje después (fuera de las 24 h): sin esta revisión el panel lo guardaba
+  // como enviado y el cliente nunca lo recibía (19 oct 2026). Se revisa ANTES, igual que la app.
+  if (conv.channel === "ycloud") {
+    const ult = await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [id]);
+    if (computeWindow(ult?.t ?? null).state === "closed") {
+      return c.html(`<span class="text-red-600">✗ NO se envió: pasaron más de 24 horas desde que el cliente escribió y WhatsApp no deja mandar texto libre desde aquí. Escríbele desde la app de WhatsApp Business de tu teléfono o usa una plantilla aprobada (menú «Plantillas»).</span>`);
+    }
+  }
   try {
     const adapter = pickAdapter(conv.channel as ChannelId);
     await adapter.sendReply(

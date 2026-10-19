@@ -780,6 +780,11 @@ export default {
         await runSaldoYCloud(env).catch((e) => console.error("saldoYCloud:", e));
       }
       {
+        // Mensajes que YCloud aceptó pero WhatsApp rechazó después (p. ej. fuera de las 24 h): nota en el hilo + aviso al equipo.
+        const { runFallosYCloud } = await import("./followup/fallosYCloud");
+        await runFallosYCloud(env).catch((e) => console.error("fallosYCloud:", e));
+      }
+      {
         // Diagnóstico de solo lectura de Zoho (solo corre si el ajuste zoho_diag_pedir trae un id).
         const { runZohoDiag } = await import("../member/zoho-diag.local");
         await runZohoDiag(env).catch((e) => console.error("zohoDiag:", e));

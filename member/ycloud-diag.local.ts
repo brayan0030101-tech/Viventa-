@@ -40,6 +40,16 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         plantillas: (t.json?.items ?? []).map((x: any) => ({ name: x.name, language: x.language, category: x.category, status: x.status, reason: x.reason, cuerpo: String(x.components?.find((c: any) => c.type === "BODY")?.text ?? "").slice(0, 120) })),
         error: t.status >= 400 ? t.json : undefined,
       };
+    } else if (pedido.startsWith("msgs:")) {
+      // Mensajes recientes de YCloud hacia un número (solo metadatos: tipo, estado, hora, campos extra; nunca el texto).
+      const num = pedido.slice(5).replace(/\D/g, "");
+      const r = await ycloud(env, `/whatsapp/messages?limit=15&page=1&filter.to=%2B${num}`);
+      out = {
+        status: r.status,
+        claves: Object.keys(r.json?.items?.[0] ?? {}),
+        items: (r.json?.items ?? []).map((x: any) => ({ tipo: x.type, estado: x.status, creado: x.createTime, enviado: x.sendTime, entregado: x.deliverTime, leido: x.readTime, origen: x.bizType ?? x.source ?? x.channel, error: x.errorCode ?? x.whatsappApiError?.code })),
+        error: r.status >= 400 ? r.json : undefined,
+      };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
       const r = await ycloud(env, "/whatsapp/templates", {
