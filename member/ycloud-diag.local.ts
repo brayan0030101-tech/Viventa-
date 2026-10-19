@@ -94,6 +94,27 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         }
       }
       out = { recordatorios: hechos };
+    } else if (pedido === "zernio") {
+      // Solo lectura: cuentas conectadas y automatizaciones de comentarios existentes en Zernio.
+      const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
+      const get = async (ruta: string) => {
+        const r = await fetch(`${base}${ruta}`, { headers: { Authorization: `Bearer ${env.ZERNIO_API_KEY ?? ""}` } });
+        const t = await r.text();
+        let j: any = t.slice(0, 300);
+        try {
+          j = JSON.parse(t);
+        } catch {
+          /* texto */
+        }
+        return { status: r.status, j };
+      };
+      const cuentas = await get("/accounts");
+      const autos = await get("/comment-automations");
+      const lista = (x: any): any[] => x?.accounts ?? x?.items ?? x?.automations ?? x?.data ?? (Array.isArray(x) ? x : []);
+      out = {
+        cuentas: { status: cuentas.status, items: lista(cuentas.j).map((a: any) => ({ id: a._id ?? a.id, plataforma: a.platform, usuario: a.username ?? a.displayName, perfil: a.profileId?._id ?? a.profileId })), crudo: cuentas.status >= 400 ? cuentas.j : undefined },
+        automatizaciones: { status: autos.status, items: lista(autos.j).map((a: any) => ({ id: a._id ?? a.id, nombre: a.name, activa: a.isActive, palabras: a.keywords, stats: a.stats })), crudo: autos.status >= 400 ? autos.j : undefined },
+      };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
       const r = await ycloud(env, "/whatsapp/templates", {
