@@ -3,11 +3,19 @@
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
-import { calcomTimeZone, createBooking, resolveEventTypeId } from "../src/integrations/calcom";
+import { calcomTimeZone, createBooking, getAvailableSlots, resolveEventTypeId } from "../src/integrations/calcom";
 
 export async function runCitaManual(env: Env): Promise<void> {
   const st = new SettingsRepo(new Db(env.DB));
   const raw = ((await st.get("cita_manual_pedir")) ?? "").trim();
+  if (/^slots:\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    // Solo lectura: horarios libres de un día (para diagnosticar «Agendar llamada manual»).
+    await st.set("cita_manual_pedir", "");
+    const id = resolveEventTypeId(env);
+    const r = id ? await getAvailableSlots(env, id, raw.slice(6), calcomTimeZone(env)) : { ok: false as const, reason: "sin_event_type" };
+    await st.set("cita_manual_resultado", JSON.stringify(r).slice(0, 2000));
+    return;
+  }
   if (!raw.startsWith("{")) return;
   await st.set("cita_manual_pedir", "");
   let out: unknown;

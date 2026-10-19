@@ -98,6 +98,27 @@ describe("agendar llamada manual", () => {
     expect(html).toContain("Confirmar y agendar");
   });
 
+  it("el botón «Confirmar y agendar» nunca queda deshabilitado (antes no hacía nada hasta actualizar el resumen)", async () => {
+    const vacio = await renderAgendar(env, leerEntrada({}), {}, NOW);
+    expect(vacio).toContain("Confirmar y agendar");
+    expect(vacio).not.toMatch(/name="accion" value="confirmar"[^>]*disabled/);
+    const incompleto = await crearCitaManual(env, leerEntrada({ nombre: "Ana" }), NOW);
+    expect(incompleto.ok).toBe(false);
+    expect(!incompleto.ok && incompleto.error).toContain("Faltan datos");
+  });
+
+  it("si el horario no está abierto en Cal.com, avisa por qué y ofrece guardarla solo en el CRM con un clic", async () => {
+    const fuera = entrada({ hora: "13:00" });
+    const r = await crearCitaManual(env, fuera, NOW);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.sugerirSoloCrm).toBe(true);
+    const html = await renderAgendar(env, fuera, { resultado: r }, NOW);
+    expect(html).toContain("Guardarla solo en el CRM");
+    expect(html).toContain('name="modo" value="solo_crm"');
+    const ok = await crearCitaManual(env, entrada({ hora: "13:00", modo: "solo_crm" }), NOW);
+    expect(ok.ok).toBe(true);
+  });
+
   it("bloquea una llamada que choca con otra del CRM y propone el modo según la disponibilidad", async () => {
     await crearCitaManual(env, entrada(), NOW);
     await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", ["ycloud:34600999888", "ycloud", "34600999888", "Otro", NOW - 9e6, NOW - 8e6]);

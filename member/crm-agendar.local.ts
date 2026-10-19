@@ -185,7 +185,7 @@ export async function previsualizar(env: Env, entrada: EntradaAgenda, now = Date
   return base;
 }
 
-export type Resultado = { ok: true; mensaje: string; convId: string; enlace?: string } | { ok: false; error: string };
+export type Resultado = { ok: true; mensaje: string; convId: string; enlace?: string } | { ok: false; error: string; /** El horario no está abierto en Cal.com: se ofrece guardarla solo en el CRM con un clic. */ sugerirSoloCrm?: boolean };
 
 export async function crearCitaManual(env: Env, entrada: EntradaAgenda, now = Date.now()): Promise<Resultado> {
   const v = await previsualizar(env, entrada, now);
@@ -218,7 +218,7 @@ export async function crearCitaManual(env: Env, entrada: EntradaAgenda, now = Da
       metadata: { servicio: SERVICIO, fecha: entrada.fecha, hora: entrada.hora, calStart: new Date(v.ms).toISOString(), estado, soloCrm: "1", ...(entrada.meet ? { calMeetingUrl: entrada.meet } : {}), ...suprimir },
     });
   } else {
-    if (!v.slotIso) return { ok: false, error: v.disponible === false ? "Ese horario no está disponible en Cal.com (Maricela no lo tiene abierto o ya está ocupado). Puedes guardarla solo en el CRM." : "No pude comprobar la disponibilidad en Cal.com. Inténtalo de nuevo." };
+    if (!v.slotIso) return { ok: false, sugerirSoloCrm: v.disponible === false, error: v.disponible === false ? "Ese horario no está disponible en Cal.com (Maricela no lo tiene abierto —su agenda abierta es de 10:00 a 15:30, hora de España— o ya está ocupado). Puedes guardarla solo en el CRM con el botón de abajo." : "No pude comprobar la disponibilidad en Cal.com. Inténtalo de nuevo." };
     const correoCal = entrada.modo === "cliente" && entrada.correo.includes("@") ? entrada.correo : `sin-correo-${digitos(entrada.tel) || Date.now()}@correo-no-proporcionado.invalid`;
     const { agendarCitaTool } = await import("../src/tools/servicios");
     const t = agendarCitaTool(env, () => convId) as unknown as { execute: (a: Record<string, unknown>, o: unknown) => Promise<{ citaId?: string; booked?: boolean; enlace?: string; message?: string }> };
@@ -277,7 +277,7 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
       <p class="text-dim" style="font-size:12.5px;margin:0 0 16px">Para llamadas que Maricela acordó por su cuenta. <b>Si el horario está libre</b>, se crea en Cal.com y queda en su Google Calendar y en el CRM. <b>Si ya la tiene en su Google Calendar</b>, Cal.com lo ve ocupado y se guarda solo en el CRM.</p>
       ${r ? (r.ok
         ? `<div class="crm-card" style="padding:16px;margin-bottom:16px;border-left:4px solid var(--ok)"><b style="color:var(--ok)">✔ Listo</b><div style="font-size:13px;margin-top:6px">${esc(r.mensaje)}</div>${r.enlace ? `<div style="font-size:12.5px;margin-top:6px">Enlace de Meet: <a href="${esc(r.enlace)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.enlace)}</a></div>` : ""}<div style="margin-top:10px;display:flex;gap:10px"><a class="ghostbtn" href="/crm/c/${encodeURIComponent(r.convId)}" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Ver ficha</a><a class="ghostbtn" href="/crm/calendario" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Ver calendario</a><a class="ghostbtn" href="/crm/agendar" style="border:1px solid var(--line);padding:7px 14px;font-size:12px">Agendar otra</a></div></div>`
-        : `<div class="crm-card" style="padding:14px;margin-bottom:16px;border-left:4px solid var(--bad);color:var(--bad);font-size:13px">✖ ${esc(r.error)}</div>`) : ""}
+        : `<div class="crm-card" style="padding:14px;margin-bottom:16px;border-left:4px solid var(--bad);color:var(--bad);font-size:13px">✖ ${esc(r.error)}${r.sugerirSoloCrm ? `<form method="POST" action="/crm/agendar" style="margin-top:10px">${(["nombre", "tel", "correo", "fecha", "hora", "zona", "meet"] as const).map((k) => `<input type="hidden" name="${k}" value="${esc(String(entrada[k] ?? ""))}">`).join("")}<input type="hidden" name="modo" value="solo_crm"><button type="submit" name="accion" value="confirmar" style="${ESTILO_BOTON}">Guardarla solo en el CRM</button></form>` : ""}</div>`) : ""}
       ${r?.ok ? "" : `<form method="POST" action="/crm/agendar" class="crm-card" style="padding:18px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
           ${campo("nombre", "Nombre completo", entrada.nombre, "required")}
@@ -296,7 +296,7 @@ export async function renderAgendar(env: Env, entrada: EntradaAgenda, opts: { re
         ${radio("solo_crm", "Solo en el CRM", "No toca Cal.com ni Google Calendar. Úsala si la llamada ya está en el Google Calendar de Maricela (Cal.com ya ve ese horario ocupado, así que el bot no se lo ofrece a nadie).")}
         <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
           <button type="submit" name="accion" value="ver" class="ghostbtn" style="border:1px solid var(--line);padding:9px 16px;font-size:12.5px;color:var(--muted);background:none;cursor:pointer;font-family:inherit">Actualizar resumen</button>
-          <button type="submit" name="accion" value="confirmar" style="${ESTILO_BOTON}" ${v.completo && !v.choque ? "" : "disabled"}>Confirmar y agendar</button>
+          <button type="submit" name="accion" value="confirmar" style="${ESTILO_BOTON}" onclick="var f=this.form;if(!f.nombre.value||!f.fecha.value||!f.hora.value||!(f.tel.value||f.correo.value)){return true}return confirm('¿Agendar a '+f.nombre.value+' el '+f.fecha.value+' a las '+f.hora.value+' ('+(f.zona.value==='colombia'?'hora de Colombia':'hora de España')+')?')">Confirmar y agendar</button>
         </div>
       </form>`}
     </div>`;
