@@ -69,6 +69,23 @@ describe("ficha del cliente", () => {
     expect(html).not.toContain("[[botones");
   });
 
+  it("la estrella agrega a «Más probables de comprar» y, ya agregado, permite quitarlo", async () => {
+    const { fijarEtapa } = await import("../../member/crm-pipeline.local");
+    const antes = (await renderCrmFicha(env, "ycloud:34600000001", {}, NOW))!;
+    expect(antes).toContain("Agregar a más probables de comprar");
+    expect(antes).toContain("☆");
+    expect(antes).toContain('hx-post="/crm/etapa"');
+    expect(antes).toContain('"etapa":"probable"');
+    await fijarEtapa(env, "ycloud:34600000001", "probable");
+    const despues = (await renderCrmFicha(env, "ycloud:34600000001", {}, NOW))!;
+    expect(despues).toContain("En «Más probables de comprar»");
+    expect(despues).toContain("⭐");
+    expect(despues).toContain('"etapa":"auto"');
+    expect(despues).toContain("hx-confirm");
+    await fijarEtapa(env, "ycloud:34600000001", "cerrado");
+    expect((await renderCrmFicha(env, "ycloud:34600000001", {}, NOW))!).toContain("Este cliente está marcado como «Cerrado»");
+  });
+
   it("devuelve null si el cliente no existe", async () => {
     expect(await renderCrmFicha(env, "ycloud:0", {}, NOW)).toBeNull();
   });

@@ -124,7 +124,7 @@ function tarjeta(t: TarjetaPipeline, now: number): string {
   return `<div class="pl-card" draggable="true" data-conv="${esc(l.convId)}">
     <div style="display:flex;justify-content:space-between;gap:6px;align-items:flex-start">
       <a href="/crm/c/${encodeURIComponent(l.convId)}" style="font-weight:600;font-size:13px;color:var(--cream);line-height:1.3">${esc(l.nombre || "Sin nombre")}</a>
-      ${badgeNivel(l.prioridad.nivel)}
+      <span style="display:flex;gap:6px;align-items:center">${badgeNivel(l.prioridad.nivel)}${t.etapa === "probable" || t.etapa === "cerrado" || t.etapa === "perdido" ? "" : `<button type="button" title="Agregar a «Más probables de comprar»" hx-post="/crm/etapa" hx-vals='{"conv":"${esc(l.convId)}","etapa":"probable"}' hx-swap="none" hx-on::after-request="location.reload()" style="background:none;border:0;cursor:pointer;font-size:17px;line-height:1;color:var(--muted);padding:0">☆</button>`}</span>
     </div>
     <div class="text-dim" style="font-size:11px;margin:4px 0">${esc(l.canal)}${m.ciudadCompra ? ` · ${esc(m.ciudadCompra)}` : ""}${m.ahorroDisponible ? ` · ${esc(m.ahorroDisponible)}` : ""}</div>
     ${l.llamada ? `<div style="font-size:11px;color:var(--info)">📅 ${esc(l.llamada)}</div>` : ""}

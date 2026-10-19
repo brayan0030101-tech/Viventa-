@@ -357,6 +357,24 @@ export function burbujas(msgs: Array<{ role: string; content: string; created_at
     .join("");
 }
 
+/**
+ * Estrella de la ficha: agrega (☆) o quita (⭐) al cliente de «Más probables de comprar» del pipeline. Usa la misma ruta que el
+ * tablero (`POST /crm/etapa`): «probable» lo agrega y «auto» lo devuelve a su etapa automática.
+ */
+export function botonProbable(convId: string, etapaManual: string | undefined): string {
+  const esta = etapaManual === "probable";
+  const cierre = etapaManual === "cerrado" || etapaManual === "perdido";
+  const confirmar = esta
+    ? "¿Quitar a este cliente de «Más probables de comprar»? Vuelve a su etapa automática."
+    : cierre
+      ? `Este cliente está marcado como ${etapaManual === "cerrado" ? "«Cerrado»" : "«Perdido»"}. ¿Pasarlo a «Más probables de comprar»?`
+      : "";
+  return `<button type="button" title="${esta ? "Está en «Más probables de comprar» del pipeline. Pulsa para quitarlo." : "Agregar a «Más probables de comprar» del pipeline"}"
+      hx-post="/crm/etapa" hx-vals='${JSON.stringify({ conv: convId, etapa: esta ? "auto" : "probable" }).replace(/'/g, "&#39;")}' hx-swap="none" hx-on::after-request="location.reload()"${confirmar ? ` hx-confirm="${esc(confirmar)}"` : ""}
+      style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:700;padding:6px 12px;border:1px solid ${esta ? "var(--accent)" : "var(--line)"};background:${esta ? "var(--accent-soft)" : "none"};color:${esta ? "var(--accent)" : "var(--muted)"}">
+      <span style="font-size:17px;line-height:1">${esta ? "⭐" : "☆"}</span>${esta ? "En «Más probables de comprar»" : "Agregar a más probables de comprar"}</button>`;
+}
+
 export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?: boolean; errorIA?: string } = {}, now = Date.now()): Promise<string | null> {
   const db = new Db(env.DB);
   const conv = await db.first<ConvRow>(
@@ -472,6 +490,7 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
       <a href="/crm" style="font-size:12px">← Volver a los leads</a>
       <h2 style="font-weight:700;font-size:20px;margin:0">${esc(nombre)}</h2>
       ${prioridad ? badgeNivel(prioridad.nivel, prioridad.puntos) : ""}
+      ${botonProbable(convId, m.crm_etapa)}
       <span class="text-dim" style="font-size:12px">Último mensaje ${esc(hace(conv.last_message_at, now))}</span>
     </div>
     <div class="crm-grid"><div>${izquierda}</div><div>${derecha}</div></div>`;
