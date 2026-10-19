@@ -192,3 +192,4 @@
 - El detector `fallosYCloud` no lo mostraba como fallo de Meta; los avisos salieron por `alertarFalloEnvio`. Recarga de Brayan: 63.01 USD.
 - Reenvío: `ycloud-diag` modo `reenviar:<conv>,<conv>` manda la última respuesta del bot (ya guardada) y deja nota «✔ Reenviado». Se reenviaron las 3 respuestas. Los 7 recordatorios del guion NO se reenviaron: los clientes (España/Polonia) estaban ya fuera del horario 9–21 h locales y su ventana de 24 h se cierra esta noche.
 - Pendiente de decidir: subir el umbral de alerta de saldo (hoy 3 USD) a ~10 USD o aviso por consumo diario.
+- 19 oct (noche): umbral de alerta de saldo de YCloud subido de 3 a 10 USD (`saldoYCloud.ts`). Por orden de Brayan se mandó el recordatorio del guion a los 7 clientes cuya ventana de 24 h cerraba esa noche (21:44–22:41 UTC), aun fuera del horario 9–21 h locales; `ycloud-diag` ganó el modo `recordar:<conv|nombre>,…`.

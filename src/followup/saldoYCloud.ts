@@ -9,7 +9,7 @@ import { Db } from "../db/client";
 import { SettingsRepo } from "../db/settings";
 
 const HORA = 3600_000;
-const UMBRAL_USD = 3;
+const UMBRAL_USD = 10;
 const CRITICO_USD = 0.5;
 const REAVISO_MS = 12 * HORA;
 

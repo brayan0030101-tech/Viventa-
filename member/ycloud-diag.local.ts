@@ -72,6 +72,28 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         }
       }
       out = { reenvio: hechos };
+    } else if (pedido.startsWith("recordar:")) {
+      // Recordatorio del guion (mismo texto que el automático) a clientes cuyo envío falló por saldo agotado y cuya ventana de 24 h sigue abierta.
+      const { enviarACliente } = await import("../src/followup/sistemaViventa");
+      const db = new Db(env.DB);
+      const hechos: Record<string, string> = {};
+      for (const par of pedido.slice(9).split(",").map((x) => x.trim()).filter(Boolean)) {
+        const [id, nombre = ""] = par.split("|");
+        const conv = await db.first<{ id: string; channel: string; channel_user_id: string; display_name: string | null }>("SELECT id, channel, channel_user_id, display_name FROM conversations WHERE id = ?", [id]);
+        const ult = await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [id]);
+        if (!conv || !ult?.t || Date.now() - ult.t > 23.5 * 3600_000) {
+          hechos[id] = "omitido: sin ventana de 24 h";
+          continue;
+        }
+        try {
+          const texto = `Hola${nombre ? ` ${nombre}` : ""} 😊 ¿Seguimos con las preguntas? Me faltan pocas para que el equipo comercial de Maricela pueda orientarte mejor.`;
+          await enviarACliente(env, db, conv, texto, null, ult.t, Date.now());
+          hechos[id] = "enviado";
+        } catch (e) {
+          hechos[id] = `error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
+        }
+      }
+      out = { recordatorios: hechos };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
       const r = await ycloud(env, "/whatsapp/templates", {
