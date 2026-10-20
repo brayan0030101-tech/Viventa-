@@ -289,7 +289,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
 
 const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para comprar vivienda en Colombia desde el exterior). Hoy toca hacerle seguimiento a un candidato. Reglas de Maricela:
 1. Lee las NOTAS: son lo que se hizo y en qué quedó el contacto. A partir de ellas decide si el candidato es CALIENTE (muy interesado, avanza), TIBIO (interesado pero lento) o FRÍO (poco interés o sin respuesta). No hay otra clasificación.
-2. Si es frío, o todavía no se le han enviado proyectos: escríbele por WhatsApp para saber si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada.
+2. REGLA DE MARICELA (20 oct 2026, MANDA): el seguimiento es PRIMERO UNA LLAMADA, porque es más personal; solo si el cliente no contesta se deja un WhatsApp. Por eso, cuando la acción sea "whatsapp" o "videollamada", el "mensaje" es el WhatsApp que se deja DESPUÉS de intentar llamar y no ser atendida: empieza diciendo que se intentó llamar y no se pudo hablar (por ejemplo «intenté llamarte hace un momento y no pude comunicarme»). Si es frío, o todavía no se le han enviado proyectos: el WhatsApp pregunta si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada. En "futuro" y "perdido" no se llama: son mensajes de cierre.
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
 4. El seguimiento termina solo cuando el cliente compró, pidió que no lo contactemos más o ya no quiere comprar: en ese caso NO se deja otra tarea, solo una nota, y el candidato pasa a uno de dos estados de Zoho, cada uno con su MOTIVO:
    - "descartado": no es trabajable y no se debe insistir ni reactivar. Aquí NO se escribe mensaje. Motivos: ${MOTIVOS_DESCARTADO.join(" | ")}.
@@ -298,8 +298,8 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 4b. Si en las notas se ven MÁS DE 3 intentos de contacto (llamadas o WhatsApp) sin que el cliente haya respondido, la acción es "futuro": el candidato pasa al estado «Revisar en el futuro», con uno de estos motivos (${MOTIVOS_FUTURO.join(" | ")}). En ese caso el mensaje es un último mensaje breve y amable, sin presionar (por ejemplo, que no le llenamos de mensajes y que cuando quiera retomar aquí estamos), y NO se escribe siguiente tarea: Zoho la crea solo a los 3 meses al cambiar ese estado.
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
 6. LA TAREA DE HOY MANDA: el asunto de la tarea (y su descripción) dice exactamente qué hay que hacer hoy con este candidato, y el mensaje debe lograr ESO. Ejemplo: si la tarea es «Confirmar si desea agendar la videollamada», el mensaje pregunta justo eso; si es «Preguntar si revisó los proyectos», pregunta si los revisó. Solo si la tarea es genérica («Seguimiento WhatsApp», «Seguimiento») decides tú según las notas y las reglas anteriores.
-7. Además del mensaje, escribe el asunto de la SIGUIENTE tarea que se dejará en Zoho: una frase corta y concreta con lo que habrá que hacer la próxima vez (por ejemplo «Confirmar si desea agendar la videollamada»), según en qué quede este contacto.
-Estilo del mensaje: WhatsApp en español, cálido y cercano, 2 a 4 renglones, UNA sola pregunta o propuesta, sin emojis, sin sonar a folleto. Empieza con "Hola [nombre]," (escribe literalmente [nombre]). No inventes datos ni precios, no nombres proyectos ni constructoras, no menciones notas, tareas ni el sistema, y no prometas cosas que no están en las notas.`;
+7. Además del mensaje, escribe el asunto de la SIGUIENTE tarea que se dejará en Zoho: una frase corta y concreta con lo que habrá que hacer la próxima vez, que normalmente empieza por «Llamar» (por ejemplo «Llamar para confirmar si desea agendar la videollamada»), según en qué quede este contacto.
+Estilo del mensaje (el WhatsApp que se deja tras la llamada sin respuesta): WhatsApp en español, cálido y cercano, 2 a 4 renglones, UNA sola pregunta o propuesta, sin emojis, sin sonar a folleto. Empieza con "Hola [nombre]," (escribe literalmente [nombre]). No inventes datos ni precios, no nombres proyectos ni constructoras, no menciones notas, tareas ni el sistema, y no prometas cosas que no están en las notas.`;
 
 function prompt(c: { tarea: TareaZoho; nombre: string; notas: NotaZoho[]; conversacion: string; ficha: string; hoy: string }): string {
   const notas = c.notas.length
@@ -318,7 +318,7 @@ ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion
  "accion": "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado",
  "proyectos_enviados": true si las notas dicen que ya se le enviaron proyectos; si no, false,
  "segundo_titular": true si recomiendas un segundo titular por ingresos menores a 1.250 euros; si no, false,
- "mensaje": "el mensaje de WhatsApp listo para enviar (vacío solo si la acción es descartado; en futuro y perdido es un último mensaje amable que deja la puerta abierta)",
+ "mensaje": "el mensaje de WhatsApp listo para dejar si no contesta la llamada (vacío solo si la acción es descartado; en futuro y perdido es un último mensaje amable que deja la puerta abierta)",
  "motivo": "una frase para Maricela: por qué eliges esa acción y esa temperatura",
  "dias_siguiente": número de días para la siguiente tarea (dentro del rango de la temperatura),
  "motivo_cierre": "uno de los motivos de la lista de su estado, solo si la acción es perdido, descartado o futuro; si no, vacío",
@@ -487,7 +487,7 @@ const ETIQ_TEMP: Record<Temperatura, { txt: string; color: string }> = {
   tibio: { txt: "🌤 Tibio", color: "var(--accent-2)" },
   frio: { txt: "⚪ Frío", color: "var(--info)" },
 };
-const ETIQ_ACC: Record<Accion, string> = { whatsapp: "💬 Escribir por WhatsApp", videollamada: "📞 Proponer videollamada", perdido: "🏁 Pasar a «Cliente perdido»", descartado: "🚫 Pasar a «Descartado»", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
+const ETIQ_ACC: Record<Accion, string> = { whatsapp: "📞 Llamar primero · si no contesta, WhatsApp", videollamada: "📞 Llamar para proponer la videollamada · si no contesta, WhatsApp", perdido: "🏁 Pasar a «Cliente perdido»", descartado: "🚫 Pasar a «Descartado»", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
 
 const campoCopiable = (id: string, titulo: string, valor: string, filas: number, editable = false, nombre = ""): string =>
   `<div style="margin-bottom:12px">
@@ -518,6 +518,9 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
   const confirmacion = estadoManual
     ? `En Zoho se va a: ${b.accion === "futuro" ? "" : "agregar la nota, "}pasar al candidato a «${estadoManual}» con el motivo elegido y marcar ESTA tarea como completa.${b.accion === "futuro" ? " Zoho enviará su correo automático al cliente y creará sola la tarea de dentro de 3 meses." : ""} ¿Confirmas?`
     : `En Zoho se va a: agregar la nota, crear la siguiente tarea para el ${masDias(hoy, b.diasSiguiente ?? 0)} y marcar ESTA tarea como completa. ¿Confirmas?`;
+  const avisoLlamar = b.accion === "whatsapp" || b.accion === "videollamada"
+    ? `<div style="border:1px solid var(--accent);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">📞 <b>Primero llámalo/a.</b> Si no contesta, deja este WhatsApp (ya dice que se intentó llamar).</div>`
+    : "";
   const cuerpo =
     b.accion === "descartado"
       ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">No hace falta escribirle. El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.descartado)}»</b> y solo se deja la nota (ninguna tarea).</div>`
@@ -527,7 +530,7 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
-    ${avisoFuturo}${cuerpo}
+    ${avisoFuturo}${avisoLlamar}${cuerpo}
     <form hx-post="/crm/seguimientos/hecho" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" hx-confirm="${esc(confirmacion)}" style="margin:0">
       <input type="hidden" name="tarea" value="${esc(b.tareaId)}">
       ${esCierre(b.accion) || b.accion === "futuro" ? `<div style="margin-bottom:12px"><b style="font-size:12px;color:var(--cream)">Motivo en Zoho</b><br><select name="motivo_cierre" class="crm-in" style="margin-top:4px;font-size:12.5px">${listaMotivos.map((m) => `<option value="${esc(m)}"${m === b.motivoCierre ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></div>` : ""}

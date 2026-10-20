@@ -10,7 +10,7 @@ vi.mock("../../src/llm/work-model", () => ({
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { hoyMadrid, masDias, leerBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho } from "../../member/crm-seguimientos.local";
+import { hoyMadrid, masDias, leerBorrador, tarjetaBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho } from "../../member/crm-seguimientos.local";
 import { tokenZoho, tareasPendientes } from "../../member/crm-zohoapi.local";
 import type { Env } from "../../src/env";
 
@@ -79,6 +79,18 @@ describe("fechas", () => {
   it("hoy en España y suma de días", () => {
     expect(hoyMadrid(Date.UTC(2026, 9, 12, 23, 30))).toBe("2026-10-13"); // 01:30 del 13 en España
     expect(masDias("2026-10-30", 3)).toBe("2026-11-02");
+  });
+});
+
+describe("seguimiento: primero llamar", () => {
+  const base = { tareaId: "t123456789", leadId: "l", nombre: "Diana Zuñiga", creado: 1, modelo: "m" };
+  it("en whatsapp y videollamada la tarjeta pide llamar primero; en cierres no", () => {
+    const wa = leerBorrador('{"temperatura":"tibio","accion":"whatsapp","mensaje":"Hola [nombre], intenté llamarte y no pude comunicarme.","nota":"x"}', base)!;
+    const html = tarjetaBorrador(wa, { movil: "+34600000000", telefono: "" }, "2026-10-20");
+    expect(html).toContain("Primero llámalo/a");
+    expect(html).toContain("Llamar primero");
+    const cierre = leerBorrador('{"temperatura":"frio","accion":"perdido","mensaje":"Hola [nombre], aquí estamos.","motivo_cierre":"Nunca me respondió"}', base)!;
+    expect(tarjetaBorrador(cierre, { movil: "+34600000000", telefono: "" }, "2026-10-20")).not.toContain("Primero llámalo/a");
   });
 });
 
