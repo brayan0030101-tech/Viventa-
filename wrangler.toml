@@ -8,6 +8,8 @@ name = "forja-inmobiliaria-8664f4"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
+# Navegador de Cloudflare (Browser Rendering) para armar cotizaciones en ViveHome (src/vivehome/). Plan Workers Paid: 10 h/mes incluidas, luego 0,09 USD/h.
+browser = { binding = "BROWSER" }
 
 # ── DOMINIO PROPIO del panel (white-label, OPCIONAL) — va AQUÍ, a nivel raíz
 # (NO dentro de [vars]). Requisito: el dominio está en la cuenta de Cloudflare
@@ -157,7 +159,7 @@ AGENT_LOCATION_HINT = "enam"
 command = "node scripts/forja-preflight.mjs"
 
 [triggers]
-crons = ["0 3 * * *", "*/5 * * * *"]  # daily 3am UTC: purge old messages; every 5 min: vigilante de conversaciones sin respuesta
+crons = ["0 3 * * *", "*/5 * * * *", "7,22,37,52 * * * *"]  # daily 3am UTC: purge old messages; every 5 min: vigilante de conversaciones sin respuesta
 
 # DASHBOARD_PASSWORD  (secret) — HTTP Basic Auth password for the admin dashboard; username is always "admin".
 # Set it with: wrangler secret put DASHBOARD_PASSWORD

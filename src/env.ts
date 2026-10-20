@@ -169,6 +169,11 @@ export interface Env {
   // WhatsApp por YCLOUD (BSP oficial con COEXISTENCIA y zero-markup). Envío por
   // api.ycloud.com (X-API-Key); firma de webhook tipo Stripe (t + HMAC).
   YCLOUD_API_KEY?: string;            // API key de YCloud (header X-API-Key)
+  // ViveHome (vivehome.viventa.co): cuenta de Maricela para que el bot arme cotizaciones (secretos; ver src/vivehome/cola.ts).
+  VIVEHOME_USER?: string;
+  VIVEHOME_PASSWORD?: string;
+  // Cloudflare Browser Rendering (binding `browser` en wrangler.toml): navegador para manejar ViveHome.
+  BROWSER?: unknown;
   YCLOUD_WA_FROM?: string;            // el NÚMERO del negocio en E.164 (el `from` del envío)
   YCLOUD_WEBHOOK_SECRET?: string;     // firma YCloud-Signature = HMAC-SHA256(secret, "<t>.<body>") hex
   // Embudos de comentarios dinámicos (feature personal): endpoint POST /funnels.

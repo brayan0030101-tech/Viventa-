@@ -7,7 +7,8 @@
  *  · dato_sin_respaldo — el verificador bloqueó la respuesta del bot (el cliente recibió el comodín «lo confirma el equipo»);
  *  · entrega_fallida — WhatsApp/Instagram rechazó un mensaje (ventana de 24 h, saldo agotado, límite…);
  *  · fallo_ia — falló la IA al preparar la respuesta;
- *  · entrega_al_agente — un mensaje del cliente no pudo entregarse al bot (lo registra el webhook).
+ *  · entrega_al_agente — un mensaje del cliente no pudo entregarse al bot (lo registra el webhook);
+ *  · cotizacion_fallida — el bot no pudo crear o enviar una cotización de ViveHome (lo registra src/vivehome/cola.ts).
  * Cada hallazgo se cierra solo cuando la situación se resuelve (cita agendada, alguien respondió, pasaron 24 h).
  */
 import type { Env } from "../env";
@@ -17,7 +18,7 @@ import { esCortesia } from "./sinRespuesta";
 const MIN = 60_000;
 const H = 3_600_000;
 
-export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida";
+export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida";
 
 export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string; grave: boolean }> = {
   listo_sin_cita: { icono: "🎯", texto: "Buen perfil sin videollamada agendada", grave: true },
@@ -29,6 +30,7 @@ export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string;
   entrega_al_agente: { icono: "📥", texto: "Mensaje del cliente que no llegó al bot", grave: true },
   mejora_sugerida: { icono: "💡", texto: "Mejora sugerida para el bot", grave: false },
   revision_ia: { icono: "🧠", texto: "Revisión diaria con IA: el bot actuó mal", grave: true },
+  cotizacion_fallida: { icono: "🧾", texto: "Cotización del bot que falló (ViveHome)", grave: true },
   mensaje_ilegible: { icono: "🙈", texto: "Mensaje de WhatsApp que el bot no pudo leer (el cliente no recibió respuesta)", grave: true },
 };
 

@@ -5,6 +5,8 @@ import { Db } from "../src/db/client";
 import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM } from "./crm.local";
 import { asegurarTablaCotizaciones } from "../src/followup/cotizaciones";
+import { filasDe, leerModo, type FilaCola, AJUSTE_PILOTO } from "../src/vivehome/cola";
+import { SettingsRepo } from "../src/db/settings";
 
 const DIA = 86_400_000;
 export const URL_COTIZACION = "https://vivehome.viventa.co/quota-information?id=";
@@ -50,6 +52,49 @@ export async function cargarCotizaciones(env: Env, now = Date.now()): Promise<Fi
   return [...porTel.values()].sort((a, b) => b.ultima - a.ultima);
 }
 
+export const ESTADO_BOT: Record<FilaCola["estado"], { t: string; color: string }> = {
+  propuesta: { t: "Preparada (esperando turno o aprobación)", color: "var(--info)" },
+  pedida: { t: "El cliente pidió otra", color: "var(--info)" },
+  creando: { t: "Creándose en ViveHome", color: "var(--info)" },
+  creada: { t: "Creada, NO enviada", color: "var(--bad)" },
+  enviada: { t: "Enviada", color: "var(--ok)" },
+  pendiente_plantilla: { t: "Pendiente: fuera de la ventana de 24 h (plantilla)", color: "var(--accent)" },
+  sin_proyectos: { t: "Sin proyectos en su ciudad (avisado)", color: "var(--dim)" },
+  omitida: { t: "Omitida", color: "var(--dim)" },
+  error: { t: "Falló 3 veces (ver Auditoría)", color: "var(--bad)" },
+};
+
+export const TIPO_BOT = { a_la_medida: "A la medida de su cuota", mas_economicas: "NO a la medida: las 2 más económicas" } as const;
+
+/** Tabla de la cola de cotizaciones del bot (CRM → Cotizaciones). */
+async function renderColaBot(env: Env, now: number): Promise<string> {
+  const db = new Db(env.DB);
+  const filas = await filasDe(env);
+  const modo = await leerModo(db);
+  const piloto = ((await new SettingsRepo(db).get(AJUSTE_PILOTO)) ?? "").split(/[\s,;]+/).filter(Boolean).length;
+  const nombres = new Map<string, string>();
+  for (const f of filas) {
+    if (nombres.has(f.conv_id)) continue;
+    const l = await db.first<{ name: string | null }>("SELECT name FROM leads WHERE conversation_id = ? AND name IS NOT NULL AND intent NOT LIKE 'Cita ·%' ORDER BY updated_at DESC LIMIT 1", [f.conv_id]);
+    const c = await db.first<{ display_name: string | null }>("SELECT display_name FROM conversations WHERE id = ?", [f.conv_id]);
+    nombres.set(f.conv_id, l?.name || c?.display_name || "(sin nombre)");
+  }
+  const pend = filas.filter((f) => f.estado === "pendiente_plantilla");
+  const fila = (f: FilaCola) => {
+    const e = ESTADO_BOT[f.estado] ?? { t: f.estado, color: "" };
+    const items = (() => { try { return (JSON.parse(f.items ?? "[]") as Array<{ proyecto: string; ciudad: string }>).map((i) => `${i.proyecto} (${i.ciudad.replace(/ D\.C\.$/, "")})`).join(", "); } catch { return ""; } })();
+    return `<tr class="cot-fila" data-q="${esc((nombres.get(f.conv_id) + " " + (f.cot_id ? "cot-" + f.cot_id : "")).toLowerCase())}" style="border-top:1px solid var(--line)">
+      <td style="padding:9px 8px;font-size:12.5px"><a href="/crm/c/${esc(encodeURIComponent(f.conv_id))}" style="color:var(--cream);font-weight:700">${esc(nombres.get(f.conv_id) ?? "")}</a><br><span class="text-dim" style="font-size:11px">${esc(f.ciudad_texto ?? "")} · ${esc(f.capacidad_texto ?? "")}</span></td>
+      <td style="padding:9px 8px;font-size:12px"><span style="color:${e.color}">${esc(e.t)}</span>${f.tipo ? `<br><span class="text-dim" style="font-size:11px">${esc(TIPO_BOT[f.tipo])}</span>` : ""}${f.error && f.estado !== "enviada" ? `<br><span class="text-dim" style="font-size:10.5px">${esc(f.error.slice(0, 140))}</span>` : ""}</td>
+      <td style="padding:9px 8px;font-size:12px">${f.cot_id ? `<a href="${URL_COTIZACION}${esc(f.cot_id)}" target="_blank" style="color:var(--accent)">COT-${esc(f.cot_id)}</a><br>` : ""}<span class="text-dim" style="font-size:11px">${esc(items)}</span></td>
+      <td style="padding:9px 8px;font-size:11px;white-space:nowrap" class="text-dim">${fecha(f.enviado_en ?? f.actualizado)}</td></tr>`;
+  };
+  const etiquetaModo = modo === "activo" ? "🟢 Activo" : modo === "piloto" ? `🟡 Piloto (${piloto} clientes)` : "⚪ Apagado";
+  return `<div class="crm-sec" style="margin:22px 0 8px">🤖 Cotizaciones del bot · <span style="font-weight:400">${etiquetaModo}</span></div>
+    <div class="text-dim" style="font-size:12px;margin-bottom:10px">El bot arma en ViveHome la cotización de quien ya dijo ciudad y cuota mensual (cuota inicial 20 %, sin reportar a la constructora) y le manda el enlace de 9 a 21 h de su hora. Interruptor: ajuste <code>viventa_cotizaciones_bot</code> (apagado / piloto / activo).${pend.length ? ` <b style="color:var(--accent)">${pend.length} pendiente(s) de plantilla</b>: el cliente lleva más de 24 h sin escribir y no se le puede mandar texto libre.` : ""}</div>
+    <div class="crm-card" style="padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse">${filas.map(fila).join("") || `<tr><td style="padding:18px;color:var(--dim)">El bot todavía no ha preparado cotizaciones.</td></tr>`}</table></div>`;
+}
+
 export async function renderCotizaciones(env: Env, opts: { f?: string } = {}, now = Date.now()): Promise<string> {
   const todas = await cargarCotizaciones(env, now);
   const sinResp = todas.filter((x) => !x.respondio && !x.cita && now - x.ultima >= 3 * DIA);
@@ -84,6 +129,7 @@ export async function renderCotizaciones(env: Env, opts: { f?: string } = {}, no
       ${kpi("Con videollamada", todas.filter((x) => x.cita).length, "var(--ok)")}</div>
     <div style="margin-bottom:10px"><input id="cot-q" class="crm-in" type="search" placeholder="Buscar por nombre, teléfono o COT-…" style="min-width:280px;padding:8px 10px;font-size:12.5px"> <span class="text-dim" style="font-size:11.5px">${opts.f === "sin_respuesta" ? "Mostrando solo los que no han respondido. " : ""}</span></div>
     <div class="crm-card" style="padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse">${cuerpo || `<tr><td style="padding:24px;color:var(--dim)">Todavía no hay cotizaciones registradas.</td></tr>`}</table></div>
+    ${await renderColaBot(env, now)}
     <script>(function(){var q=document.getElementById('cot-q');if(!q)return;q.addEventListener('input',function(){var v=q.value.toLowerCase().trim();document.querySelectorAll('.cot-fila').forEach(function(r){r.style.display=(!v||r.dataset.q.indexOf(v)>=0)?'':'none'})})})();</script>`;
   return crmLayout({ title: "Cotizaciones", activa: "cotizaciones", body, env });
 }

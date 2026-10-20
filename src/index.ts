@@ -773,6 +773,14 @@ export default {
       return;
     }
 
+    // Cotizaciones del bot en ViveHome (cada 15 min, cron propio: usa un navegador y puede tardar minutos).
+    // Interruptor: ajuste viventa_cotizaciones_bot (apagado | piloto | activo). Ver src/vivehome/cola.ts.
+    if (event.cron === "7,22,37,52 * * * *") {
+      const { runCotizacionesBot } = await import("./vivehome/cola");
+      await runCotizacionesBot(env).catch((e) => console.error("cotizacionesBot:", e));
+      return;
+    }
+
     // Cron frecuente dedicado (cada 5 min): los DOS vigilantes de salud —
     // conversaciones sin respuesta Y fallos explícitos ("Algo falló") — corren
     // acá, no una vez al día. Un fallo en cadena a las 10am no puede esperar

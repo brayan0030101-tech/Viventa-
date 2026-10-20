@@ -375,6 +375,24 @@ export function botonProbable(convId: string, etapaManual: string | undefined): 
       <span style="font-size:17px;line-height:1">${esta ? "⭐" : "☆"}</span>${esta ? "En «Más probables de comprar»" : "Agregar a más probables de comprar"}</button>`;
 }
 
+/** Tarjeta de la ficha: cotizaciones que armó el bot para este cliente y botón para pedir otra. */
+async function tarjetaCotizacionBot(env: Env, convId: string): Promise<string> {
+  const { filasDe } = await import("../src/vivehome/cola");
+  const { ESTADO_BOT, TIPO_BOT, URL_COTIZACION } = await import("./crm-cotizaciones.local");
+  const filas = await filasDe(env, convId);
+  const lineas = filas
+    .map((f) => {
+      const e = ESTADO_BOT[f.estado] ?? { t: f.estado, color: "" };
+      return `<div style="padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px">
+        <span style="color:${e.color}">${esc(e.t)}</span>${f.cot_id ? ` · <a href="${URL_COTIZACION}${esc(f.cot_id)}" target="_blank" rel="noopener">COT-${esc(f.cot_id)}</a>` : ""}
+        ${f.tipo ? `<div class="text-dim" style="font-size:11.5px">${esc(TIPO_BOT[f.tipo])}</div>` : ""}
+        ${f.error && f.estado !== "enviada" ? `<div class="text-dim" style="font-size:11px">${esc(f.error.slice(0, 160))}</div>` : ""}</div>`;
+    })
+    .join("");
+  const boton = `<form method="POST" action="/crm/c/${encodeURIComponent(convId)}/otra-cotizacion" style="margin-top:8px"><button class="crm-in" type="submit" style="font-size:12px;cursor:pointer">El cliente pidió otra cotización</button></form>`;
+  return `${lineas || `<div class="text-dim" style="font-size:12px">El bot no le ha armado cotización.</div>`}${filas.length ? boton : ""}`;
+}
+
 export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?: boolean; errorIA?: string } = {}, now = Date.now()): Promise<string | null> {
   const db = new Db(env.DB);
   const conv = await db.first<ConvRow>(
@@ -463,6 +481,7 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
     ${card("Contacto", contacto)}
     ${card("Ficha del cliente", ficha)}
     ${lead?.ficha.notas ? card("Notas del bot", `<div class="text-muted" style="font-size:12.5px;white-space:pre-wrap;line-height:1.5">${esc(lead.ficha.notas)}</div>`) : ""}
+    ${card("Cotización del bot (ViveHome)", await tarjetaCotizacionBot(env, convId))}
     ${card("Videollamada", llamadasHtml)}
     ${card("Registro en Zoho", `<div style="font-size:12.5px">${registro}</div>${botonRegistro}`)}
     ${card("Tickets", ticketsHtml)}
