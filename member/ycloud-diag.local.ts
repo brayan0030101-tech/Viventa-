@@ -82,6 +82,7 @@ async function plantillasPendientes(env: Env, st: SettingsRepo): Promise<void> {
       try {
         await sendYCloudTemplate(env, conv.channel_user_id, x.template, "es_ES", x.params);
         await new MessagesRepo(db).append(x.conv, "note", `📤 Plantilla enviada (${x.template}): la ventana de 24 h estaba cerrada. Cuando responda, el bot sigue la conversación.`);
+        await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_retomar', ?) WHERE id = ?", [`oferta-${new Date().toISOString()}`, x.conv]); // ya recibió la oferta: no entra al envío masivo de retomar
         resultados[x.conv] = "enviada";
       } catch (e) {
         resultados[x.conv] = `error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
