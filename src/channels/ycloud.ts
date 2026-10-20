@@ -46,6 +46,7 @@ interface YCloudInboundMessage {
   image?: YCloudMedia;
   audio?: YCloudMedia;
   document?: YCloudMedia & { filename?: string };
+  fromUserId?: string;
   customerProfile?: { name?: string; username?: string };
 }
 
@@ -68,6 +69,16 @@ interface YCloudWebhookBody {
   apiVersion?: string;
   whatsappInboundMessage?: YCloudInboundMessage;
   whatsappMessage?: YCloudEchoMessage;
+}
+
+/**
+ * Usuarios de WhatsApp con nombre de usuario (BSUID, p. ej. «CO.2588780288309047»): YCloud no manda su teléfono (`from` falta) sino
+ * `fromUserId`, y para escribirles se usa `recipient` en vez de `to` (docs.ycloud.com/reference/bsuid). El 19 oct 2026 estos mensajes
+ * se descartaban en silencio y el cliente quedaba sin respuesta.
+ */
+const ES_BSUID = /^[A-Za-z]{2}\.[A-Za-z0-9]{1,128}$/;
+export function destinoYCloud(id: string): { to: string } | { recipient: string } {
+  return ES_BSUID.test(id) ? { recipient: id } : { to: id.startsWith("+") ? id : `+${id}` };
 }
 
 /** Número → solo dígitos, para un channelUserId estable entre recibir y enviar. */
@@ -227,7 +238,9 @@ export async function parseYCloudEvents(
     console.log("ycloud: evento de otro número ignorado", JSON.stringify({ type: body.type, businessNumber: normPhone(m.to) }));
     return [];
   }
-  const from = normPhone(m.from);
+  // Sin teléfono (usuario de WhatsApp con nombre de usuario): se identifica por su BSUID.
+  const bsuid = ES_BSUID.test(String(m.fromUserId ?? "")) ? String(m.fromUserId) : "";
+  const from = normPhone(m.from) || bsuid;
   if (!from) return [];
 
   let text: string | undefined;
@@ -263,7 +276,7 @@ export async function parseYCloudEvents(
     {
       channel: "ycloud",
       channelUserId: from,
-      displayName: m.customerProfile?.name || undefined,
+      displayName: m.customerProfile?.name || (m.customerProfile?.username ? `@${m.customerProfile.username}` : undefined),
       text,
       audioUrl,
       imageUrl,
@@ -408,7 +421,7 @@ export const ycloudAdapter: ChannelAdapter = {
           conBotones
             ? {
                 from,
-                to: `+${reply.channelUserId}`,
+                ...destinoYCloud(reply.channelUserId),
                 type: "interactive",
                 interactive: {
                   type: "button",
@@ -421,7 +434,7 @@ export const ycloudAdapter: ChannelAdapter = {
                   },
                 },
               }
-            : { from, to: `+${reply.channelUserId}`, type: "text", text: { body: cuerpo } },
+            : { from, ...destinoYCloud(reply.channelUserId), type: "text", text: { body: cuerpo } },
         ),
       });
       // Fuera de la ventana de 24h Meta rechaza texto libre (pide plantilla HSM):
@@ -437,7 +450,7 @@ export const ycloudAdapter: ChannelAdapter = {
         res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-          body: JSON.stringify({ from, to: `+${reply.channelUserId}`, type: "text", text: { body: `${reply.chunks[i]}\n\n${reply.buttons!.map((b, n) => `${n + 1}) ${b.title}`).join("\n")}` } }),
+          body: JSON.stringify({ from, ...destinoYCloud(reply.channelUserId), type: "text", text: { body: `${reply.chunks[i]}\n\n${reply.buttons!.map((b, n) => `${n + 1}) ${b.title}`).join("\n")}` } }),
         });
       }
       if (!res.ok) {
@@ -450,12 +463,12 @@ export const ycloudAdapter: ChannelAdapter = {
     for (const m of reply.media ?? []) {
       const payload =
         m.kind === "image"
-          ? { from, to: `+${reply.channelUserId}`, type: "image", image: { link: m.url, ...(m.caption ? { caption: m.caption } : {}) } }
+          ? { from, ...destinoYCloud(reply.channelUserId), type: "image", image: { link: m.url, ...(m.caption ? { caption: m.caption } : {}) } }
           : m.kind === "video"
-            ? { from, to: `+${reply.channelUserId}`, type: "video", video: { link: m.url, ...(m.caption ? { caption: m.caption } : {}) } }
+            ? { from, ...destinoYCloud(reply.channelUserId), type: "video", video: { link: m.url, ...(m.caption ? { caption: m.caption } : {}) } }
             : m.kind === "file"
-              ? { from, to: `+${reply.channelUserId}`, type: "document", document: { link: m.url, ...(m.filename ? { filename: m.filename } : {}), ...(m.caption ? { caption: m.caption } : {}) } }
-              : { from, to: `+${reply.channelUserId}`, type: "audio", audio: { link: m.url } };
+              ? { from, ...destinoYCloud(reply.channelUserId), type: "document", document: { link: m.url, ...(m.filename ? { filename: m.filename } : {}), ...(m.caption ? { caption: m.caption } : {}) } }
+              : { from, ...destinoYCloud(reply.channelUserId), type: "audio", audio: { link: m.url } };
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
@@ -489,7 +502,7 @@ export async function sendYCloudTemplate(
     headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
     body: JSON.stringify({
       from,
-      to: to.startsWith("+") ? to : `+${to}`,
+      ...destinoYCloud(to),
       type: "template",
       template: {
         name,

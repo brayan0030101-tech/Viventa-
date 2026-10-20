@@ -353,6 +353,39 @@ describe("botones de WhatsApp (YCloud)", () => {
     expect(out[0]?.text).toBe("Mar 13 oct");
   });
 
+  it("un usuario de WhatsApp con nombre de usuario (sin teléfono, solo fromUserId) llega al bot y se le contesta con `recipient`", async () => {
+    const out = await parseYCloudEvents(
+      {
+        type: "whatsapp.inbound_message.received",
+        whatsappInboundMessage: { id: "i1", wamid: "w1", to: "+34611688609", type: "text", text: { body: "Yo estoy en España vivo en Murcia" }, fromUserId: "CO.13491208655302741918", customerProfile: { name: "José", username: "jose94161" } },
+      } as any,
+      { ...env, YCLOUD_WA_FROM: "+34611688609" } as any,
+      ORIGIN,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].channelUserId).toBe("CO.13491208655302741918");
+    expect(out[0].text).toBe("Yo estoy en España vivo en Murcia");
+
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await ycloudAdapter.sendReply({ channel: "ycloud", channelUserId: "CO.13491208655302741918", chunks: ["Hola José"] }, { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any);
+    const body = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(body.recipient).toBe("CO.13491208655302741918");
+    expect(body.to).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it("con teléfono, `to` sigue siendo +número y un evento sin from ni fromUserId se descarta", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await ycloudAdapter.sendReply({ channel: "ycloud", channelUserId: "34600000000", chunks: ["Hola"] }, { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any);
+    const body = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(body.to).toBe("+34600000000");
+    expect(body.recipient).toBeUndefined();
+    vi.unstubAllGlobals();
+    expect(await parseYCloudEvents({ type: "whatsapp.inbound_message.received", whatsappInboundMessage: { id: "i2", to: "+34611688609", type: "text", text: { body: "hola" } } } as any, { ...env, YCLOUD_WA_FROM: "+34611688609" } as any, ORIGIN)).toEqual([]);
+  });
+
   it("sendReply manda mensaje interactivo con los botones en el último chunk", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
