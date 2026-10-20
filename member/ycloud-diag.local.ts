@@ -212,10 +212,10 @@ export async function runYcloudDiag(env: Env): Promise<void> {
       }
       out = { revisados, fallidos, paginas: pagina - 1, masAntiguo, completo: fin };
     } else if (pedido.startsWith("{")) {
-      const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
+      const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string; buttons?: string[] };
       const r = await ycloud(env, "/whatsapp/templates", {
         method: "POST",
-        body: JSON.stringify({ wabaId, name: p.name, language: p.language, category: p.category, components: [{ type: "BODY", text: p.text }] }),
+        body: JSON.stringify({ wabaId, name: p.name, language: p.language, category: p.category, components: [{ type: "BODY", text: p.text, ...(/\{\{\d+\}\}/.test(p.text) ? { example: { body_text: [["Ana", "10:30", "Lunes"].slice(0, new Set(p.text.match(/\{\{\d+\}\}/g)).size)] } } : {}) }, ...(p.buttons?.length ? [{ type: "BUTTONS", buttons: p.buttons.map((t) => ({ type: "QUICK_REPLY", text: t })) }] : [])] }),
       });
       out = { wabaId, status: r.status, respuesta: r.json };
     } else {

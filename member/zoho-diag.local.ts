@@ -43,7 +43,7 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades") return;
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades" && pedido !== "tareas") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
   if (pedido === "oportunidades") {
@@ -203,6 +203,25 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       });
     }
     out = { total: Array.isArray(filas) ? filas.length : filas, detalle: detalle.map((d) => ({ ...(d as object), tareas: undefined, notas: undefined })) };
+  } else if (pedido === "tareas") {
+    // Solo lectura, agregados sin datos personales: cuántas tareas vencidas o de hoy hay, de qué tipo, de qué estado y cuán atrasadas.
+    const { tareasPendientes, candidatosPorIds } = await import("./crm-zohoapi.local");
+    const hoy = hoyMadrid(now);
+    const ts = await tareasPendientes(env, hoy, fetch, now, 600);
+    const cands = await candidatosPorIds(env, [...new Set(ts.map((t) => t.leadId))], fetch, now);
+    const cuenta = (xs: string[]) => Object.entries(xs.reduce((m: Record<string, number>, x) => ((m[x] = (m[x] ?? 0) + 1), m), {})).sort((a, b) => b[1] - a[1]).slice(0, 14);
+    const dias = (v: string) => Math.max(0, Math.round((Date.parse(`${hoy}T00:00:00Z`) - Date.parse(`${v}T00:00:00Z`)) / 86_400_000));
+    const porLead = cuenta(ts.map((t) => t.leadId));
+    out = {
+      hoy,
+      total: ts.length,
+      deHoy: ts.filter((t) => t.vence === hoy).length,
+      atraso: { "1-3 días": ts.filter((t) => dias(t.vence) >= 1 && dias(t.vence) <= 3).length, "4-7 días": ts.filter((t) => dias(t.vence) >= 4 && dias(t.vence) <= 7).length, "8-14 días": ts.filter((t) => dias(t.vence) >= 8 && dias(t.vence) <= 14).length, "más de 14": ts.filter((t) => dias(t.vence) > 14).length },
+      porAsunto: cuenta(ts.map((t) => t.asunto.toLowerCase().replace(/[^a-záéíóúñ ]/g, "").trim().slice(0, 40))),
+      porEstado: cuenta(ts.map((t) => cands.get(t.leadId)?.estado ?? "(sin candidato)")),
+      candidatosDistintos: porLead.length ? new Set(ts.map((t) => t.leadId)).size : 0,
+      conVariasTareas: porLead.filter(([, n]) => n > 1).length,
+    };
   } else if (pedido === "agenda") {
     // Prueba en vivo (solo lectura, sin datos personales) de las consultas de prospección, carga por día y búsqueda por teléfono/correo.
     const paso = async <T,>(f: () => Promise<T>): Promise<T | { error: string }> => {
