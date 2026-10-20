@@ -72,6 +72,8 @@ async function escribir(page: Pagina, campo: Pagina, valor: string): Promise<voi
 export async function entrar(page: Pagina, usuario: string, clave: string): Promise<void> {
   if (!usuario || !clave) throw new ErrorPantalla("entrar", "faltan las credenciales de ViveHome (secretos VIVEHOME_USER / VIVEHOME_PASSWORD)");
   await page.goto(`${VIVEHOME}/login`, { waitUntil: "networkidle", timeout: 45_000 });
+  // Blazor dibuja el formulario unos segundos después de cargar la página: se espera hasta 30 s.
+  await page.waitForSelector("#viventa-login-credential", { state: "visible", timeout: 30_000 }).catch(() => undefined);
   const correo = await page.$("#viventa-login-credential");
   const pass = await page.$("#viventa-login-password");
   if (!correo || !pass) throw new ErrorPantalla("entrar", "no aparece el formulario de acceso");
@@ -117,7 +119,8 @@ export function filaATipologia(celdas: string[]): TipologiaCatalogo | null {
 /** Lee todo el catálogo de la Calculadora (≈1.000 tipologías, 50 páginas) y las tasas del euro y del dólar. */
 export async function leerCatalogo(page: Pagina): Promise<Catalogo> {
   await page.goto(`${VIVEHOME}/calculadora-viventa`, { waitUntil: "networkidle", timeout: 45_000 });
-  await espera(page, 3000);
+  await page.getByText("Proyectos dentro de la capacidad").first().waitFor({ state: "visible", timeout: 30_000 }).catch(() => undefined);
+  await espera(page, 2000);
   if (!(await textoPagina(page)).includes("Proyectos dentro de la capacidad")) throw new ErrorPantalla("calculadora", "no carga la Calculadora");
   const usd = await tasaVisible(page, "USD");
   const eur = await tasaVisible(page, "EUR");
@@ -224,7 +227,8 @@ async function cuotaInicial(page: Pagina, deseadas: number[]): Promise<number[]>
 export async function crearCotizacion(page: Pagina, p: PedidoCotizacion, opts: { ensayo?: boolean } = {}): Promise<ResultadoCreacion> {
   if (!p.items.length || p.items.length > 3) throw new Error("una cotización lleva de 1 a 3 inmuebles");
   await page.goto(`${VIVEHOME}/home/quotes?action=wizard`, { waitUntil: "networkidle", timeout: 45_000 });
-  await espera(page, 2500);
+  await page.getByText("Información del Cliente", { exact: true }).first().waitFor({ state: "visible", timeout: 30_000 }).catch(() => undefined);
+  await espera(page, 1500);
   if (!(await textoPagina(page)).includes("Información del Cliente")) throw new ErrorPantalla("cliente", "no carga el asistente «Nueva Cotización»");
 
   // 1. Cliente: nombre (el campo autocompleta prospectos: se escribe y se sale con un clic afuera), correo y teléfono.
