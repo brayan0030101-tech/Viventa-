@@ -435,7 +435,7 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
               db,
               f.conv_id,
               f.tipo === "mas_economicas"
-                ? `[Cotización del bot] COT-${cotId} enviada el ${fecha}. NO se cotizó a la medida: su cuota (${pesos(f.capacidad ?? 0)}/mes) no alcanza; se le mandaron las ${items.length} opciones más económicas.`
+                ? `[Cotización del bot] COT-${cotId} enviada el ${fecha}. NO se cotizó a la medida: su cuota (${pesos(f.capacidad ?? 0)}/mes) no alcanza; se le ${items.length === 1 ? "mandó la opción más económica" : `mandaron las ${items.length} opciones más económicas`}.`
                 : `[Cotización del bot] COT-${cotId} enviada el ${fecha} (a la medida de su cuota de ${pesos(f.capacidad ?? 0)}/mes).`,
             );
           } catch (e) {
