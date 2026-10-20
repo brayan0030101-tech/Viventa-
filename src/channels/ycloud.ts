@@ -307,6 +307,17 @@ export async function ycloudOwnerTakeover(body: YCloudWebhookBody, env: Env, ori
   await convs.setPausedUntil(conv.id, Date.now() + (await resolveTakeoverMs(env)));
   console.log("ycloud coexistence: owner replied from app → paused", JSON.stringify({ phone }));
 
+  // Los echoes de texto vienen sin el cuerpo: se anota el wamid y `sincronizarApp` (cron de 5 min) trae el texto desde YCloud
+  // para que lo que el equipo escribe en WhatsApp Business también se vea en el hilo del panel.
+  if (body.whatsappMessage?.type === "text" && body.whatsappMessage.wamid) {
+    try {
+      const { anotarEcho } = await import("../followup/sincronizarApp");
+      await anotarEcho(env, body.whatsappMessage.wamid, conv.id);
+    } catch (e) {
+      console.warn("[ycloud coexistence] no se pudo anotar el echo:", e);
+    }
+  }
+
   const audioId = body.whatsappMessage?.audio?.id;
   if (audioId) {
     try {

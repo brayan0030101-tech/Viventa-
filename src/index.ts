@@ -780,6 +780,11 @@ export default {
         await runSaldoYCloud(env).catch((e) => console.error("saldoYCloud:", e));
       }
       {
+        // Lo que el equipo escribe desde WhatsApp Business: se trae el texto de YCloud y se guarda en el hilo del panel.
+        const { runSincronizarApp } = await import("./followup/sincronizarApp");
+        await runSincronizarApp(env).catch((e) => console.error("sincronizarApp:", e));
+      }
+      {
         // Mensajes que YCloud aceptó pero WhatsApp rechazó después (p. ej. fuera de las 24 h): nota en el hilo + aviso al equipo.
         const { runFallosYCloud } = await import("./followup/fallosYCloud");
         await runFallosYCloud(env).catch((e) => console.error("fallosYCloud:", e));

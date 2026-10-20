@@ -47,7 +47,7 @@ export async function runYcloudDiag(env: Env): Promise<void> {
       out = {
         status: r.status,
         claves: Object.keys(r.json?.items?.[0] ?? {}),
-        items: (r.json?.items ?? []).map((x: any) => ({ tipo: x.type, estado: x.status, creado: x.createTime, enviado: x.sendTime, entregado: x.deliverTime, leido: x.readTime, origen: x.bizType ?? x.source ?? x.channel, error: x.errorCode ?? x.whatsappApiError?.code })),
+        items: (r.json?.items ?? []).map((x: any) => ({ tipo: x.type, estado: x.status, creado: x.createTime, enviado: x.sendTime, entregado: x.deliverTime, leido: x.readTime, origen: x.bizType ?? x.source ?? x.channel, conTexto: typeof x.text === "string" ? x.text.length : x.text?.body ? String(x.text.body).length : 0, error: x.errorCode ?? x.whatsappApiError?.code })),
         error: r.status >= 400 ? r.json : undefined,
       };
     } else if (pedido.startsWith("reenviar:")) {
