@@ -51,10 +51,51 @@ async function reinyectarPendiente(env: Env, st: SettingsRepo): Promise<void> {
   await st.set("ycloud_diag_resultado", JSON.stringify({ reinyeccion: resultado, conv: p.conv }));
 }
 
+/**
+ * Envío programado de plantillas aprobadas a clientes sin ventana de 24 h (ajuste `plantilla_pendiente` = JSON [{conv, template, params, no_antes_de}]).
+ * Cada elemento se envía a partir de `no_antes_de` solo si la ventana sigue cerrada, no hay cita agendada, nadie de la persona del equipo escribió
+ * después del último mensaje del cliente y la conversación no está pausada. Deja una nota en el hilo y el resultado en `ycloud_diag_resultado`.
+ */
+async function plantillasPendientes(env: Env, st: SettingsRepo): Promise<void> {
+  const raw = ((await st.get("plantilla_pendiente")) ?? "").trim();
+  if (!raw) return;
+  const lista = JSON.parse(raw) as Array<{ conv: string; template: string; params: string[]; no_antes_de: number }>;
+  const ahora = Date.now();
+  const resto = lista.filter((x) => ahora < x.no_antes_de);
+  const listos = lista.filter((x) => ahora >= x.no_antes_de);
+  if (listos.length === 0) return;
+  await st.set("plantilla_pendiente", resto.length ? JSON.stringify(resto) : "");
+  const db = new Db(env.DB);
+  const { sendYCloudTemplate } = await import("../src/channels/ycloud");
+  const { MessagesRepo } = await import("../src/db/messages");
+  const resultados: Record<string, string> = {};
+  for (const x of listos) {
+    const conv = await db.first<{ channel_user_id: string; paused_until: number | null }>("SELECT channel_user_id, paused_until FROM conversations WHERE id = ? AND channel = 'ycloud'", [x.conv]);
+    const ult = await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [x.conv]);
+    const equipo = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'owner' AND created_at > ?", [x.conv, ult?.t ?? 0]);
+    const cita = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM leads WHERE conversation_id = ? AND intent LIKE 'Cita ·%'", [x.conv]);
+    if (!conv) resultados[x.conv] = "omitido: no existe";
+    else if (ult?.t && ahora - ult.t < 24 * 3_600_000) resultados[x.conv] = "omitido: ventana abierta (se puede escribir normal)";
+    else if ((cita?.n ?? 0) > 0) resultados[x.conv] = "omitido: ya tiene cita";
+    else if ((equipo?.n ?? 0) > 0 || (conv.paused_until ?? 0) > ahora) resultados[x.conv] = "omitido: ya la atiende una persona";
+    else {
+      try {
+        await sendYCloudTemplate(env, conv.channel_user_id, x.template, "es_ES", x.params);
+        await new MessagesRepo(db).append(x.conv, "note", `📤 Plantilla enviada (${x.template}): la ventana de 24 h estaba cerrada. Cuando responda, el bot sigue la conversación.`);
+        resultados[x.conv] = "enviada";
+      } catch (e) {
+        resultados[x.conv] = `error: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
+      }
+    }
+  }
+  await st.set("ycloud_diag_resultado", JSON.stringify({ plantillas: resultados }));
+}
+
 export async function runYcloudDiag(env: Env): Promise<void> {
   if (!env.YCLOUD_API_KEY) return;
   const st = new SettingsRepo(new Db(env.DB));
   await reinyectarPendiente(env, st).catch((e) => console.error("reinyectar:", e));
+  await plantillasPendientes(env, st).catch((e) => console.error("plantillas pendientes:", e));
   const pedido = ((await st.get("ycloud_diag_pedir")) ?? "").trim();
   if (!pedido) return;
   await st.set("ycloud_diag_pedir", "");
