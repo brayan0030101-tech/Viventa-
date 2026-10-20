@@ -126,6 +126,10 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         }
       }
       out = { recordatorios: hechos };
+    } else if (pedido === "equipo") {
+      // Solo lectura: cuántos destinatarios de Telegram y si hay correo tiene configurado el aviso al equipo (sin mostrar ningún dato).
+      const { teamTelegramIds } = await import("../src/lib/camila");
+      out = { telegramEquipo: teamTelegramIds(env).length, correoEquipo: Boolean(env.CAMILA_EMAIL), resend: Boolean(env.RESEND_API_KEY), botTelegram: Boolean(env.TELEGRAM_BOT_TOKEN), telegramDueno: Boolean(env.OWNER_TELEGRAM_CHAT_ID) };
     } else if (pedido === "zernio") {
       // Solo lectura: cuentas conectadas y automatizaciones de comentarios existentes en Zernio.
       const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
