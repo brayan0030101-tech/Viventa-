@@ -43,7 +43,7 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades" && pedido !== "tareas") return;
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades" && pedido !== "tareas" && pedido !== "madrid") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
   if (pedido === "oportunidades") {
@@ -203,6 +203,32 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       });
     }
     out = { total: Array.isArray(filas) ? filas.length : filas, detalle: detalle.map((d) => ({ ...(d as object), tareas: undefined, notas: undefined })) };
+  } else if (pedido === "madrid") {
+    // Solo lectura en Zoho: candidatos cuya ciudad o provincia es Madrid o su comunidad; se guardan en la tabla temporal `tmp_madrid_zoho` (borrar al terminar).
+    const { coql, duenoZoho } = await import("./crm-zohoapi.local");
+    const dueno = await duenoZoho(env, fetch, now);
+    const db = new Db(env.DB);
+    await db.run("DROP TABLE IF EXISTS tmp_madrid_zoho");
+    await db.run("CREATE TABLE IF NOT EXISTS tmp_madrid_zoho (id TEXT PRIMARY KEY, nombre TEXT, movil TEXT, telefono TEXT, correo TEXT, ciudad TEXT, provincia TEXT, estado TEXT, creado TEXT, propietario TEXT)");
+    const TERMINOS = ["Madrid", "Leganés", "Móstoles", "Getafe", "Alcalá de Henares", "Fuenlabrada", "Alcorcón", "Parla", "Torrejón", "Pozuelo", "Majadahonda", "Las Rozas", "Rivas", "Coslada", "Alcobendas", "Aranjuez", "Valdemoro", "Pinto", "San Sebastián de los Reyes", "Boadilla"];
+    const errores: string[] = [];
+    for (const campo of ["City", "State"]) {
+      for (const t of TERMINOS) {
+        try {
+          for (let off = 0; off < 600; off += 200) {
+            const filas = await coql(env, `select id, First_Name, Last_Name, Mobile, Phone, Email, City, State, Lead_Status, Created_Time from Leads where (Owner = '${dueno.id}' and ${campo} like '%${t.replace(/'/g, "")}%') limit ${off}, 200`, fetch, now);
+            for (const x of filas as Array<Record<string, unknown>>) {
+              const nombre = [x["First_Name"], x["Last_Name"]].filter(Boolean).join(" ") || "Sin nombre";
+              await db.run("INSERT OR REPLACE INTO tmp_madrid_zoho (id, nombre, movil, telefono, correo, ciudad, provincia, estado, creado, propietario) VALUES (?,?,?,?,?,?,?,?,?,?)", [String(x["id"]), nombre, String(x["Mobile"] ?? ""), String(x["Phone"] ?? ""), String(x["Email"] ?? ""), String(x["City"] ?? ""), String(x["State"] ?? ""), String(x["Lead_Status"] ?? ""), String(x["Created_Time"] ?? ""), ""]);
+            }
+            if (filas.length < 200) break;
+          }
+        } catch (e) {
+          errores.push(`${campo}:${t}:${e instanceof Error ? e.message.slice(0, 70) : String(e)}`);
+        }
+      }
+    }
+    out = { errores: errores.slice(0, 4), filasUnicas: (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM tmp_madrid_zoho"))?.n };
   } else if (pedido === "tareas") {
     // Solo lectura, agregados sin datos personales: cuántas tareas vencidas o de hoy hay, de qué tipo, de qué estado y cuán atrasadas.
     const { tareasPendientes, candidatosPorIds } = await import("./crm-zohoapi.local");
