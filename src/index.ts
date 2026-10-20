@@ -820,6 +820,8 @@ export default {
         // Auditor: conversaciones trabadas (buen perfil sin cita, cliente sin respuesta, mensajes que no llegaron, fallos de IA…).
         const { runAuditor } = await import("./followup/auditor");
         await runAuditor(env).catch((e) => console.error("auditor:", e));
+        const { runAuditorIA } = await import("./followup/auditorIA");
+        await runAuditorIA(env).catch((e) => console.error("auditorIA:", e));
       }
       {
         // Lo que el equipo escribe desde WhatsApp Business: se trae el texto de YCloud y se guarda en el hilo del panel.
