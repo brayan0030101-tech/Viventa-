@@ -73,6 +73,64 @@ async function transcripcion(db: Db, convId: string, desde: number): Promise<str
   return texto;
 }
 
+export interface MejoraSugerida {
+  titulo: string;
+  texto: string;
+  aplicada?: string;
+}
+
+/** Con los problemas del día, propone reglas nuevas para las instrucciones del bot (no las aplica: las aprueba el administrador en CRM → Auditoría). */
+async function proponerMejoras(env: Env, db: Db, st: SettingsRepo, hoy: string, generar?: (prompt: string) => Promise<string>): Promise<void> {
+  const hs = await db.all<{ detalle: string }>("SELECT detalle FROM auditoria_hallazgos WHERE tipo = 'revision_ia' AND clave = ? ORDER BY id", [hoy]);
+  if (hs.length === 0) return;
+  const reglasActuales = ((await st.get("custom_instructions")) ?? "")
+    .split("\n")
+    .filter((l) => /^REGLA/i.test(l.trim()))
+    .map((l) => `- ${l.slice(0, 120)}`)
+    .slice(-30)
+    .join("\n");
+  const prompt = `Eres el mejorador del chatbot de ventas de Viventa. Estos son los problemas que el auditor encontró hoy en conversaciones reales del bot:\n${hs.map((h) => `- ${h.detalle}`).join("\n")}\n\nReglas que ya tiene el bot (resumen):\n${reglasActuales || "(ninguna)"}\n\nPropón hasta 3 reglas NUEVAS y concretas que corrijan los problemas repetidos o graves (no repitas reglas que ya existen). Cada regla: un título corto y un texto listo para añadir a las instrucciones, en español, que empiece por "REGLA NUEVA (${hoy}, propuesta por el auditor):", con instrucciones claras de qué hacer y qué NO hacer. Responde SOLO con JSON: {"reglas":[{"titulo":"…","texto":"…"}]}`;
+  let salida = "";
+  if (generar) salida = await generar(prompt);
+  else {
+    const { workModel } = await import("../llm/work-model");
+    const llm = await workModel(env, "smart", "insights");
+    salida = ((await llm.generate({ prompt, maxOutputTokens: 1500, temperature: 0.2 } as never)) as { text?: string }).text ?? "";
+  }
+  const m = salida.match(/\{[\s\S]*\}/);
+  if (!m) return;
+  try {
+    const j = JSON.parse(m[0]) as { reglas?: Array<{ titulo?: string; texto?: string }> };
+    const reglas: MejoraSugerida[] = (j.reglas ?? []).filter((r) => r?.titulo && r?.texto).map((r) => ({ titulo: String(r.titulo).slice(0, 90), texto: String(r.texto).slice(0, 1800) })).slice(0, 3);
+    if (reglas.length === 0) return;
+    await st.set("auditoria_ia_mejoras", JSON.stringify({ fecha: hoy, reglas }));
+    await registrarHallazgo(env, { tipo: "mejora_sugerida", convId: "bot", clave: hoy, detalle: `El auditor propone ${reglas.length} ${reglas.length === 1 ? "regla nueva" : "reglas nuevas"} para el bot: ${reglas.map((r) => r.titulo).join(" · ")}. Revísalas en CRM → Auditoría.` });
+  } catch (e) {
+    console.error("[auditor-ia] mejoras:", e);
+  }
+}
+
+/** Añade al final de las instrucciones del bot una mejora sugerida (con copia de seguridad previa). Solo la llama el administrador. */
+export async function aplicarMejora(env: Env, indice: number, now = Date.now()): Promise<{ ok: boolean; mensaje: string }> {
+  const st = new SettingsRepo(new Db(env.DB));
+  let sug: { fecha: string; reglas: MejoraSugerida[] } | null = null;
+  try {
+    sug = JSON.parse((await st.get("auditoria_ia_mejoras")) ?? "null");
+  } catch {
+    sug = null;
+  }
+  const r = sug?.reglas?.[indice];
+  if (!sug || !r) return { ok: false, mensaje: "Esa sugerencia ya no existe." };
+  if (r.aplicada) return { ok: false, mensaje: "Esa regla ya se aplicó." };
+  const actual = (await st.get("custom_instructions")) ?? "";
+  if (!actual.trim()) return { ok: false, mensaje: "El bot no tiene instrucciones guardadas: no se cambia nada." };
+  await st.set(`custom_instructions_respaldo_${sug.fecha}-auditor-${indice + 1}`, actual);
+  await st.set("custom_instructions", `${actual.trimEnd()}\n\n${r.texto.trim()}`);
+  r.aplicada = new Date(now).toISOString();
+  await st.set("auditoria_ia_mejoras", JSON.stringify(sug));
+  return { ok: true, mensaje: "Regla añadida a las instrucciones del bot (con copia de seguridad). Ya está en uso." };
+}
+
 export async function runAuditorIA(env: Env, now = Date.now(), generar?: (prompt: string) => Promise<string>): Promise<{ revisadas: number }> {
   const st = new SettingsRepo(new Db(env.DB));
   const db = new Db(env.DB);
@@ -125,6 +183,7 @@ export async function runAuditorIA(env: Env, now = Date.now(), generar?: (prompt
   await st.set("auditoria_ia_cola", JSON.stringify(cola));
   if (cola.idx >= cola.ids.length) {
     await st.set("auditoria_ia_ultimo", JSON.stringify({ fecha: hoy, revisadas: cola.ids.length, conProblemas: cola.problemas }));
+    await proponerMejoras(env, db, st, hoy, generar).catch((e) => console.error("[auditor-ia] proponerMejoras:", e));
   }
   return { revisadas };
 }

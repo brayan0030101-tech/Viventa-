@@ -17,7 +17,7 @@ import { esCortesia } from "./sinRespuesta";
 const MIN = 60_000;
 const H = 3_600_000;
 
-export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia";
+export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida";
 
 export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string; grave: boolean }> = {
   listo_sin_cita: { icono: "🎯", texto: "Buen perfil sin videollamada agendada", grave: true },
@@ -27,6 +27,7 @@ export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string;
   entrega_fallida: { icono: "📵", texto: "Mensaje que no llegó al cliente", grave: true },
   fallo_ia: { icono: "⚠️", texto: "Falló la IA", grave: true },
   entrega_al_agente: { icono: "📥", texto: "Mensaje del cliente que no llegó al bot", grave: true },
+  mejora_sugerida: { icono: "💡", texto: "Mejora sugerida para el bot", grave: false },
   revision_ia: { icono: "🧠", texto: "Revisión diaria con IA: el bot actuó mal", grave: true },
   mensaje_ilegible: { icono: "🙈", texto: "Mensaje de WhatsApp que el bot no pudo leer (el cliente no recibió respuesta)", grave: true },
 };

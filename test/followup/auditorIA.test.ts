@@ -7,7 +7,8 @@ import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
 import { MessagesRepo } from "../../src/db/messages";
-import { runAuditorIA, leerResultadoIA } from "../../src/followup/auditorIA";
+import { SettingsRepo } from "../../src/db/settings";
+import { runAuditorIA, leerResultadoIA, aplicarMejora } from "../../src/followup/auditorIA";
 import type { Env } from "../../src/env";
 
 const NOW = Date.UTC(2026, 9, 20, 7, 0);
@@ -57,5 +58,25 @@ describe("runAuditorIA", () => {
     expect(h[0].tipo).toBe("revision_ia");
     expect(h[0].detalle).toContain("hora_distinta");
     expect((await runAuditorIA(env, NOW + 5 * MIN, generar)).revisadas).toBe(0); // la cola de hoy ya está completa
+  });
+});
+
+describe("mejoras sugeridas", () => {
+  it("al terminar la cola propone reglas nuevas (sin aplicarlas); aplicarlas guarda copia y añade el texto una sola vez", async () => {
+    await conv("34600000001", "Ana");
+    const st = new SettingsRepo(db);
+    await st.set("custom_instructions", "SISTEMA\nREGLA NUEVA (13 oct): vieja");
+    const generar = vi.fn().mockImplementation(async (p: string) =>
+      p.includes("mejorador") ? '{"reglas":[{"titulo":"Ofrecer la llamada","texto":"REGLA NUEVA (2026-10-20, propuesta por el auditor): siempre ofrece la videollamada."}]}' : '{"gravedad":"alta","problemas":[{"tipo":"sin_videollamada","detalle":"No ofreció la videollamada"}]}',
+    );
+    await runAuditorIA(env, NOW, generar);
+    const sug = JSON.parse((await st.get("auditoria_ia_mejoras")) ?? "null");
+    expect(sug.reglas).toHaveLength(1);
+    expect(await st.get("custom_instructions")).toBe("SISTEMA\nREGLA NUEVA (13 oct): vieja"); // no se aplica sola
+    expect((await aplicarMejora(env, 0, NOW)).ok).toBe(true);
+    expect(await st.get("custom_instructions")).toContain("siempre ofrece la videollamada");
+    expect(await st.get("custom_instructions_respaldo_2026-10-20-auditor-1")).toBe("SISTEMA\nREGLA NUEVA (13 oct): vieja");
+    expect((await aplicarMejora(env, 0, NOW)).ok).toBe(false); // ya aplicada
+    expect((await aplicarMejora(env, 5, NOW)).ok).toBe(false);
   });
 });

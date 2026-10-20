@@ -353,7 +353,15 @@ export function crmApp(): Hono<Vars> {
   // Auditoría: lo que el auditor del bot encontró trabado o fallando
   app.get("/auditoria", async (c) => {
     const { renderAuditoria } = await import("./crm-auditoria.local");
-    return pagina(c, await renderAuditoria(c.env));
+    return pagina(c, await renderAuditoria(c.env, Date.now(), { esAdmin: await soloAdminCtx(c) }));
+  });
+  app.post("/auditoria/aplicar", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede hacer esto.", 403);
+    const form = await c.req.formData().catch(() => null);
+    const { aplicarMejora } = await import("../src/followup/auditorIA");
+    const r = await aplicarMejora(c.env, Number(form?.get("i") ?? -1));
+    const { renderAuditoria } = await import("./crm-auditoria.local");
+    return pagina(c, await renderAuditoria(c.env, Date.now(), { esAdmin: true, aviso: r.mensaje }));
   });
   // Oportunidades (Deals de Zoho: SV y VC en un solo tablero)
   app.get("/oportunidades", async (c) => {
