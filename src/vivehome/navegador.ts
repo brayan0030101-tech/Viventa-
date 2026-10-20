@@ -3,7 +3,8 @@
  * pantalla. Aquí están los pasos que hace Maricela, escritos para Playwright (en el Worker con Cloudflare Browser Rendering; en local con Playwright):
  *  · entrar con su cuenta;
  *  · leer el catálogo de la Calculadora (proyecto, ciudad, área, meses, valor, % mínimo de cuota inicial) y las tasas del euro y del dólar;
- *  · crear una cotización: Cliente → Inmuebles → Configuración (20 %, casilla «Reportar a la constructora» DESMARCADA) → «Crear Cotización»;
+ *  · crear una cotización: Cliente → Inmuebles → Configuración (20 % o lo más cercano que ofrezca el proyecto, casilla «Reportar a la
+ *    constructora» DESMARCADA) → «Crear Cotización»;
  *  · leer la página pública de la cotización (lo que ve el cliente) para usar en el mensaje las cifras exactas.
  * Si la pantalla cambia (no aparece un botón, un campo o un texto esperado) se lanza `ErrorPantalla` con el paso: el que llama lo convierte en
  * hallazgo del auditor y aviso al equipo, nunca falla callado. La contraseña nunca se escribe en errores ni registros.
@@ -154,8 +155,8 @@ export interface PedidoCotizacion {
   nombre: string;
   correo: string;
   telefono: string;
-  /** Tipologías a cotizar (máx. 3): se buscan por nombre del proyecto y valor exacto. */
-  items: Array<{ proyecto: string; valor: number }>;
+  /** Tipologías a cotizar (máx. 3): se buscan por nombre del proyecto y valor exacto. `pct` = cuota inicial deseada (20 por defecto). */
+  items: Array<{ proyecto: string; valor: number; pct?: number }>;
 }
 
 export interface ResultadoCreacion {
@@ -185,22 +186,35 @@ async function elegirInmueble(page: Pagina, item: { proyecto: string; valor: num
   if (n !== i + 1) throw new ErrorPantalla(paso, `después de elegirlo el contador marca ${n}/3 (se esperaba ${i + 1}/3)`);
 }
 
-/** Deja cada «Cuota Inicial (%)» en 20 %. */
-async function cuotaInicial20(page: Pagina): Promise<void> {
-  const listas = await page.$$(".k-dropdownlist, .k-picker");
-  for (const l of listas) {
-    const t = ((await l.innerText().catch(() => "")) as string).trim();
-    if (!/%/.test(t) || t.startsWith("20%")) continue;
+/** Elige en cada proyecto la «Cuota Inicial (%)» deseada; si el proyecto no la ofrece, la opción más cercana (en empate, la menor). */
+export function opcionMasCercana(opciones: number[], deseada: number): number | null {
+  if (!opciones.length) return null;
+  return [...opciones].sort((a, b) => Math.abs(a - deseada) - Math.abs(b - deseada) || a - b)[0];
+}
+
+async function cuotaInicial(page: Pagina, deseadas: number[]): Promise<number[]> {
+  const listas = (await page.$$(".k-dropdownlist")).slice(0, deseadas.length);
+  if (listas.length !== deseadas.length) throw new ErrorPantalla("configuración", `se esperaban ${deseadas.length} listas de «Cuota Inicial (%)» y hay ${listas.length}`);
+  const elegidas: number[] = [];
+  for (const [i, l] of listas.entries()) {
+    const actual = Number(/(\d+)\s*%/.exec(((await l.innerText().catch(() => "")) as string))?.[1] ?? NaN);
     await l.click({ force: true });
-    await espera(page, 800);
-    const opcion = page.locator(".k-list-item, .k-popup li", { hasText: /^20%$/ }).first();
-    if ((await opcion.count()) === 0) throw new ErrorPantalla("configuración", `el proyecto no permite cuota inicial del 20 % (muestra ${t})`);
-    await opcion.click({ force: true });
-    await espera(page, 800);
+    await espera(page, 900);
+    const textos = (await page.$$eval(".k-animation-container .k-list-item-text, .k-popup .k-list-item-text", (es: any[]) => es.map((e) => String(e.textContent).trim()))) as string[];
+    const opciones = textos.map((x) => Number(/^(\d+)\s*%$/.exec(x)?.[1] ?? NaN)).filter((n) => Number.isFinite(n));
+    const meta = opcionMasCercana(opciones, deseadas[i]);
+    if (meta == null) throw new ErrorPantalla("configuración", "la lista «Cuota Inicial (%)» no muestra opciones");
+    if (meta !== actual) {
+      await page.locator(".k-animation-container .k-list-item, .k-popup .k-list-item", { hasText: new RegExp(`^${meta}\\s*%$`) }).first().click({ force: true });
+    } else {
+      await page.keyboard.press("Escape");
+    }
+    await espera(page, 900);
+    const ahora = Number(/(\d+)\s*%/.exec(((await l.innerText().catch(() => "")) as string))?.[1] ?? NaN);
+    if (ahora !== meta) throw new ErrorPantalla("configuración", `no se pudo poner la cuota inicial en ${meta} % (quedó en ${ahora} %)`);
+    elegidas.push(meta);
   }
-  const textos = (await page.$$eval(".k-dropdownlist, .k-picker", (els: any[]) => els.map((e) => String(e.innerText).trim()))) as string[];
-  const malos = textos.filter((t) => /%/.test(t) && !t.startsWith("20%"));
-  if (malos.length) throw new ErrorPantalla("configuración", `cuota inicial distinta de 20 %: ${malos.join(", ")}`);
+  return elegidas;
 }
 
 /**
@@ -241,8 +255,8 @@ export async function crearCotizacion(page: Pagina, p: PedidoCotizacion, opts: {
   const t3 = await textoPagina(page);
   if (!t3.includes("Resumen y Configuración Final")) throw new ErrorPantalla("configuración", "no pasó al paso «Configuración»");
 
-  // 3. Configuración: 20 % y casilla de la constructora desmarcada.
-  await cuotaInicial20(page);
+  // 3. Configuración: cuota inicial (20 % o la más cercana que ofrezca el proyecto) y casilla de la constructora desmarcada.
+  await cuotaInicial(page, p.items.map((it) => it.pct ?? 20));
   const casillas = await page.$$("input[type=checkbox]");
   if (casillas.length !== 1) throw new ErrorPantalla("configuración", `se esperaba una sola casilla («Reportar a la constructora») y hay ${casillas.length}`);
   if (await casillas[0].isChecked()) await casillas[0].click({ force: true });

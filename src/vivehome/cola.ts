@@ -15,7 +15,7 @@
  *  escribir), sin_proyectos (avisado a Maricela), omitida (la conversación la tomó una persona o ya tiene cotización), error (3 intentos fallidos).
  *
  * Seguridad: solo de 9 a 21 h del cliente; texto libre solo dentro de la ventana de 24 h; la casilla «Reportar a la constructora» siempre
- * desmarcada; cuota inicial 20 %; cualquier fallo de ViveHome (pantalla cambiada, sin sesión…) queda como hallazgo del auditor y aviso al equipo.
+ * desmarcada; cuota inicial 20 % (o la que pida el proyecto, hasta 30 %); cualquier fallo de ViveHome (pantalla cambiada, sin sesión…) queda como hallazgo del auditor y aviso al equipo.
  */
 import type { Env } from "../env";
 import { Db } from "../db/client";
@@ -217,7 +217,7 @@ export function proponer(lead: LeadResumen, cat: Catalogo): Propuesta {
       motivo:
         e.motivo === "muy_caro"
           ? `en «${m.ciudadCompra ?? ""}» lo más económico cuesta más de 2,5 veces su cuota (${pesos(cap.pesos)}/mes)`
-          : `no hay proyectos con cuota inicial del 20 % en ViveHome para «${m.ciudadCompra ?? ""}» ni en su área metropolitana`,
+          : `no hay proyectos (con cuota inicial de hasta 30 %) en ViveHome para «${m.ciudadCompra ?? ""}» ni en su área metropolitana`,
     };
   return { estado: "propuesta", tipo: e.tipo, capacidad: cap.pesos, items: e.items, motivo: "" };
 }
@@ -231,6 +231,7 @@ export function borradorMensaje(lead: LeadResumen, p: Propuesta): string {
     enlace: `${URL_PUBLICA}[número]`,
     ciudades: p.items.map((i) => i.ciudad),
     ciudadCliente: ciudadDelCliente(lead, p.items),
+    pcts: p.items.map((i) => i.pct ?? 20),
     n: p.items.length,
     ejemplo: { proyecto: ej?.proyecto ?? "", mensualidad: ej?.mensual ?? 0, meses: ej?.meses ?? 0 },
   });
@@ -415,7 +416,7 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
               nombre: lead.nombre.trim(),
               correo: correoParaFormulario(lead).correo,
               telefono: lead.telefono ? `+${lead.telefono.replace(/\D/g, "")}` : "",
-              items: items.map((i) => ({ proyecto: i.proyecto, valor: i.valor })),
+              items: items.map((i) => ({ proyecto: i.proyecto, valor: i.valor, pct: i.pct ?? 20 })),
             });
             cotId = r.cotId;
             if (!cotId) throw new ErrorPantalla("crear", "no se obtuvo el número de la cotización");
@@ -475,7 +476,7 @@ export function mensajeFinal(lead: LeadResumen, f: Pick<FilaCola, "tipo">, items
   const norm = (s: string) => s.toUpperCase().replace(/\s+/g, " ").trim();
   const conCifras = items.map((i) => {
     const p = publicos.find((x) => norm(x.proyecto) === norm(i.proyecto));
-    return { proyecto: i.proyecto, ciudad: i.ciudad, mensualidad: p?.mensualidad ?? i.mensual, meses: p?.meses ?? i.meses };
+    return { proyecto: i.proyecto, ciudad: i.ciudad, mensualidad: p?.mensualidad ?? i.mensual, meses: p?.meses ?? i.meses, pct: p?.pct ?? i.pct ?? 20 };
   });
   const ej = [...conCifras].sort((a, b) => a.mensualidad - b.mensualidad)[0];
   return textoMensaje({
@@ -484,6 +485,7 @@ export function mensajeFinal(lead: LeadResumen, f: Pick<FilaCola, "tipo">, items
     enlace: `${URL_PUBLICA}${cotId}`,
     ciudades: items.map((i) => i.ciudad),
     ciudadCliente: ciudadDelCliente(lead, items),
+    pcts: conCifras.map((c) => c.pct),
     n: items.length,
     ejemplo: ej,
   });

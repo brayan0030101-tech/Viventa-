@@ -3,8 +3,8 @@
  * texto del mensaje. También la lectura de las pantallas de ViveHome (fila de la Calculadora y página pública de la cotización).
  */
 import { describe, it, expect } from "vitest";
-import { leerCapacidad, ciudadesBuscadas, elegirProyectos, mensualidadEstimada, textoMensaje, primerNombre } from "../../src/vivehome/reglas";
-import { filaATipologia, leerTextoPublico, type TipologiaCatalogo } from "../../src/vivehome/navegador";
+import { leerCapacidad, ciudadesBuscadas, elegirProyectos, mensualidadEstimada, textoMensaje, primerNombre, pctParaCotizar } from "../../src/vivehome/reglas";
+import { filaATipologia, leerTextoPublico, opcionMasCercana, type TipologiaCatalogo } from "../../src/vivehome/navegador";
 
 const TASAS = { eur: 3563, usd: 3174.7 };
 
@@ -82,13 +82,24 @@ describe("elección de proyectos", () => {
     expect(e.items[0].valor).toBe(342_554_000); // de 831 Pulso, el más caro que le cabe
     expect(e.items.every((i) => i.mensual <= 1_750_000)).toBe(true);
   });
-  it("nunca elige proyectos que no ofrecen cuota inicial del 20 %", () => {
-    const e = elegirProyectos(catalogo, ["Cali"], 5_000_000);
-    expect(e.items.map((i) => i.proyecto)).not.toContain("Afflora");
-    expect(e.items.map((i) => i.proyecto)).not.toContain("Altum 26");
+  it("flexible: entran los que piden hasta 30 % de inicial (con su %), nunca los que piden más", () => {
+    expect([pctParaCotizar(20), pctParaCotizar(15), pctParaCotizar(30), pctParaCotizar(40)]).toEqual([20, 20, 30, null]);
+    const e = elegirProyectos([...catalogo, t("Caro", "Cali", 100_000_000, 30, 40)], ["Cali"], 50_000_000);
+    const nombres = e.items.map((i) => i.proyecto);
+    expect(e.tipo).toBe("a_la_medida");
+    expect(elegirProyectos([t("Altum 26", "Cali", 200_000_000, 38, 30)], ["Cali"], 5_000_000).items[0]).toMatchObject({ pct: 30, mensual: Math.round((60_000_000 - 1_000_000) / 38) });
+    expect(elegirProyectos([t("Afflora", "Cali", 150_000_000, 32, 15)], ["Cali"], 5_000_000).items[0].pct).toBe(20);
+    expect(elegirProyectos([t("Caro", "Cali", 100_000_000, 30, 40)], ["Cali"], 50_000_000).tipo).toBe("sin_proyectos");
+    expect(nombres).not.toContain("Caro");
+  });
+  it("en el asistente elige el % más cercano al deseado (en empate, el menor)", () => {
+    expect(opcionMasCercana([20, 30], 20)).toBe(20);
+    expect(opcionMasCercana([15, 25, 30], 20)).toBe(15);
+    expect(opcionMasCercana([30, 40], 30)).toBe(30);
+    expect(opcionMasCercana([], 20)).toBeNull();
   });
   it("si no le alcanza: las 2 opciones más económicas", () => {
-    const e = elegirProyectos(catalogo, ["Cali"], 700_000);
+    const e = elegirProyectos(catalogo.filter((x) => x.pctMin === 20), ["Cali"], 700_000);
     expect(e.tipo).toBe("mas_economicas");
     expect(e.items.map((i) => i.proyecto)).toEqual(["Abedules", "Casas de la vega"]);
   });
@@ -98,7 +109,7 @@ describe("elección de proyectos", () => {
   it("tope de seguridad: nunca ofrece algo que cueste más de 2,5 veces su cuota", () => {
     const neiva = [t("Primavera Verde", "Neiva", 180_000_000, 5)]; // $7.000.000 al mes
     expect(elegirProyectos(neiva, ["Neiva"], 700_000)).toMatchObject({ tipo: "sin_proyectos", motivo: "muy_caro" });
-    const e = elegirProyectos(catalogo, ["Cali"], 640_000); // Abedules 2,46× entra; Casas de la vega 2,66× no
+    const e = elegirProyectos(catalogo.filter((x) => x.pctMin === 20), ["Cali"], 640_000); // Abedules 2,46× entra; Casas de la vega 2,66× no
     expect(e.items.map((i) => i.proyecto)).toEqual(["Abedules"]);
   });
 });
@@ -127,6 +138,8 @@ describe("mensaje al cliente", () => {
     expect(m2).toContain("En Alborada serían");
     expect(m2).toContain("¿Qué te parece?");
     expect(m2).not.toContain("¿Cuál");
+    const m3 = textoMensaje({ nombre: "Ana", tipo: "a_la_medida", enlace: "X", ciudades: ["Bello", "Medellín"], pcts: [20, 30], n: 2, ejemplo: { proyecto: "La Colina", mensualidad: 1, meses: 1 } });
+    expect(m3).toContain("la cuota inicial de cada uno");
   });
   it("usa el primer nombre real (no un usuario de Instagram)", () => {
     expect(primerNombre("maria fernanda lópez")).toBe("Maria");

@@ -3,16 +3,26 @@
  * probarlo con vitest:
  *  · la cuota mensual que dijo el cliente se pasa a pesos con la tasa del día de ViveHome (euro o dólar) y se redondea HACIA ABAJO a $50.000;
  *    si dio un rango, se toma el número menor; sin moneda clara o sin cifra, no se cotiza;
- *  · se buscan proyectos de su ciudad y de las ciudades de su misma área metropolitana, solo los que ofrecen cuota inicial del 20 %
- *    (los que en ViveHome tienen mínimo 20 %: los de 15 % no tienen la opción 20 % en el asistente);
+ *  · se buscan proyectos de su ciudad y de las ciudades de su misma área metropolitana. Cuota inicial: 20 % cuando el proyecto la ofrece; si no,
+ *    la que pida el proyecto hasta 30 % (flexible, pedido de Brayan, para no dejar fuera buenos proyectos; en el asistente se elige la opción
+ *    más cercana al 20 %). Los que piden más de 30 % de inicial no entran;
  *  · si le alcanza: hasta 3 proyectos, de cada uno el apartamento más grande que le cabe, los que más se acercan a su cuota;
  *  · si no le alcanza: las 2 opciones más económicas (texto honesto, y queda anotado que no se cotizó a la medida), pero nunca una que cueste
  *    más de 2,5 veces su cuota; si no queda ninguna, se trata como «sin proyectos» (no se manda, se avisa a Maricela);
- *  · si no hay proyectos al 20 % en su ciudad ni en su área metropolitana: no se cotiza y se avisa a Maricela.
+ *  · si no hay proyectos (con inicial hasta 30 %) en su ciudad ni en su área metropolitana: no se cotiza y se avisa a Maricela.
  */
 import type { TipologiaCatalogo } from "./navegador";
 
 export const SEPARACION = 1_000_000;
+/** Cuota inicial preferida y la máxima aceptada (si el proyecto no ofrece el 20 %). */
+export const PCT_PREFERIDO = 20;
+export const PCT_MAXIMO = 30;
+
+/** Cuota inicial con la que se cotiza un proyecto: 20 % si su mínimo es 20 % o menos; si no, su mínimo (hasta 30 %). null = no entra. */
+export function pctParaCotizar(pctMin: number): number | null {
+  if (!(pctMin > 0) || pctMin > PCT_MAXIMO) return null;
+  return Math.max(PCT_PREFERIDO, pctMin);
+}
 export const MAX_A_LA_MEDIDA = 3;
 export const MAX_MAS_ECONOMICAS = 2;
 /** Tope de seguridad cuando no le alcanza: no se ofrece nada que cueste más de 2,5 veces su cuota (p. ej. $7.000.000/mes a quien dijo 200 €). */
@@ -103,9 +113,9 @@ export function ciudadesBuscadas(texto: string | null | undefined, ciudadesCatal
 
 // ─── Elección ────────────────────────────────────────────────────────────────
 
-/** Mensualidad estimada de la cuota inicial del 20 %: (20 % redondeado a miles − separación) ÷ meses. Igual a la cotización de ViveHome. */
-export function mensualidadEstimada(t: Pick<TipologiaCatalogo, "valor" | "meses">): number {
-  const inicial = Math.ceil((t.valor * 0.2) / 1000) * 1000;
+/** Mensualidad estimada de la cuota inicial: (pct % redondeado a miles − separación) ÷ meses. Igual a la cotización de ViveHome. */
+export function mensualidadEstimada(t: Pick<TipologiaCatalogo, "valor" | "meses">, pct = PCT_PREFERIDO): number {
+  const inicial = Math.ceil((t.valor * pct) / 100 / 1000) * 1000;
   return Math.round((inicial - SEPARACION) / t.meses);
 }
 
@@ -116,6 +126,8 @@ export interface Elegido {
   meses: number;
   area: string;
   mensual: number;
+  /** Cuota inicial con la que se cotiza (20 salvo proyectos que piden más). */
+  pct: number;
 }
 
 export type Eleccion =
@@ -125,8 +137,11 @@ export type Eleccion =
 
 export function elegirProyectos(catalogo: TipologiaCatalogo[], ciudades: string[], capacidad: number): Eleccion {
   const pool = catalogo
-    .filter((t) => ciudades.includes(t.ciudad) && t.pctMin === 20 && t.meses > 0 && t.valor > 0)
-    .map((t) => ({ proyecto: t.proyecto, ciudad: t.ciudad, valor: t.valor, meses: t.meses, area: t.area, mensual: mensualidadEstimada(t) }))
+    .filter((t) => ciudades.includes(t.ciudad) && pctParaCotizar(t.pctMin) != null && t.meses > 0 && t.valor > 0)
+    .map((t) => {
+      const pct = pctParaCotizar(t.pctMin) as number;
+      return { proyecto: t.proyecto, ciudad: t.ciudad, valor: t.valor, meses: t.meses, area: t.area, pct, mensual: mensualidadEstimada(t, pct) };
+    })
     .filter((t) => t.mensual > 0);
   if (!pool.length) return { tipo: "sin_proyectos", items: [], motivo: "sin_20" };
   const clave = (e: Elegido) => `${e.proyecto}|${e.ciudad}`;
@@ -181,6 +196,8 @@ export function textoMensaje(o: {
   ciudades: string[];
   /** Ciudad que pidió el cliente: si las opciones son de una vecina, se aclara «muy cerca de …». */
   ciudadCliente?: string;
+  /** Cuota inicial de cada proyecto (si todas son 20 %, el texto lo dice). */
+  pcts?: number[];
   n: number;
   ejemplo: { proyecto: string; mensualidad: number; meses: number };
 }): string {
@@ -194,7 +211,7 @@ export function textoMensaje(o: {
     return (
       `${hola} Con lo que me contaste, te preparé una cotización con ${opciones} en ${lugares} que se ${o.n === 1 ? "ajusta" : "ajustan"} a lo que puedes pagar al mes:\n` +
       `${o.enlace}\n\n` +
-      `Ahí ves el valor ${o.n === 1 ? "del apartamento" : "de cada apartamento"}, la cuota inicial del 20 % y cuánto pagarías mes a mes. ${o.n === 1 ? "En" : "Por ejemplo, en"} ${proyecto} serían ${cuota}.\n\n` +
+      `Ahí ves el valor ${o.n === 1 ? "del apartamento" : "de cada apartamento"}, ${(o.pcts ?? [20]).every((x) => x === 20) ? "la cuota inicial del 20 %" : o.n === 1 ? `la cuota inicial del ${o.pcts?.[0]} %` : "la cuota inicial de cada uno"} y cuánto pagarías mes a mes. ${o.n === 1 ? "En" : "Por ejemplo, en"} ${proyecto} serían ${cuota}.\n\n` +
       (o.n === 1 ? `¿Qué te parece?` : `¿Cuál te llamó más la atención?`)
     );
   }
