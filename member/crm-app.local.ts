@@ -312,7 +312,7 @@ export function crmApp(): Hono<Vars> {
   });
   app.get("/c/:id", async (c) => {
     const { renderCrmFicha } = await import("./crm.local");
-    const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1", errorIA: c.req.query("iaerror") || undefined });
+    const html = await renderCrmFicha(c.env, decodeURIComponent(c.req.param("id")), { guardado: c.req.query("guardado") === "1", errorIA: c.req.query("iaerror") || undefined, telError: c.req.query("telerror") === "1" });
     return html ? pagina(c, html) : c.text("Cliente no encontrado", 404);
   });
   app.post("/c/:id/nota", async (c) => {
@@ -320,6 +320,12 @@ export function crmApp(): Hono<Vars> {
     const id = decodeURIComponent(c.req.param("id"));
     await guardarNota(c.env, id, String((await c.req.parseBody())["nota"] ?? ""));
     return c.redirect(`${BASE}/c/${encodeURIComponent(id)}?guardado=1`);
+  });
+  app.post("/c/:id/telefono", async (c) => {
+    const { guardarTelefono } = await import("./crm.local");
+    const id = decodeURIComponent(c.req.param("id"));
+    const r = await guardarTelefono(c.env, id, String((await c.req.parseBody())["telefono"] ?? ""));
+    return c.redirect(`${BASE}/c/${encodeURIComponent(id)}${r.ok ? "?guardado=1" : "?telerror=1"}`);
   });
   app.post("/c/:id/otra-cotizacion", async (c) => {
     const { pedirOtraCotizacion } = await import("../src/vivehome/cola");
