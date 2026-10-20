@@ -393,7 +393,7 @@ async function tarjetaCotizacionBot(env: Env, convId: string): Promise<string> {
   return `${lineas || `<div class="text-dim" style="font-size:12px">El bot no le ha armado cotización.</div>`}${filas.length ? boton : ""}`;
 }
 
-export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?: boolean; errorIA?: string } = {}, now = Date.now()): Promise<string | null> {
+export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?: boolean; errorIA?: string; telError?: boolean } = {}, now = Date.now()): Promise<string | null> {
   const db = new Db(env.DB);
   const conv = await db.first<ConvRow>(
     "SELECT id, channel, channel_user_id, display_name, last_message_at, open_ticket_id, metadata FROM conversations WHERE id = ?",
@@ -478,7 +478,12 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
 
   const izquierda = `
     ${card("Prioridad", `<div>${prioridad ? badgeNivel(prioridad.nivel, prioridad.puntos) : badgeNivel("frio")}</div>${razones}`)}
-    ${card("Contacto", contacto)}
+    ${card("Contacto", contacto + (lead && !lead.telefono ? `<form method="POST" action="/crm/c/${encodeURIComponent(convId)}/telefono" style="margin-top:10px">
+        <div class="text-dim" style="font-size:11.5px;margin-bottom:6px">Sin teléfono. Escríbelo con el indicativo (ej.: +34 612 345 678) y queda listo para el formulario de Zoho.</div>
+        <input class="crm-in" name="telefono" placeholder="+34 612 345 678" style="width:200px">
+        <button class="bigbtn" style="margin-left:6px;background:var(--accent);color:var(--bg);padding:7px 14px;font-size:12px;font-weight:700;border:0;cursor:pointer">Guardar teléfono</button>
+        ${opts.telError ? `<div style="color:var(--bad);font-size:12px;margin-top:6px">Ese número no parece válido. Usa el indicativo del país, ej.: +57 300 123 4567.</div>` : ""}
+      </form>` : ""))}
     ${card("Ficha del cliente", ficha)}
     ${lead?.ficha.notas ? card("Notas del bot", `<div class="text-muted" style="font-size:12.5px;white-space:pre-wrap;line-height:1.5">${esc(lead.ficha.notas)}</div>`) : ""}
     ${card("Cotización del bot (ViveHome)", await tarjetaCotizacionBot(env, convId))}
@@ -514,6 +519,31 @@ export async function renderCrmFicha(env: Env, convId: string, opts: { guardado?
     </div>
     <div class="crm-grid"><div>${izquierda}</div><div>${derecha}</div></div>`;
   return crmLayout({ title: `${nombre}`, activa: "leads", body, env });
+}
+
+/** Teléfono escrito a mano por el equipo (cliente de Instagram que no lo dio por el chat). Se agrega al contacto de la ficha: desde ahí lo leen la lista, el Excel y el formulario de Zoho. */
+export function normalizarTelefono(bruto: string): string | null {
+  const t = bruto.trim();
+  const d = t.replace(/\D/g, "");
+  if (d.length < 8 || d.length > 15) return null;
+  if (t.startsWith("+")) return `+${d}`;
+  if (t.startsWith("00")) return `+${d.slice(2)}`;
+  if (d.length === 9 && /^[67]/.test(d)) return `+34${d}`;
+  return null;
+}
+
+export async function guardarTelefono(env: Env, convId: string, bruto: string): Promise<{ ok: boolean; tel?: string }> {
+  const tel = normalizarTelefono(bruto);
+  if (!tel) return { ok: false };
+  const db = new Db(env.DB);
+  const fila = await db.first<{ id: string; contact: string | null }>(
+    "SELECT id, contact FROM leads WHERE conversation_id = ? AND intent NOT LIKE 'Cita ·%' ORDER BY created_at DESC LIMIT 1",
+    [convId],
+  );
+  if (!fila) return { ok: false };
+  const actual = String(fila.contact ?? "").trim();
+  await db.run("UPDATE leads SET contact = ? WHERE id = ?", [actual ? `${actual}, ${tel}` : tel, fila.id]);
+  return { ok: true, tel };
 }
 
 export async function guardarNota(env: Env, convId: string, nota: string): Promise<void> {
