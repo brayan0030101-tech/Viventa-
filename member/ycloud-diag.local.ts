@@ -20,9 +20,41 @@ async function ycloud(env: Env, ruta: string, init: RequestInit = {}): Promise<{
   return { status: res.status, json };
 }
 
+/**
+ * Reinyección programada de un mensaje del cliente que se perdió (ajuste `reinyectar_pendiente` = JSON {conv, text, no_antes_de}):
+ * a partir de `no_antes_de` entrega ese texto al bot como si el cliente lo hubiera escrito ahora, solo si la conversación no avanzó
+ * (ningún mensaje del cliente ni de una persona después), su ventana de 24 h sigue abierta y nadie la tiene pausada.
+ */
+async function reinyectarPendiente(env: Env, st: SettingsRepo): Promise<void> {
+  const raw = ((await st.get("reinyectar_pendiente")) ?? "").trim();
+  if (!raw) return;
+  const p = JSON.parse(raw) as { conv: string; text: string; no_antes_de: number; nombre?: string };
+  if (Date.now() < p.no_antes_de) return;
+  await st.set("reinyectar_pendiente", "");
+  const db = new Db(env.DB);
+  const conv = await db.first<{ channel: string; channel_user_id: string; paused_until: number | null }>("SELECT channel, channel_user_id, paused_until FROM conversations WHERE id = ?", [p.conv]);
+  const ult = await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [p.conv]);
+  const despues = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role IN ('owner') AND created_at > ?", [p.conv, ult?.t ?? 0]);
+  let resultado = "omitido";
+  if (!conv || !ult?.t || Date.now() - ult.t > 23 * 3_600_000) resultado = "omitido: ventana de 24 h cerrada";
+  else if ((conv.paused_until ?? 0) > Date.now() || (despues?.n ?? 0) > 0) resultado = "omitido: ya la atiende una persona";
+  else {
+    const { agentStub } = await import("../src/agent-stub");
+    await agentStub(env, conv.channel, conv.channel_user_id).ingest({
+      channel: conv.channel,
+      channelUserId: conv.channel_user_id,
+      displayName: p.nombre,
+      text: p.text,
+    });
+    resultado = "reinyectado";
+  }
+  await st.set("ycloud_diag_resultado", JSON.stringify({ reinyeccion: resultado, conv: p.conv }));
+}
+
 export async function runYcloudDiag(env: Env): Promise<void> {
   if (!env.YCLOUD_API_KEY) return;
   const st = new SettingsRepo(new Db(env.DB));
+  await reinyectarPendiente(env, st).catch((e) => console.error("reinyectar:", e));
   const pedido = ((await st.get("ycloud_diag_pedir")) ?? "").trim();
   if (!pedido) return;
   await st.set("ycloud_diag_pedir", "");
