@@ -181,6 +181,36 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         await new Promise((r) => setTimeout(r, 4000));
       }
       out = { respondidos: hechos };
+    } else if (pedido.startsWith("fallidos:")) {
+      // Solo lectura en YCloud: recorre los mensajes enviados desde la fecha dada y guarda los fallidos en la tabla `ycloud_fallidos_listado` (sin tocar nada más).
+      const desde = Date.parse(`${pedido.slice(9).trim()}T00:00:00Z`);
+      const db = new Db(env.DB);
+      await db.run("CREATE TABLE IF NOT EXISTS ycloud_fallidos_listado (id TEXT PRIMARY KEY, destino TEXT, creado TEXT, codigo TEXT, error TEXT, texto TEXT)");
+      let pagina = 1;
+      let revisados = 0;
+      let fallidos = 0;
+      let fin = false;
+      let masAntiguo = "";
+      while (!fin && pagina <= 45) {
+        const r = await ycloud(env, `/whatsapp/messages?limit=100&page=${pagina}`);
+        const items: any[] = r.json?.items ?? [];
+        if (r.status !== 200 || items.length === 0) break;
+        for (const x of items) {
+          revisados++;
+          masAntiguo = x.createTime ?? masAntiguo;
+          if (Date.parse(x.createTime ?? "") < desde) {
+            fin = true;
+            continue;
+          }
+          if (x.status === "failed") {
+            fallidos++;
+            const texto = typeof x.text === "string" ? x.text : (x.text?.body ?? x.template?.name ?? x.type ?? "");
+            await db.run("INSERT OR REPLACE INTO ycloud_fallidos_listado (id, destino, creado, codigo, error, texto) VALUES (?,?,?,?,?,?)", [x.id, String(x.to ?? "").replace(/\D/g, ""), x.createTime, String(x.errorCode ?? ""), String(x.errorMessage ?? "").slice(0, 120), String(texto).slice(0, 4000)]);
+          }
+        }
+        pagina++;
+      }
+      out = { revisados, fallidos, paginas: pagina - 1, masAntiguo, completo: fin };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string };
       const r = await ycloud(env, "/whatsapp/templates", {
