@@ -46,6 +46,7 @@ import {
   runPedirDatos,
   runAvisoLlamadas,
   runOfertaLlamada,
+  runSeguimientoOferta,
   runConfirmacionesCitas,
   textoPedirDatos,
   TEXTO_PEDIR_TELEFONO,
@@ -96,6 +97,31 @@ beforeEach(async () => {
   sendTemplateMock.mockReset().mockResolvedValue(undefined);
   messageOwnerMock.mockReset().mockResolvedValue(undefined);
   notifyCamilaMock.mockReset().mockResolvedValue(true);
+});
+
+describe("seguimiento de la oferta de videollamada sin elegir día", () => {
+  const OFERTA = "Maricela puede hacerte una videollamada de 30 minutos. ¿Qué día te queda mejor? (hora de España)";
+  async function seedOferta(userId: string, userHace: number, ofertaHace: number) {
+    const id = await seedConv("ycloud", userId);
+    await msgs.append(id, "user", "200 euros al mes", { createdAt: NOW - userHace * H });
+    await msgs.append(id, "assistant", OFERTA, { createdAt: NOW - ofertaHace * H });
+    return id;
+  }
+  it("a las 4 h de la oferta sin respuesta pregunta si prefiere llamada o qué le impide agendar; una sola vez", async () => {
+    await seedOferta("34600000021", 8, 7.9);
+    expect((await runSeguimientoOferta(env, NOW)).sent).toBe(1);
+    expect(sendOutboundMock.mock.calls[0][1].text).toContain("te llame directamente");
+    expect(sendOutboundMock.mock.calls[0][1].text).toContain("no te deja agendarla");
+    expect((await runSeguimientoOferta(env, NOW + 5 * 60_000)).sent).toBe(0);
+  });
+  it("no escribe antes de 4 h, después de 23 h del último mensaje del cliente, ni a quien ya agendó", async () => {
+    await seedOferta("34600000022", 2, 1.9);
+    await seedOferta("34600000023", 24, 23.9);
+    const conCita = await seedOferta("34600000024", 8, 7.9);
+    await db.run("INSERT INTO leads (id, conversation_id, intent, created_at, updated_at) VALUES (?,?,?,?,?)", [crypto.randomUUID(), conCita, "Cita · videollamada", NOW - 7 * H, NOW - 7 * H]);
+    expect((await runSeguimientoOferta(env, NOW)).sent).toBe(0);
+    expect(sendOutboundMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("seguimiento del guion", () => {

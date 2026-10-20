@@ -782,6 +782,75 @@ export async function runConfirmacionesCitas(env: Env, now = Date.now()): Promis
   return { sent };
 }
 
+// ─── Oferta de videollamada sin elegir día (pedido de Maricela, 20 oct 2026) ─────
+
+const RE_OFERTA_DIAS = /Qué día te queda mejor/i;
+
+/**
+ * Clientes a los que el bot les ofreció la videollamada con los botones de día y no eligieron ninguno. Pasadas 4 h (y antes de que se
+ * cierre la ventana de 24 h) se les escribe una vez: si prefieren que Maricela los llame, o qué les impide agendar. No se escribe a
+ * quien ya tiene cita ni a quien tiene a una persona del equipo atendiéndolo.
+ */
+export async function runSeguimientoOferta(env: Env, now = Date.now()): Promise<{ sent: number }> {
+  const db = new Db(env.DB);
+  const convs = await db.all<ConvRef>(
+    `SELECT c.id, c.channel, c.channel_user_id, c.display_name
+       FROM conversations c
+      WHERE c.last_message_at > ?
+        AND c.channel IN ('ycloud', 'zernio')
+        AND (c.paused_until IS NULL OR c.paused_until < ?)
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_oferta_seg') IS NULL`,
+    [now - 30 * H, now],
+  );
+  if (convs.length === 0) return { sent: 0 };
+
+  const recientes = await db.all<{ conversation_id: string; role: string; content: string; created_at: number }>(
+    "SELECT conversation_id, role, content, created_at FROM messages WHERE created_at > ? ORDER BY created_at ASC",
+    [now - 30 * H],
+  );
+  const porConv = new Map<string, { lastUser: number | null; lastRole: string | null; lastAsst: string; lastAsstAt: number; owner: boolean }>();
+  for (const m of recientes) {
+    const e = porConv.get(m.conversation_id) ?? { lastUser: null, lastRole: null, lastAsst: "", lastAsstAt: 0, owner: false };
+    if (m.role === "user") e.lastUser = m.created_at;
+    if (m.role === "owner") e.owner = true;
+    if (m.role === "assistant") {
+      e.lastAsst = m.content;
+      e.lastAsstAt = m.created_at;
+    }
+    e.lastRole = m.role;
+    porConv.set(m.conversation_id, e);
+  }
+  const candidatos = convs.filter((c) => {
+    const e = porConv.get(c.id);
+    if (!e || e.lastUser == null || e.owner || e.lastRole !== "assistant" || !RE_OFERTA_DIAS.test(e.lastAsst)) return false;
+    return now - e.lastAsstAt >= 4 * H && now - e.lastUser < 23 * H;
+  });
+  if (candidatos.length === 0) return { sent: 0 };
+
+  const conCita = new Set(
+    (
+      await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%' AND created_at > ?", [now - 30 * H])
+    ).map((r) => r.conversation_id),
+  );
+  let sent = 0;
+  for (const c of candidatos) {
+    if (conCita.has(c.id)) continue;
+    if (!(await puedeEscribirAhora(db, c, now))) continue;
+    if (!(await claim(db, "conversations", c.id, "viventa_oferta_seg", now))) continue;
+    const nombre = primerNombre(c.display_name);
+    const text =
+      `Hola${nombre ? ` ${nombre}` : ""} 😊 Vi que no alcanzaste a elegir un día para la videollamada. ` +
+      `¿Prefieres que Maricela te llame directamente, o hay algo que no te deja agendarla? Cuéntame y lo resolvemos.`;
+    try {
+      await enviarACliente(env, db, c, text, null, porConv.get(c.id)?.lastUser ?? null, now);
+      sent++;
+    } catch (e) {
+      console.error(`[sistemaViventa] seguimiento oferta ${c.id}:`, e);
+    }
+  }
+  return { sent };
+}
+
 export async function runSistemaViventa(env: Env, now = Date.now()): Promise<void> {
   await runGuionSeguimiento(env, now).catch((e) => console.error("[sistemaViventa] guion:", e));
   await runSeguimientoProyectos(env, now).catch((e) => console.error("[sistemaViventa] proyectos:", e));
@@ -792,6 +861,7 @@ export async function runSistemaViventa(env: Env, now = Date.now()): Promise<voi
   await runPedirDatos(env, now).catch((e) => console.error("[sistemaViventa] datos:", e));
   await runAvisoLlamadas(env, now).catch((e) => console.error("[sistemaViventa] aviso llamadas:", e));
   await runOfertaLlamada(env, now).catch((e) => console.error("[sistemaViventa] oferta llamada:", e));
+  await runSeguimientoOferta(env, now).catch((e) => console.error("[sistemaViventa] seguimiento oferta:", e));
   // Envío masivo de reactivación a «Revisar en el futuro» (apagado salvo viventa_reactivacion_masiva = activo).
   const { runReactivacionMasiva } = await import("../../member/crm-reactivacion.local");
   await runReactivacionMasiva(env, now).catch((e) => console.error("[sistemaViventa] reactivación masiva:", e));

@@ -270,6 +270,31 @@ export async function sendZernioTemplate(
   }
 }
 
+/**
+ * Deja constancia (tabla `envios_fallidos`, la misma de YCloud) de un mensaje que Zernio/Instagram rechazó y avisa al equipo, máx. una vez
+ * cada 30 min. Antes un rechazo de Zernio solo quedaba en el log del Worker y nadie se enteraba de que el cliente no recibió la respuesta.
+ */
+async function registrarFalloZernio(env: Env, destino: string, detalle: string): Promise<void> {
+  try {
+    const db = new Db(env.DB);
+    await db.run("CREATE TABLE IF NOT EXISTS envios_fallidos (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, canal TEXT NOT NULL, destino TEXT NOT NULL, detalle TEXT NOT NULL)");
+    await db.run("INSERT INTO envios_fallidos (ts, canal, destino, detalle) VALUES (?,?,?,?)", [Date.now(), "zernio", destino, detalle.slice(0, 500)]);
+    const { SettingsRepo } = await import("../db/settings");
+    const settings = new SettingsRepo(db);
+    const ultimo = Number((await settings.get("zernio_alerta_envio")) ?? 0) || 0;
+    if (Date.now() - ultimo < 30 * 60_000) return;
+    await settings.set("zernio_alerta_envio", String(Date.now()));
+    const { notifyCamila } = await import("../lib/camila");
+    await notifyCamila(env, {
+      heading: "⚠️ Un mensaje de Instagram no salió",
+      body: `Instagram/Zernio rechazó un mensaje del bot (${detalle}). Puede ser la ventana de 24 h o un fallo de la conexión. Revisa la conversación en el panel.`,
+      url: `${env.DASHBOARD_BASE_URL || ""}/admin`,
+    }).catch(() => false);
+  } catch {
+    /* el registro nunca debe tumbar el envío */
+  }
+}
+
 // ── adapter ───────────────────────────────────────────────────────────────────
 export const zernioAdapter: ChannelAdapter = {
   // Existe por la interfaz; la ruta /webhooks/zernio usa parseZernioEvents directo.
@@ -331,7 +356,10 @@ export const zernioAdapter: ChannelAdapter = {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(body),
       });
-      if (!res.ok) await reportSendFailure("[zernio] sendReply", res, opts);
+      if (!res.ok) {
+        await registrarFalloZernio(env, reply.channelUserId, `${res.status} ${(await res.clone().text().catch(() => "")).slice(0, 160)}`);
+        await reportSendFailure("[zernio] sendReply", res, opts);
+      }
     }
     // Galería: cada archivo va como mensaje propio DESPUÉS del texto —
     // attachmentUrl + attachmentType (spec de Zernio). voiceNote=true manda el

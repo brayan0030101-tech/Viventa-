@@ -780,6 +780,11 @@ export default {
         await runSaldoYCloud(env).catch((e) => console.error("saldoYCloud:", e));
       }
       {
+        // Clientes con una pregunta real a los que nadie ha respondido en 10 min: aviso al equipo.
+        const { runSinRespuesta } = await import("./followup/sinRespuesta");
+        await runSinRespuesta(env).catch((e) => console.error("sinRespuesta:", e));
+      }
+      {
         // Lo que el equipo escribe desde WhatsApp Business: se trae el texto de YCloud y se guarda en el hilo del panel.
         const { runSincronizarApp } = await import("./followup/sincronizarApp");
         await runSincronizarApp(env).catch((e) => console.error("sincronizarApp:", e));
