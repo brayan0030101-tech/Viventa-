@@ -214,10 +214,11 @@ export async function runYcloudDiag(env: Env): Promise<void> {
     } else if (pedido.startsWith("entrantes:")) {
       // Solo lectura: mensajes ENTRANTES recientes de un número en YCloud (tipo, hora, botón pulsado); sin más texto que el título del botón.
       const num = pedido.slice(10).replace(/\D/g, "");
-      const r = await ycloud(env, `/whatsapp/inbound-messages?limit=15&page=1&filter.from=%2B${num}`);
+      const r = await ycloud(env, `/whatsapp/inbound-messages?limit=100&page=1`);
       out = {
         status: r.status,
-        items: (r.json?.items ?? []).map((x: any) => ({ tipo: x.type, creado: x.createTime ?? x.sendTime, boton: x.interactive?.button_reply?.title ?? x.interactive?.list_reply?.title ?? x.button?.text, texto: x.text?.body ? String(x.text.body).slice(0, 40) : undefined, contexto: x.context ? "responde a un mensaje" : undefined })),
+        total: (r.json?.items ?? []).length,
+        items: (r.json?.items ?? []).filter((x: any) => String(x.from ?? "").replace(/\D/g, "") === num).map((x: any) => ({ tipo: x.type, creado: x.createTime ?? x.sendTime, boton: x.interactive?.button_reply?.title ?? x.interactive?.list_reply?.title ?? x.button?.text, texto: x.text?.body ? String(x.text.body).slice(0, 40) : undefined, contexto: x.context ? "responde a un mensaje" : undefined })),
         error: r.status >= 400 ? r.json : undefined,
       };
     } else if (pedido.startsWith("{")) {

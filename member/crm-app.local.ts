@@ -350,6 +350,11 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
   });
 
+  // Auditoría: lo que el auditor del bot encontró trabado o fallando
+  app.get("/auditoria", async (c) => {
+    const { renderAuditoria } = await import("./crm-auditoria.local");
+    return pagina(c, await renderAuditoria(c.env));
+  });
   // Oportunidades (Deals de Zoho: SV y VC en un solo tablero)
   app.get("/oportunidades", async (c) => {
     const { renderOportunidades } = await import("./crm-oportunidades.local");

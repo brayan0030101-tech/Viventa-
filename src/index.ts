@@ -247,6 +247,12 @@ async function ingestOne(env: Env, msg: IncomingMessage): Promise<boolean> {
       const { olvidarMensaje } = await import("./db/dedup");
       await olvidarMensaje(new Db(env.DB), msg.providerMessageId);
     }
+    try {
+      const { registrarHallazgo } = await import("./followup/auditor");
+      await registrarHallazgo(env, { tipo: "entrega_al_agente", convId: `${msg.channel}:${msg.channelUserId}`, clave: msg.providerMessageId ?? String(Date.now()), detalle: `Un mensaje de ${msg.channelUserId} no pudo entregarse al bot (${String((e as Error)?.message ?? e).slice(0, 80)})` });
+    } catch {
+      /* el registro nunca debe agravar el fallo */
+    }
     return false;
   }
 }
@@ -584,7 +590,16 @@ app.post("/webhooks/ycloud", async (c) => {
       await ycloudOwnerTakeover(ev, c.env, origin).catch((e) => console.error("ycloud takeover:", e));
       continue;
     }
-    for (const msg of await parseYCloudEvents(ev, c.env, origin)) {
+    const parsed = await parseYCloudEvents(ev, c.env, origin);
+    // Bitácora de lo que llega por WhatsApp (tipo, botón pulsado, mensaje citado) y alarma si un mensaje de cliente no se pudo leer
+    // (p. ej. un usuario de WhatsApp con nombre de usuario y sin teléfono): sin esto se perdía en silencio (19 oct 2026).
+    try {
+      const { bitacoraEntrante } = await import("./followup/bitacoraEntrante");
+      await bitacoraEntrante(c.env, ev as never, parsed.length);
+    } catch (e) {
+      console.error("bitácora entrante:", e);
+    }
+    for (const msg of parsed) {
       if (!(await ingestOne(c.env, msg))) fallo = true; // no se pudo entregar al agente: 500 para que YCloud reintente
     }
   }
@@ -802,11 +817,9 @@ export default {
         await runSaldoYCloud(env).catch((e) => console.error("saldoYCloud:", e));
       }
       {
-        // Clientes con una pregunta real a los que nadie ha respondido en 10 min: aviso al equipo.
-        const { runSinRespuesta } = await import("./followup/sinRespuesta");
-        await runSinRespuesta(env).catch((e) => console.error("sinRespuesta:", e));
-        const { runCalificadosSinCita } = await import("./followup/sinRespuesta");
-        await runCalificadosSinCita(env).catch((e) => console.error("calificadosSinCita:", e));
+        // Auditor: conversaciones trabadas (buen perfil sin cita, cliente sin respuesta, mensajes que no llegaron, fallos de IA…).
+        const { runAuditor } = await import("./followup/auditor");
+        await runAuditor(env).catch((e) => console.error("auditor:", e));
       }
       {
         // Lo que el equipo escribe desde WhatsApp Business: se trae el texto de YCloud y se guarda en el hilo del panel.
