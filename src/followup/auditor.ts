@@ -181,10 +181,13 @@ async function cerrarResueltos(db: Db, now: number): Promise<number> {
       const conv = await db.first<{ paused_until: number | null }>("SELECT paused_until FROM conversations WHERE id = ?", [h.conv_id]);
       const pausada = !!conv?.paused_until && conv.paused_until > now;
       const desde = h.tipo === "sin_respuesta" ? Number(h.clave) : h.creado;
-      const rol = h.tipo === "sin_respuesta" || h.tipo === "handoff_silencioso" ? "('assistant', 'owner')" : "('owner')";
+      const rol = h.tipo === "sin_respuesta" || h.tipo === "handoff_silencioso" || h.tipo === "mensaje_ilegible" ? "('assistant', 'owner')" : "('owner')";
       const resp = await db.first<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role IN ${rol} AND created_at > ?`, [h.conv_id, desde + (h.tipo === "handoff_silencioso" ? 0 : 1000)]);
       const cita = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM leads WHERE conversation_id = ? AND intent LIKE 'Cita ·%' AND created_at > ?", [h.conv_id, h.creado - 24 * H]);
-      resuelto = (resp?.n ?? 0) > 0 || ((h.tipo === "listo_sin_cita" || h.tipo === "dato_sin_respaldo" || h.tipo === "handoff_silencioso") && (cita?.n ?? 0) > 0) || (pausada && h.tipo !== "entrega_fallida");
+      const cotizada = h.tipo === "cotizacion_fallida"
+        ? (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_enviadas WHERE tel = ? AND enviada_en > ?", [h.conv_id.replace(/^\w+:/, ""), h.creado]).catch(() => null))?.n ?? 0
+        : 0;
+      resuelto = cotizada > 0 || (resp?.n ?? 0) > 0 || ((h.tipo === "listo_sin_cita" || h.tipo === "dato_sin_respaldo" || h.tipo === "handoff_silencioso") && (cita?.n ?? 0) > 0) || (pausada && h.tipo !== "entrega_fallida");
     }
     if (resuelto) {
       await db.run("UPDATE auditoria_hallazgos SET resuelto_en = ? WHERE id = ?", [now, h.id]);
