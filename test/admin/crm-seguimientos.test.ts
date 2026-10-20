@@ -89,6 +89,8 @@ describe("seguimiento: primero llamar", () => {
     const html = tarjetaBorrador(wa, { movil: "+34600000000", telefono: "" }, "2026-10-20");
     expect(html).toContain("Primero llámalo/a");
     expect(html).toContain("Llamar primero");
+    expect(html).toContain("Llamé y no contestó");
+    expect(html).toContain("sb23456789n"); // el botón escribe en la caja de la nota
     const cierre = leerBorrador('{"temperatura":"frio","accion":"perdido","mensaje":"Hola [nombre], aquí estamos.","motivo_cierre":"Nunca me respondió"}', base)!;
     expect(tarjetaBorrador(cierre, { movil: "+34600000000", telefono: "" }, "2026-10-20")).not.toContain("Primero llámalo/a");
   });
