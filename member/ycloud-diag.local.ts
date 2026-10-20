@@ -259,6 +259,33 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         await new Promise((r) => setTimeout(r, 4000));
       }
       out = { respondidos: hechos };
+    } else if (pedido.startsWith("cotizaciones:")) {
+      // Solo lectura en YCloud: recorre los mensajes SALIENTES desde la fecha dada y guarda en `cotizaciones_enviadas` los que llevan un enlace de cotización
+      // (vivehome.viventa.co/quota-information?id=N): a quién, cuándo y qué cotización. Es la base de la sección «Cotizaciones» del CRM.
+      const { guardarCotizaciones } = await import("../src/followup/cotizaciones");
+      const desde = Date.parse(`${pedido.slice(13).trim()}T00:00:00Z`);
+      let pagina = 1;
+      let revisados = 0;
+      let encontrados = 0;
+      let fin = false;
+      let masAntiguo = "";
+      while (!fin && pagina <= 70) {
+        const r = await ycloud(env, `/whatsapp/messages?limit=100&page=${pagina}`);
+        const items: any[] = r.json?.items ?? [];
+        if (r.status !== 200 || items.length === 0) break;
+        const utiles = items.filter((x) => {
+          revisados++;
+          masAntiguo = x.createTime ?? masAntiguo;
+          if (Date.parse(x.createTime ?? "") < desde) {
+            fin = true;
+            return false;
+          }
+          return true;
+        });
+        encontrados += await guardarCotizaciones(env, utiles);
+        pagina++;
+      }
+      out = { revisados, encontrados, paginas: pagina - 1, masAntiguo, completo: fin };
     } else if (pedido.startsWith("fallidos:")) {
       // Solo lectura en YCloud: recorre los mensajes enviados desde la fecha dada y guarda los fallidos en la tabla `ycloud_fallidos_listado` (sin tocar nada más).
       const desde = Date.parse(`${pedido.slice(9).trim()}T00:00:00Z`);

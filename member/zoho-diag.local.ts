@@ -43,7 +43,7 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
-  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades" && pedido !== "tareas" && pedido !== "madrid") return;
+  if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades" && pedido !== "tareas" && pedido !== "madrid" && pedido !== "cotizaciones") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
   if (pedido === "oportunidades") {
@@ -229,6 +229,39 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       }
     }
     out = { errores: errores.slice(0, 4), filasUnicas: (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM tmp_madrid_zoho"))?.n };
+  } else if (pedido === "cotizaciones") {
+    // Solo lectura, agregados sin datos personales: notas de Zoho que hablan de cotizaciones y enlaces de la página de cotizaciones.
+    const { zohoGet, candidatosPorIds } = await import("./crm-zohoapi.local");
+    const notas: Array<{ parent: string; texto: string; creada: string }> = [];
+    const errores: string[] = [];
+    for (const palabra of ["quota-information", "cotizacion", "cotización", "cotizaciones"]) {
+      for (let pagina = 1; pagina <= 3; pagina++) {
+        try {
+          const r = (await zohoGet(env, `/Notes/search?word=${encodeURIComponent(palabra)}&fields=Note_Content,Parent_Id,Created_Time&per_page=200&page=${pagina}`, fetch, now)) as { data?: Array<Record<string, any>>; info?: { more_records?: boolean } } | null;
+          for (const n of r?.data ?? []) notas.push({ parent: String(n["Parent_Id"]?.id ?? ""), texto: String(n["Note_Content"] ?? ""), creada: String(n["Created_Time"] ?? "") });
+          if (!r?.info?.more_records) break;
+        } catch (e) {
+          errores.push(`${palabra}:${e instanceof Error ? e.message.slice(0, 60) : String(e)}`);
+          break;
+        }
+      }
+    }
+    const unicas = new Map(notas.map((n) => [n.parent + n.creada, n]));
+    const conEnlace = [...unicas.values()].filter((n) => /quota-information/i.test(n.texto));
+    const ids = conEnlace.flatMap((n) => [...n.texto.matchAll(/quota-information\?id=(\d+)/gi)].map((m) => m[1]));
+    const padres = [...new Set([...unicas.values()].map((n) => n.parent).filter(Boolean))];
+    const cands = padres.length ? await candidatosPorIds(env, padres.slice(0, 200), fetch, now) : new Map();
+    const porEstado: Record<string, number> = {};
+    for (const p of padres) porEstado[cands.get(p)?.estado ?? "(no es candidato)"] = (porEstado[cands.get(p)?.estado ?? "(no es candidato)"] ?? 0) + 1;
+    out = {
+      notas: unicas.size,
+      conEnlaceDeCotizacion: conEnlace.length,
+      idsDeEjemplo: [...new Set(ids)].slice(0, 12),
+      candidatosDistintos: padres.length,
+      porEstado,
+      ejemplosDeTexto: [...unicas.values()].slice(0, 4).map((n) => n.texto.replace(/\s+/g, " ").slice(0, 110)),
+      errores: errores.slice(0, 3),
+    };
   } else if (pedido === "tareas") {
     // Solo lectura, agregados sin datos personales: cuántas tareas vencidas o de hoy hay, de qué tipo, de qué estado y cuán atrasadas.
     const { tareasPendientes, candidatosPorIds } = await import("./crm-zohoapi.local");

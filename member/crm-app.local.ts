@@ -350,6 +350,11 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderAgendar(c.env, entrada, { resultado: await crearCitaManual(c.env, entrada) }));
   });
 
+  // Cotizaciones de ViveHome enviadas por WhatsApp
+  app.get("/cotizaciones", async (c) => {
+    const { renderCotizaciones } = await import("./crm-cotizaciones.local");
+    return pagina(c, await renderCotizaciones(c.env, { f: c.req.query("f") }));
+  });
   // Auditoría: lo que el auditor del bot encontró trabado o fallando
   app.get("/auditoria", async (c) => {
     const { renderAuditoria } = await import("./crm-auditoria.local");
