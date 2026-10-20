@@ -211,6 +211,15 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         pagina++;
       }
       out = { revisados, fallidos, paginas: pagina - 1, masAntiguo, completo: fin };
+    } else if (pedido.startsWith("entrantes:")) {
+      // Solo lectura: mensajes ENTRANTES recientes de un número en YCloud (tipo, hora, botón pulsado); sin más texto que el título del botón.
+      const num = pedido.slice(10).replace(/\D/g, "");
+      const r = await ycloud(env, `/whatsapp/inbound-messages?limit=15&page=1&filter.from=%2B${num}`);
+      out = {
+        status: r.status,
+        items: (r.json?.items ?? []).map((x: any) => ({ tipo: x.type, creado: x.createTime ?? x.sendTime, boton: x.interactive?.button_reply?.title ?? x.interactive?.list_reply?.title ?? x.button?.text, texto: x.text?.body ? String(x.text.body).slice(0, 40) : undefined, contexto: x.context ? "responde a un mensaje" : undefined })),
+        error: r.status >= 400 ? r.json : undefined,
+      };
     } else if (pedido.startsWith("{")) {
       const p = JSON.parse(pedido) as { name: string; language: string; category: string; text: string; buttons?: string[] };
       const r = await ycloud(env, "/whatsapp/templates", {

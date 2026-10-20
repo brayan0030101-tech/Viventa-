@@ -219,15 +219,35 @@ app.get("/funnel-stats", async (c) => {
 // Entrega un mensaje ya parseado al DO, con dedup por id de proveedor y sin
 // que un fallo tumbe la respuesta al canal. Meta/WhatsApp reenvían el batch
 // completo ante un no-2xx: dedup + catch evitan respuestas dobles y doble gasto.
-async function ingestOne(env: Env, msg: IncomingMessage): Promise<void> {
+/**
+ * Entrega un mensaje entrante al agente. Devuelve false si NO se pudo entregar (después de un reintento): en ese caso se quita la marca
+ * de duplicado para que el reintento del proveedor sí se procese, y quien llama responde 500 para provocarlo.
+ */
+async function ingestOne(env: Env, msg: IncomingMessage): Promise<boolean> {
+  let marcado = false;
   try {
     if (msg.providerMessageId) {
       const { seenBefore } = await import("./db/dedup");
-      if (await seenBefore(new Db(env.DB), msg.providerMessageId)) return; // reenvío duplicado
+      if (await seenBefore(new Db(env.DB), msg.providerMessageId)) return true; // reenvío duplicado
+      marcado = true;
     }
-    await agentStub(env, msg.channel, msg.channelUserId).ingest(msg);
+    for (let intento = 1; ; intento++) {
+      try {
+        await agentStub(env, msg.channel, msg.channelUserId).ingest(msg);
+        return true;
+      } catch (e) {
+        if (intento >= 2) throw e;
+        console.error(`ingest ${msg.channel} (reintentando):`, e);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
   } catch (e) {
     console.error(`ingest ${msg.channel}:`, e);
+    if (marcado && msg.providerMessageId) {
+      const { olvidarMensaje } = await import("./db/dedup");
+      await olvidarMensaje(new Db(env.DB), msg.providerMessageId);
+    }
+    return false;
   }
 }
 
@@ -510,6 +530,7 @@ app.post("/webhooks/zernio", async (c) => {
   } catch {
     return c.text("bad json", 400);
   }
+  let fallo = false;
   for (const ev of normalizeZernioEvents(body)) {
     if (ev?.event !== "message.received") continue; // message.sent/otros → 200 sin procesar
     const convId = ev.message?.conversationId;
@@ -518,10 +539,10 @@ app.post("/webhooks/zernio", async (c) => {
     if (convId && acctId && userId)
       await rememberZernioCtx(c.env, userId, convId, acctId, ev.message?.platform);
     for (const msg of parseZernioEvents(ev)) {
-      await ingestOne(c.env, msg); // dedup + catch → nunca tumba el 200 a Zernio
+      if (!(await ingestOne(c.env, msg))) fallo = true; // no se pudo entregar al agente: 500 para que Zernio reintente
     }
   }
-  return c.text("ok", 200);
+  return fallo ? c.text("retry", 500) : c.text("ok", 200);
 });
 
 // --- WhatsApp por YCLOUD (BSP oficial, con COEXISTENCIA) ---------------------
@@ -555,6 +576,7 @@ app.post("/webhooks/ycloud", async (c) => {
     return c.text("bad json", 400);
   }
   const origin = c.env.DASHBOARD_BASE_URL || new URL(c.req.url).origin;
+  let fallo = false;
   for (const ev of normalizeYCloudEvents(body)) {
     // COEXISTENCIA: el dueño respondió desde su app (whatsapp.smb.message.echoes) →
     // pausamos esa conversación (takeover). El resto de eventos entrantes van al pipeline.
@@ -563,10 +585,10 @@ app.post("/webhooks/ycloud", async (c) => {
       continue;
     }
     for (const msg of await parseYCloudEvents(ev, c.env, origin)) {
-      await ingestOne(c.env, msg); // dedup + catch → nunca tumba el 200 a YCloud
+      if (!(await ingestOne(c.env, msg))) fallo = true; // no se pudo entregar al agente: 500 para que YCloud reintente
     }
   }
-  return c.text("ok", 200);
+  return fallo ? c.text("retry", 500) : c.text("ok", 200);
 });
 
 // Proxy FIRMADO del media entrante de YCloud (audio/imagen). Hace el media
@@ -783,6 +805,8 @@ export default {
         // Clientes con una pregunta real a los que nadie ha respondido en 10 min: aviso al equipo.
         const { runSinRespuesta } = await import("./followup/sinRespuesta");
         await runSinRespuesta(env).catch((e) => console.error("sinRespuesta:", e));
+        const { runCalificadosSinCita } = await import("./followup/sinRespuesta");
+        await runCalificadosSinCita(env).catch((e) => console.error("calificadosSinCita:", e));
       }
       {
         // Lo que el equipo escribe desde WhatsApp Business: se trae el texto de YCloud y se guarda en el hilo del panel.

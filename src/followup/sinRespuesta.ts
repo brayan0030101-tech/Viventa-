@@ -65,3 +65,46 @@ export async function runSinRespuesta(env: Env, now = Date.now()): Promise<{ avi
   }
   return { avisados: pendientes.length };
 }
+
+/**
+ * Buenos perfiles (ticket «Lead calificado») que 2 h después siguen sin videollamada agendada: aviso al equipo para que los
+ * retome a mano antes de que se les cierre la ventana de 24 h (19 oct 2026: dos clientas con buen perfil se quedaron sin agendar).
+ * Una sola vez por conversación; no avisa si ya hay cita o si una persona atiende la conversación.
+ */
+export async function runCalificadosSinCita(env: Env, now = Date.now()): Promise<{ avisados: number }> {
+  const db = new Db(env.DB);
+  const tickets = await db.all<{ conversation_id: string; summary: string; created_at: number }>(
+    "SELECT conversation_id, summary, created_at FROM tickets WHERE summary LIKE '[Lead calificado%' AND created_at BETWEEN ? AND ?",
+    [now - 22 * H, now - 2 * H],
+  );
+  if (tickets.length === 0) return { avisados: 0 };
+  const ids = [...new Set(tickets.map((t) => t.conversation_id))];
+  const conCita = new Set(
+    (await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%' AND created_at > ?", [now - 24 * H])).map((r) => r.conversation_id),
+  );
+  const lista: Array<{ id: string; nombre: string; resumen: string }> = [];
+  for (const id of ids) {
+    if (conCita.has(id)) continue;
+    const conv = await db.first<{ display_name: string | null; paused_until: number | null; marca: string | null; channel: string }>(
+      "SELECT display_name, paused_until, channel, json_extract(COALESCE(metadata, '{}'), '$.viventa_calif_sincita') AS marca FROM conversations WHERE id = ?",
+      [id],
+    );
+    if (!conv || conv.marca || !["ycloud", "zernio"].includes(conv.channel)) continue;
+    if (conv.paused_until && conv.paused_until > now) continue;
+    const t = tickets.find((x) => x.conversation_id === id)!;
+    lista.push({ id, nombre: conv.display_name || "Cliente", resumen: t.summary.replace(/^\[Lead calificado[^\]]*\]\s*/, "").slice(0, 110) });
+  }
+  if (lista.length === 0) return { avisados: 0 };
+  for (const l of lista) await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_calif_sincita', ?) WHERE id = ?", [new Date(now).toISOString(), l.id]);
+  try {
+    const { notifyCamila } = await import("../lib/camila");
+    await notifyCamila(env, {
+      heading: `🎯 ${lista.length === 1 ? "Un buen perfil lleva 2 h sin agendar videollamada" : `${lista.length} buenos perfiles llevan 2 h sin agendar videollamada`}`,
+      body: lista.slice(0, 8).map((l) => `• ${l.nombre}: ${l.resumen}`).join("\n") + "\n\nRetómalos hoy (llamada o WhatsApp) antes de que se cierre su ventana de 24 h.",
+      url: `${env.DASHBOARD_BASE_URL || ""}/admin`,
+    }).catch(() => false);
+  } catch (e) {
+    console.error("[calificados-sin-cita] aviso:", e);
+  }
+  return { avisados: lista.length };
+}

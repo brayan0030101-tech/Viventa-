@@ -42,3 +42,14 @@ export async function seenBefore(db: Db, providerMessageId: string): Promise<boo
     return false;
   }
 }
+
+/**
+ * Quita la marca de «ya procesado». Se usa cuando el mensaje se marcó pero NO llegó a procesarse (falló la entrega al agente):
+ * sin esto el proveedor reintenta y el reintento se descarta como duplicado → mensaje perdido (19 oct 2026: un cliente pulsó el
+ * botón del día de la videollamada y el bot nunca lo vio).
+ */
+export async function olvidarMensaje(db: Db, providerMessageId: string): Promise<void> {
+  const id = String(providerMessageId).trim();
+  if (!id) return;
+  await db.run("DELETE FROM processed_messages WHERE id = ?", [id]).catch(() => {});
+}

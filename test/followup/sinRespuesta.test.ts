@@ -13,7 +13,7 @@ import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
 import { MessagesRepo } from "../../src/db/messages";
-import { runSinRespuesta, esCortesia } from "../../src/followup/sinRespuesta";
+import { runSinRespuesta, esCortesia, runCalificadosSinCita } from "../../src/followup/sinRespuesta";
 import type { Env } from "../../src/env";
 
 const MIN = 60_000;
@@ -63,5 +63,26 @@ describe("clientes sin respuesta", () => {
     await convs.setPausedUntil(pausada, NOW + 60 * MIN);
     expect((await runSinRespuesta(env, NOW)).avisados).toBe(0);
     expect(notifyMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("buenos perfiles sin videollamada", () => {
+  async function ticket(convId: string, haceH: number) {
+    await db.run("INSERT INTO tickets (id, conversation_id, category, summary, transcript, status, created_at) VALUES (?, ?, 'other', ?, '', 'open', ?)", [crypto.randomUUID(), convId, "[Lead calificado: enviar proyectos] Andrea, Roma, empleada 1600 EUR", NOW - haceH * 3_600_000]);
+  }
+  it("avisa a las 2 h si no hay cita, una sola vez; no avisa si ya agendó", async () => {
+    const sin = await cliente("34600000011", "ok", 200, "Andrea");
+    const con = await cliente("34600000012", "ok", 200, "Leidy");
+    await ticket(sin, 3);
+    await ticket(con, 3);
+    await db.run("INSERT INTO leads (id, conversation_id, intent, created_at, updated_at) VALUES (?,?,?,?,?)", [crypto.randomUUID(), con, "Cita · videollamada", NOW - 1000, NOW - 1000]);
+    expect((await runCalificadosSinCita(env, NOW)).avisados).toBe(1);
+    expect(notifyMock.mock.calls[0][1].body).toContain("Andrea");
+    expect(notifyMock.mock.calls[0][1].body).not.toContain("Leidy");
+    expect((await runCalificadosSinCita(env, NOW + 5 * MIN)).avisados).toBe(0);
+  });
+  it("no avisa antes de 2 h", async () => {
+    await ticket(await cliente("34600000013", "ok", 200), 1);
+    expect((await runCalificadosSinCita(env, NOW)).avisados).toBe(0);
   });
 });
