@@ -17,6 +17,7 @@ interface EventoEntrante {
     id?: string;
     wamid?: string;
     from?: string;
+    fromUserId?: string;
     to?: string;
     type?: string;
     text?: { body?: string };
@@ -52,7 +53,7 @@ export async function bitacoraEntrante(env: Env, ev: EventoEntrante, producidos:
   if (producidos === 0 && esNuestro && !["reaction", "unsupported", "system", "request_welcome"].includes(String(m.type))) {
     await registrarHallazgo(env, {
       tipo: "mensaje_ilegible",
-      convId: `ycloud:${String(m.from ?? "").replace(/\D/g, "") || "desconocido"}`,
+      convId: `ycloud:${String(m.from ?? "").replace(/\D/g, "") || m.fromUserId || "desconocido"}`,
       clave: String(m.wamid ?? m.id ?? ev.id ?? now),
       detalle: `Llegó un mensaje de WhatsApp (${m.type ?? "tipo desconocido"}${m.customerProfile?.username ? `, usuario @${m.customerProfile.username}` : ""}) y el bot no pudo leerlo. Respóndele desde WhatsApp Business.`,
     }, now);
