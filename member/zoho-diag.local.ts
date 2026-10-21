@@ -43,6 +43,37 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido.startsWith("buscar:")) {
+    // Solo lectura: busca palabras en las notas de Zoho (ej. «impuestos») y dice a qué candidato pertenecen. Para ubicar un cliente que Maricela no encuentra.
+    await st.set("zoho_diag_pedir", "");
+    const palabras = pedido.slice(7).split(",").map((x) => x.trim()).filter(Boolean).slice(0, 6);
+    const hallados = new Map<string, { parent: string; creada: string; trozo: string; palabra: string }>();
+    const errores: string[] = [];
+    for (const palabra of palabras) {
+      for (let pagina = 1; pagina <= 3; pagina++) {
+        try {
+          const r = (await zohoGet(env, `/Notes/search?word=${encodeURIComponent(palabra)}&fields=Note_Content,Note_Title,Parent_Id,Created_Time&per_page=200&page=${pagina}`, fetch, now)) as { data?: Array<Record<string, any>>; info?: { more_records?: boolean } } | null;
+          for (const n of r?.data ?? []) {
+            const txt = String(n["Note_Content"] ?? "").replace(/\s+/g, " ");
+            const i = Math.max(0, txt.toLowerCase().indexOf(palabra.toLowerCase()));
+            hallados.set(`${n["Parent_Id"]?.id}|${n["Created_Time"]}`, { parent: String(n["Parent_Id"]?.id ?? ""), creada: String(n["Created_Time"] ?? ""), trozo: txt.slice(Math.max(0, i - 140), i + 220), palabra });
+          }
+          if (!r?.info?.more_records) break;
+        } catch (e) {
+          errores.push(`${palabra}:${e instanceof Error ? e.message.slice(0, 60) : String(e)}`);
+          break;
+        }
+      }
+    }
+    const padres = [...new Set([...hallados.values()].map((h) => h.parent).filter(Boolean))];
+    const cands = padres.length ? await candidatosPorIds(env, padres.slice(0, 100), fetch, now) : new Map();
+    await st.set("zoho_diag_resultado", JSON.stringify({
+      buscado: palabras,
+      encontrados: [...hallados.values()].sort((a, b) => b.creada.localeCompare(a.creada)).slice(0, 25).map((h) => ({ cliente: cands.get(h.parent)?.nombre ?? "(no es candidato)", movil: cands.get(h.parent)?.movil || cands.get(h.parent)?.telefono || "", estado: cands.get(h.parent)?.estado ?? "", creada: h.creada.slice(0, 16), palabra: h.palabra, trozo: h.trozo })),
+      errores: errores.slice(0, 3),
+    }));
+    return;
+  }
   if (!/^\d{6,30}$/.test(pedido) && pedido !== "auto" && pedido !== "estados" && pedido !== "agenda" && pedido !== "futuro" && pedido !== "reactivacion" && pedido !== "modulos" && pedido !== "deals" && pedido !== "oportunidades" && pedido !== "tareas" && pedido !== "madrid" && pedido !== "cotizaciones") return;
   await st.set("zoho_diag_pedir", "");
   let out: unknown;
