@@ -68,6 +68,17 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido.startsWith("transiciones:")) {
+    await st.set("zoho_diag_pedir", "");
+    const id = pedido.slice(13).trim();
+    try {
+      const j = (await zohoGet(env, `/Leads/${id}/actions/blueprint`, fetch, now)) as { blueprint?: { process_info?: Record<string, unknown>; transitions?: Array<Record<string, any>> } };
+      await st.set("zoho_diag_resultado", JSON.stringify({ proceso: j.blueprint?.process_info, transiciones: (j.blueprint?.transitions ?? []).map((t) => ({ id: t.id, nombre: t.name, siguiente: t.next_field_value, campos: (t.fields ?? []).map((c: any) => ({ api: c.api_name, tipo: c.data_type, obligatorio: !!c.mandatory, valores: Array.isArray(c.pick_list_values) ? c.pick_list_values.map((v: any) => v.display_value).slice(0, 12) : undefined })) })) }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido.startsWith("prospectar:")) {
     // Pasa a «En Prospección» a los candidatos que el bot creó y quedaron en «Nuevo» (ids separados por coma). Después lee su estado.
     await st.set("zoho_diag_pedir", "");
