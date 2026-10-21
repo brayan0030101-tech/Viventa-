@@ -16,6 +16,15 @@ import { armarLeads, llamadasAgendadas, formatoLlamada, evaluarCalificacion } fr
 import { zonaDeResidencia, horaEn, esEspana } from "../src/lib/zonaCliente";
 
 const H = 3600_000;
+/** ¿Ya se le envió una cotización de ViveHome (por el bot o por Maricela)? */
+async function cotizacionEnviada(db: Db, convId: string, telefono: string): Promise<boolean> {
+  const a = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_bot WHERE conv_id = ? AND estado = 'enviada'", [convId]).catch(() => null);
+  if ((a?.n ?? 0) > 0) return true;
+  const tel = telefono.replace(/\D/g, "").slice(-9);
+  if (tel.length < 9) return false;
+  const b = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_enviadas WHERE substr(tel, -9) = ?", [tel]).catch(() => null);
+  return (b?.n ?? 0) > 0;
+}
 export const MENSAJE_NO_CUMPLE =
   "Gracias por contarnos tu situación. Lamentablemente por ahora no cumples con las condiciones para adquirir una vivienda con crédito hipotecario: se requiere poder destinar al menos 400 euros al mes. Esperamos que en una próxima ocasión puedas tener esa disponibilidad para poder brindarte el servicio.";
 /** Primer inicio permitido y último inicio (la llamada dura 45 min y los inicios van de hora en hora: la última, 15:00, termina a las 15:45). */
@@ -231,11 +240,11 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         const cal = evaluarCalificacion(lead.ficha.metadata);
         if (nivel === "frio") return { ofrecerLlamada: false as const, motivo: "no_cumple_condiciones", prioridad: nivel, message: MENSAJE_NO_CUMPLE };
         if (cal.faltan.length) return { ofrecerLlamada: false as const, motivo: "faltan_preguntas", faltan: cal.faltan, message: `Todavía faltan datos antes de ofrecer la videollamada (${cal.faltan.join(", ")}). Sigue con el guion y pregúntalos de a uno; luego vuelve a llamar esta herramienta.` };
-        if (cal.reportado) {
-          const cot = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_bot WHERE conv_id = ? AND estado = 'enviada'", [convId]).catch(() => null);
-          if (!(cal.puedeQuitarReporte === true && (cot?.n ?? 0) > 0)) return { ofrecerLlamada: false as const, motivo: "reportado", message: "El cliente está reportado en Datacrédito: no se le ofrece videollamada todavía. Si dijo que se pone al día pronto, el sistema le enviará una cotización y, si le interesa y la ve viable, ahí sí se agenda. Cierra con amabilidad." };
-        }
-
+        // Flujo (reunión del 21 oct): a todos se les envía primero la cotización para que sepan cuánto vale y dónde queda; si de verdad les interesa, se agenda.
+        // Los muy calientes (buen ingreso, perfil caliente) pasan directo a la videollamada.
+        const conCotizacion = nivel === "caliente" && !cal.reportado ? true : await cotizacionEnviada(db, convId, lead.telefono);
+        if (cal.reportado && !(cal.puedeQuitarReporte === true && conCotizacion)) return { ofrecerLlamada: false as const, motivo: "reportado", message: "El cliente está reportado en Datacrédito: no se le ofrece videollamada todavía. Si dijo que se pone al día pronto, el sistema le envía una cotización y, si le interesa y la ve viable, ahí sí se agenda. Cierra con amabilidad." };
+        if (!conCotizacion) return { ofrecerLlamada: false as const, motivo: "primero_cotizacion", message: "Todavía no se le ha enviado la cotización. No ofrezcas videollamada: dile que en unos minutos le llega una cotización con el valor y la ubicación de los proyectos, y que después, si le interesa, agendan la videollamada con Maricela. El sistema se la envía solo." };
         if (!calcomConfigured(env)) return { ofrecerLlamada: false as const, motivo: "agenda_no_configurada" };
         const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");
         if (!eventTypeId) return { ofrecerLlamada: false as const, motivo: "sin_tipo_de_evento" };

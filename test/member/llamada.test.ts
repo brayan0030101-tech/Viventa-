@@ -81,6 +81,16 @@ describe("proponerLlamada", () => {
     expect(r.motivo).toBe("faltan_preguntas");
     expect(r.faltan).toEqual(["reportadoDatacredito", "compraSoloOAcompanado"]);
   });
+  it("tibio: primero se le envía la cotización; con la cotización ya enviada sí se ofrece", async () => {
+    const meta = { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "1400", capacidadMensual: "350 euros", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", reportadoDatacredito: "No", compraSoloOAcompanado: "Solo" };
+    const id = await cliente(meta);
+    const antes = await correr(id);
+    expect(antes.ofrecerLlamada).toBe(false);
+    expect(antes.motivo).toBe("primero_cotizacion");
+    await db.run("CREATE TABLE IF NOT EXISTS cotizaciones_bot (id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id TEXT, estado TEXT)");
+    await db.run("INSERT INTO cotizaciones_bot (conv_id, estado) VALUES (?, 'enviada')", [id]);
+    expect((await correr(id)).ofrecerLlamada).toBe(true);
+  });
   it("reportado en Datacrédito: no se ofrece (aunque diga que se pone al día, hasta que haya cotización enviada)", async () => {
     const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", reportadoDatacredito: "Sí", puedeQuitarReporte: "Sí, pronto", compraSoloOAcompanado: "Solo" });
     const r = await correr(id);

@@ -445,6 +445,8 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
             await actualizar(db, f.id, { estado: "omitida", error: "la conversación la tomó una persona o se descartó" }, now);
             continue;
           }
+          const faltanBase = evaluarCalificacion(lead.ficha.metadata).faltan.filter((k) => !["reportadoDatacredito", "compraSoloOAcompanado", "puedeQuitarReporte"].includes(k));
+          if (faltanBase.length) continue; // el bot todavía está haciendo las preguntas: se cotiza al terminar
           if (lead.prioridad.nivel === "frio" || (evaluarCalificacion(lead.ficha.metadata).reportado && evaluarCalificacion(lead.ficha.metadata).puedeQuitarReporte !== true)) {
             await actualizar(db, f.id, { estado: "omitida", error: "no cumple las condiciones (frío o reportado sin ponerse al día)" }, now);
             continue;
