@@ -68,6 +68,22 @@ function partirNombre(nombre: string): { first: string; last: string } {
 
 const hoy = (n: number): string => hoyMadrid(n);
 
+/** Las notas del bot se repiten en cada guardado («Autorizo el registro…»): se dejan los datos distintos, sin repeticiones y en poco espacio. */
+export function resumirNotas(notas: string): string {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const parte of notas.split(/\s*\|\s*|\n/)) {
+    for (const frase of parte.split(/(?<=\.)\s+/)) {
+      const f = frase.replace(/^Autorizo el registro de datos: s[ií] \([^)]*\)\.?\s*/i, "").trim();
+      const k = sinTildes(f);
+      if (f.length < 4 || vistos.has(k)) continue;
+      vistos.add(k);
+      out.push(f);
+    }
+  }
+  return out.join(" ").slice(0, 600);
+}
+
 export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: string, canal: string, now: number): string {
   const m = l.ficha.metadata;
   const linea = (k: string, v?: string) => (v ? `${k}: ${v}` : "");
@@ -77,7 +93,7 @@ export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: stri
     linea("Ahorro", m.ahorroDisponible), linea("Puede destinar al mes", m.capacidadMensual), linea("Trabajo", m.tipoEmpleo), linea("Ingresos", m.ingresosMensuales),
     linea("Reportado en Datacrédito", m.reportadoDatacredito), linea("¿Puede quitar el reporte?", m.puedeQuitarReporte),
     linea("Compra", m.compraSoloOAcompanado), linea("Datos de quien compra con él/ella", m.datosCoComprador), linea("Ingresos de la otra persona", m.ingresosCoComprador),
-    linea("Notas del bot", l.ficha.notas),
+    linea("Notas del bot", resumirNotas(l.ficha.notas)),
     cotizada ? "Ya se le envió una cotización." : "Todavía no se le ha enviado cotización.",
     ultimoMensaje ? `Su último mensaje: «${ultimoMensaje.replace(/\s+/g, " ").slice(0, 160)}»` : "",
     "Siguiente paso: escribirle por WhatsApp y, si le interesa, agendar la videollamada.",
