@@ -20,6 +20,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { SettingsRepo } from "../db/settings";
+import { esNumeroColombiano } from "../channels/ycloud";
 import { armarLeads, correoParaFormulario, evaluarCalificacion, type LeadResumen } from "../followup/resumenDia";
 import { puedeEscribirAhora } from "../lib/horarioCliente";
 import { registrarHallazgo } from "../followup/auditor";
@@ -209,7 +210,7 @@ async function candidatos(db: Db, modo: Modo, now: number): Promise<ConvFila[]> 
   const conCita = new Set((await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%'")).map((r) => r.conversation_id));
   const posibles = (await convsPorId(db, ids.filter((id) => !conCita.has(id)))).filter((c) => ["ycloud", "zernio"].includes(c.channel) && !descartada(c));
   const out: ConvFila[] = [];
-  for (const c of posibles) if (!(await dijoQueNo(db, c.id))) out.push(c);
+  for (const c of posibles) if (!esNumeroColombiano(c.channel_user_id) && !(await dijoQueNo(db, c.id))) out.push(c);
   return out;
 }
 
@@ -441,6 +442,10 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
             await actualizar(db, f.id, { estado: "omitida", error: "la conversación ya no existe" }, now);
             continue;
           }
+          if (esNumeroColombiano(conv.channel_user_id)) {
+            await actualizar(db, f.id, { estado: "omitida", error: "número colombiano: el bot no escribe a Colombia (regla fija)" }, now);
+            continue;
+          }
           if ((conv.paused_until && conv.paused_until > now) || descartada(conv)) {
             await actualizar(db, f.id, { estado: "omitida", error: "la conversación la tomó una persona o se descartó" }, now);
             continue;
@@ -580,7 +585,7 @@ async function enviarPlantillas(env: Env, db: Db, modo: Modo, now: number, deps:
     if (n >= MAX_PLANTILLAS_POR_PASADA) break;
     const conv = convs.find((c) => c.id === f.conv_id);
     const lead = leads.find((l) => l.convId === f.conv_id);
-    if (!conv || !lead || (conv.paused_until && conv.paused_until > now) || descartada(conv) || conCita.has(conv.id) || (await dijoQueNo(db, conv.id)) || (f.ronda === 1 && (await yaTieneCotizacion(db, lead)))) {
+    if (!conv || !lead || esNumeroColombiano(conv.channel_user_id) || (conv.paused_until && conv.paused_until > now) || descartada(conv) || conCita.has(conv.id) || (await dijoQueNo(db, conv.id)) || (f.ronda === 1 && (await yaTieneCotizacion(db, lead)))) {
       await actualizar(db, f.id, { estado: "omitida", error: "antes de la plantilla: la tomó una persona, se descartó, agendó o ya tiene cotización" }, now);
       continue;
     }

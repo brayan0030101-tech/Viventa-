@@ -80,7 +80,7 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
     `SELECT c.id, c.channel_user_id, c.display_name,
             (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS ult_cli
        FROM conversations c
-      WHERE c.channel = 'ycloud' AND c.last_message_at >= ?
+      WHERE c.channel = 'ycloud' AND c.channel_user_id NOT LIKE '57%' AND c.channel_user_id NOT LIKE 'CO.%' AND c.last_message_at >= ?
         AND (c.paused_until IS NULL OR c.paused_until < ?)
         AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_retomar') IS NULL
         AND COALESCE(json_extract(c.metadata, '$.crm_etapa'), '') NOT IN ('perdido', 'cerrado')
@@ -131,7 +131,7 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
       `SELECT c.id, c.channel_user_id, json_extract(c.metadata, '$.viventa_retomar') AS marca,
               (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS ult_cli
          FROM conversations c
-        WHERE c.channel = 'ycloud' AND (c.paused_until IS NULL OR c.paused_until < ?)
+        WHERE c.channel = 'ycloud' AND c.channel_user_id NOT LIKE '57%' AND c.channel_user_id NOT LIKE 'CO.%' AND (c.paused_until IS NULL OR c.paused_until < ?)
           AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_retomar') LIKE '20%'
           AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_retomar2') IS NULL
           AND COALESCE(json_extract(c.metadata, '$.crm_etapa'), '') NOT IN ('perdido', 'cerrado')

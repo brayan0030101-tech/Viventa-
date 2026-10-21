@@ -4,6 +4,7 @@
  * payload crudo (truncado) y deja un hallazgo para el auditor: así se ve qué no se pudo leer (usuarios de WhatsApp sin teléfono, tipos
  * nuevos…). Se limpia a los 7 días.
  */
+import { esNumeroColombiano } from "../channels/ycloud";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { registrarHallazgo } from "./auditor";
@@ -50,6 +51,7 @@ export async function bitacoraEntrante(env: Env, ev: EventoEntrante, producidos:
   ]);
   if (Math.random() < 0.02) await db.run("DELETE FROM entrantes_log WHERE ts < ?", [now - 7 * DIA]).catch(() => {});
   const digitos = (x?: string): string => String(x ?? "").replace(/\D/g, "");
+  if (esNumeroColombiano(m.from) || esNumeroColombiano(m.fromUserId)) return; // regla fija: los números colombianos se ignoran, no es un mensaje «ilegible»
   const esNuestro = !m.to || digitos(m.to) === digitos(env.YCLOUD_WA_FROM);
   if (producidos === 0 && esNuestro && !["reaction", "unsupported", "system", "request_welcome"].includes(String(m.type))) {
     await registrarHallazgo(env, {

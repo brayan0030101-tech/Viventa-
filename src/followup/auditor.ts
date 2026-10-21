@@ -15,6 +15,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { esCortesia } from "./sinRespuesta";
+import { esNumeroColombiano } from "../channels/ycloud";
 
 const MIN = 60_000;
 const H = 3_600_000;
@@ -55,6 +56,7 @@ export async function asegurarTablaAuditoria(db: Db): Promise<void> {
 
 /** Registra un hallazgo; true si es nuevo (no existía el mismo tipo + conversación + clave). */
 export async function registrarHallazgo(env: Env, h: { tipo: TipoHallazgo; convId: string; clave?: string; detalle: string }, now = Date.now()): Promise<boolean> {
+  if (esNumeroColombiano(h.convId.replace(/^\w+:/, ""))) return false; // regla fija: los números colombianos no se atienden ni se auditan
   const db = new Db(env.DB);
   await asegurarTablaAuditoria(db);
   const r = await db.run("INSERT OR IGNORE INTO auditoria_hallazgos (tipo, conv_id, clave, detalle, creado) VALUES (?,?,?,?,?)", [h.tipo, h.convId, h.clave ?? "", h.detalle.slice(0, 400), now]);

@@ -201,12 +201,12 @@ describe("filtro por número (cuenta de YCloud compartida con otro bot)", () => 
   const OTRO = "+34603039032";
   const envNum = { ...env, YCLOUD_WA_FROM: VIVENTA } as any;
   const msg = (to: string) =>
-    inbound({ id: "id9", wamid: "wamid.9", from: "+57 300 123 4567", to, type: "text", text: { body: "hola" } }) as any;
+    inbound({ id: "id9", wamid: "wamid.9", from: "+34 612 345 678", to, type: "text", text: { body: "hola" } }) as any;
   const eco = (from: string) =>
     ({
       id: "evt_e9",
       type: "whatsapp.smb.message.echoes",
-      whatsappMessage: { wamid: "wamid.e9", status: "sent", from, to: "+57 300 123 4567", type: "text", customerProfile: { name: "Ana" } },
+      whatsappMessage: { wamid: "wamid.e9", status: "sent", from, to: "+34 612 345 678", type: "text", customerProfile: { name: "Ana" } },
     }) as any;
 
   beforeEach(() => {
@@ -366,20 +366,20 @@ describe("botones de WhatsApp (YCloud)", () => {
     const out = await parseYCloudEvents(
       {
         type: "whatsapp.inbound_message.received",
-        whatsappInboundMessage: { id: "i1", wamid: "w1", to: "+34611688609", type: "text", text: { body: "Yo estoy en España vivo en Murcia" }, fromUserId: "CO.13491208655302741918", customerProfile: { name: "José", username: "jose94161" } },
+        whatsappInboundMessage: { id: "i1", wamid: "w1", to: "+34611688609", type: "text", text: { body: "Yo estoy en España vivo en Murcia" }, fromUserId: "ES.13491208655302741918", customerProfile: { name: "José", username: "jose94161" } },
       } as any,
       { ...env, YCLOUD_WA_FROM: "+34611688609" } as any,
       ORIGIN,
     );
     expect(out).toHaveLength(1);
-    expect(out[0].channelUserId).toBe("CO.13491208655302741918");
+    expect(out[0].channelUserId).toBe("ES.13491208655302741918");
     expect(out[0].text).toBe("Yo estoy en España vivo en Murcia");
 
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    await ycloudAdapter.sendReply({ channel: "ycloud", channelUserId: "CO.13491208655302741918", chunks: ["Hola José"] }, { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any);
+    await ycloudAdapter.sendReply({ channel: "ycloud", channelUserId: "ES.13491208655302741918", chunks: ["Hola José"] }, { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any);
     const body = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
-    expect(body.recipient).toBe("CO.13491208655302741918");
+    expect(body.recipient).toBe("ES.13491208655302741918");
     expect(body.to).toBeUndefined();
     vi.unstubAllGlobals();
   });
@@ -424,5 +424,21 @@ describe("botones de WhatsApp (YCloud)", () => {
     expect(segundo.text.body).toContain("1) Lun 12 oct");
     expect(segundo.text.body).toContain("2) Mar 13 oct");
     vi.unstubAllGlobals();
+  });
+});
+
+describe("regla fija: nunca a números colombianos", () => {
+  it("reconoce +57…, 57… y usuarios CO.…, y no confunde España ni otros países", async () => {
+    const { esNumeroColombiano } = await import("../../src/channels/ycloud");
+    expect(esNumeroColombiano("573001234567")).toBe(true);
+    expect(esNumeroColombiano("+57 300 123 4567")).toBe(true);
+    expect(esNumeroColombiano("CO.13491208655302741918")).toBe(true);
+    expect(esNumeroColombiano("34600000000")).toBe(false);
+    expect(esNumeroColombiano("ES.1649467993445445")).toBe(false);
+    expect(esNumeroColombiano("15551234567")).toBe(false);
+  });
+  it("ignora los mensajes que llegan de números colombianos", async () => {
+    const out = await parseYCloudEvents(inbound({ id: "co1", wamid: "wco1", from: "+573001234567", type: "text", text: { body: "hola" } }) as any, env, ORIGIN);
+    expect(out).toEqual([]);
   });
 });

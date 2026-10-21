@@ -25,6 +25,7 @@
  * Todos reclaman antes de enviar (marca en metadata) → imposible duplicar.
  * Best-effort: un candidato que falla no frena a los demás.
  */
+import { esNumeroColombiano } from "../channels/ycloud";
 import { puedeEscribirAhora } from "../lib/horarioCliente";
 import type { Env } from "../env";
 import { Db } from "../db/client";
@@ -645,7 +646,7 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
   const settings = new SettingsRepo(db);
   if (((await settings.get("viventa_oferta_llamada")) ?? "").trim().toLowerCase() !== "activo") return { sent: 0 };
   if (((await settings.get("viventa_llamada_modo")) ?? "").trim().toLowerCase() !== "activo") return { sent: 0 };
-  const ids = ((await settings.get("viventa_oferta_lista")) ?? "").split(/[,;\s]+/).filter(Boolean);
+  const ids = ((await settings.get("viventa_oferta_lista")) ?? "").split(/[,;\s]+/).filter(Boolean).filter((x) => !esNumeroColombiano(x.replace(/^\w+:/, "")));
   if (ids.length === 0) return { sent: 0 };
 
   const marcas = ids.map(() => "?").join(",");

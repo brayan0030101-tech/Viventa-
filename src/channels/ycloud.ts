@@ -79,6 +79,17 @@ interface YCloudWebhookBody {
  * se descartaban en silencio y el cliente quedaba sin respuesta.
  */
 const ES_BSUID = /^[A-Za-z]{2}\.[A-Za-z0-9]{1,128}$/;
+/**
+ * REGLA FIJA (Brayan, 21 oct 2026): el bot NUNCA escribe ni responde a números colombianos (+57…, o usuarios de WhatsApp con BSUID «CO.…»).
+ * Vale para todo: respuestas del bot, plantillas, recordatorios, retomar y cotizaciones. Los mensajes que lleguen de esos números se ignoran.
+ */
+export function esNumeroColombiano(id: string | undefined | null): boolean {
+  const t = String(id ?? "").trim();
+  if (!t) return false;
+  if (ES_BSUID.test(t)) return /^co\./i.test(t);
+  return /^57\d{9,10}$/.test(t.replace(/\D/g, ""));
+}
+
 export function destinoYCloud(id: string): { to: string } | { recipient: string } {
   return ES_BSUID.test(id) ? { recipient: id } : { to: id.startsWith("+") ? id : `+${id}` };
 }
@@ -244,6 +255,10 @@ export async function parseYCloudEvents(
   const bsuid = ES_BSUID.test(String(m.fromUserId ?? "")) ? String(m.fromUserId) : "";
   const from = normPhone(m.from) || bsuid;
   if (!from) return [];
+  if (esNumeroColombiano(from) || esNumeroColombiano(bsuid)) {
+    console.log("ycloud: mensaje de número colombiano ignorado (regla fija)");
+    return [];
+  }
 
   let text: string | undefined;
   let audioUrl: string | undefined;
@@ -401,6 +416,7 @@ export const ycloudAdapter: ChannelAdapter = {
   },
 
   async sendReply(reply: OutgoingReply, env: Env, opts?: SendOptions): Promise<void> {
+    if (esNumeroColombiano(reply.channelUserId)) return; // regla fija: nunca a números colombianos
     const from = env.YCLOUD_WA_FROM;
     const apiKey = env.YCLOUD_API_KEY;
     if (!from || !apiKey) {
@@ -493,6 +509,7 @@ export async function sendYCloudTemplate(
   lang: string,
   bodyParams: string[] = [],
 ): Promise<void> {
+  if (esNumeroColombiano(to)) return; // regla fija: nunca a números colombianos
   const from = env.YCLOUD_WA_FROM;
   const apiKey = env.YCLOUD_API_KEY;
   if (!from || !apiKey) {

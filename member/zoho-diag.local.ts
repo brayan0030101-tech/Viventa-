@@ -43,6 +43,27 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "campos_leads") {
+    // Solo lectura: campos del módulo de Candidatos (nombre de API, tipo, obligatorio, opciones) y qué campos trae un candidato reciente (solo los nombres y valores de listas).
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const j = (await zohoGet(env, "/settings/fields?module=Leads", fetch, now)) as { fields?: Array<Record<string, any>> };
+      const campos = (j.fields ?? []).filter((x) => x.visible !== false).map((x) => ({ api: x.api_name, etiqueta: x.field_label, tipo: x.data_type, obligatorio: !!x.system_mandatory, opciones: Array.isArray(x.pick_list_values) ? x.pick_list_values.slice(0, 30).map((o: any) => o.display_value) : undefined }));
+      const { duenoZoho } = await import("./crm-zohoapi.local");
+      const dueno = await duenoZoho(env, fetch, now);
+      const rec = (await coql(env, `select id, Lead_Status, Lead_Source, Created_Time from Leads where Owner = '${dueno.id}' order by Created_Time desc limit 3`, fetch, now)) as Array<Record<string, any>>;
+      const detalle: Array<{ creado: unknown; estado: unknown; fuente: unknown; camposConValor: string[] }> = [];
+      for (const r of rec) {
+        const full = (await zohoGet(env, `/Leads/${r.id}`, fetch, now)) as { data?: Array<Record<string, any>> };
+        const d = full.data?.[0] ?? {};
+        detalle.push({ creado: r.Created_Time, estado: r.Lead_Status, fuente: r.Lead_Source, camposConValor: Object.entries(d).filter(([, v]) => v !== null && v !== "" && v !== false).map(([k, v]) => (typeof v === "string" && v.length <= 24 && !/@|\d{6}/.test(v) ? `${k}=${v}` : k)) });
+      }
+      await st.set("zoho_diag_resultado", JSON.stringify({ dueno: dueno.nombre, campos: campos.filter((c) => c.obligatorio || /status|source|city|country|ciudad|pais|mobile|phone|email|name|desc|interes|origen|canal/i.test(`${c.api} ${c.etiqueta}`)), recientes: detalle }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido === "permiso_crear") {
     // Sin crear nada: manda un registro VACÍO a Leads. Si el permiso existe, Zoho contesta «campo obligatorio»; si no, «sin permiso de escritura».
     await st.set("zoho_diag_pedir", "");

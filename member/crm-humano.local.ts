@@ -6,6 +6,7 @@
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { armarLeads, evaluarCalificacion } from "../src/followup/resumenDia";
+import { esNumeroColombiano } from "../src/channels/ycloud";
 import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM, hace } from "./crm.local";
 
@@ -38,6 +39,7 @@ export async function cargarEsperandoHumano(env: Env, now = Date.now()): Promise
   );
   const out: EsperandoHumano[] = [];
   for (const c of convs) {
+    if (c.channel === "ycloud" && esNumeroColombiano(c.channel_user_id)) continue; // regla fija: no se atienden números colombianos
     let meta: Record<string, unknown> = {};
     try { meta = c.metadata ? JSON.parse(c.metadata) : {}; } catch { /* metadatos rotos */ }
     if (["perdido", "cerrado"].includes(String(meta.crm_etapa ?? "")) || meta.crm_descarte || meta.viventa_registrado) continue;
