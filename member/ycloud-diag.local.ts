@@ -114,6 +114,11 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         plantillas: (t.json?.items ?? []).map((x: any) => ({ name: x.name, language: x.language, category: x.category, status: x.status, reason: x.reason, cuerpo: String(x.components?.find((c: any) => c.type === "BODY")?.text ?? "").slice(0, 120) })),
         error: t.status >= 400 ? t.json : undefined,
       };
+    } else if (pedido.startsWith("cal:slots:")) {
+      const dia = pedido.slice(10);
+      const r = await fetch(`https://api.cal.com/v2/slots?eventTypeId=${Number(env.CALCOM_EVENT_TYPE_ID || 0)}&start=${dia}&end=${dia}&timeZone=Europe%2FMadrid`, { headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": "2024-09-04" } });
+      const j: any = await r.json().catch(() => ({}));
+      out = { http: r.status, dia, slots: Object.values(j?.data ?? {}).flat().map((x: any) => String(x?.start ?? x).slice(11, 16)) };
     } else if (pedido === "cal:leer" || pedido.startsWith("cal:ajustar:")) {
       // Duración del evento de Cal.com (pedido de Maricela 21 oct: 45 min con una hora entre inicios). «cal:ajustar:45:60» = duración:intervalo.
       const id = Number(env.CALCOM_EVENT_TYPE_ID || 0);
