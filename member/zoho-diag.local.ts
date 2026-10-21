@@ -43,6 +43,31 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "subida_listar" || pedido.startsWith("subida_ver:")) {
+    // Solo lectura: qué clientes se subirían a Zoho (y por qué no los demás), o lo que se mandaría para UN cliente. No escribe nada.
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const { armarPlan } = await import("./crm-zohosubida.local");
+      if (pedido.startsWith("subida_ver:")) {
+        const r = await armarPlan(env, pedido.slice(11), fetch, now);
+        await st.set("zoho_diag_resultado", JSON.stringify({ subida_ver: r.plan ? { nombre: r.plan.nombre, nivel: r.plan.nivel, datos: { ...r.plan.datos, Email: r.plan.correo ? "(tiene correo)" : undefined, Mobile: r.plan.telefono ? "(tiene teléfono)" : undefined }, tarea: r.plan.tarea, nota: r.plan.nota } : { no: r.motivoNo } }));
+      } else {
+        const db = new Db(env.DB);
+        const ids = (await db.all<{ id: string }>("SELECT id FROM conversations WHERE channel IN ('ycloud','zernio') AND last_message_at > ? ORDER BY last_message_at DESC LIMIT 400", [now - 20 * 86_400_000])).map((r) => r.id);
+        const motivos: Record<string, number> = {};
+        const elegibles: Array<{ conv: string; nombre: string; nivel: string }> = [];
+        for (const id of ids) {
+          const r = await armarPlan(env, id, fetch, now);
+          if (r.plan) elegibles.push({ conv: id, nombre: r.plan.nombre, nivel: r.plan.nivel });
+          else { const k = (r.motivoNo ?? "").replace(/\(.*\)/, "").trim(); motivos[k] = (motivos[k] ?? 0) + 1; }
+        }
+        await st.set("zoho_diag_resultado", JSON.stringify({ revisadas: ids.length, elegibles: elegibles.length, lista: elegibles.slice(0, 15), porQueNo: motivos }));
+      }
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido === "campos_leads") {
     // Solo lectura: campos del módulo de Candidatos (nombre de API, tipo, obligatorio, opciones) y qué campos trae un candidato reciente (solo los nombres y valores de listas).
     await st.set("zoho_diag_pedir", "");

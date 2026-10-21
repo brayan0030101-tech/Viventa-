@@ -198,6 +198,21 @@ async function escribir(env: Env, ruta: string, metodo: "POST" | "PUT", dato: Re
 
 const idValido = (id: string): boolean => /^\d{6,30}$/.test(id);
 
+/** Crea un candidato (Leads). Devuelve su id. Lanza ZohoError con el motivo que dé Zoho (campo inválido, duplicado, etc.). */
+export async function crearCandidato(env: Env, datos: Record<string, unknown>, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  const id = await escribir(env, "/Leads", "POST", datos, f, now);
+  if (!idValido(id)) throw new ZohoError("Zoho no devolvió el id del candidato nuevo.");
+  return id;
+}
+
+/** Dueño actual de un candidato (para saber si ya es de otra asesora). */
+export async function duenoDeCandidato(env: Env, leadId: string, f: FetchFn = fetch, now = Date.now()): Promise<{ id: string; nombre: string } | null> {
+  if (!idValido(leadId)) return null;
+  const j = (await llamar(env, `/Leads/${leadId}?fields=Owner`, {}, f, now)) as { data?: Array<{ Owner?: { id?: string; name?: string } }> } | null;
+  const o = j?.data?.[0]?.Owner;
+  return o?.id ? { id: String(o.id), nombre: String(o.name ?? "") } : null;
+}
+
 /** Marca una tarea como «Completa». */
 export async function completarTarea(env: Env, tareaId: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
   if (!idValido(tareaId)) throw new ZohoError("Tarea no válida.");
