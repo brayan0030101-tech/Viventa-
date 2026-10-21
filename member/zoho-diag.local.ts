@@ -53,11 +53,11 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
         await st.set("zoho_diag_resultado", JSON.stringify({ subida_ver: r.plan ? { nombre: r.plan.nombre, nivel: r.plan.nivel, datos: { ...r.plan.datos, Email: r.plan.correo ? "(tiene correo)" : undefined, Mobile: r.plan.telefono ? "(tiene teléfono)" : undefined }, tarea: r.plan.tarea, nota: r.plan.nota } : { no: r.motivoNo } }));
       } else {
         const db = new Db(env.DB);
-        const ids = (await db.all<{ id: string }>("SELECT id FROM conversations WHERE channel IN ('ycloud','zernio') AND last_message_at > ? ORDER BY last_message_at DESC LIMIT 400", [now - 20 * 86_400_000])).map((r) => r.id);
+        const ids = (await db.all<{ id: string }>("SELECT id FROM conversations WHERE channel IN ('ycloud','zernio') AND last_message_at > ? ORDER BY last_message_at DESC LIMIT 120", [now - 20 * 86_400_000])).map((r) => r.id);
         const motivos: Record<string, number> = {};
         const elegibles: Array<{ conv: string; nombre: string; nivel: string }> = [];
         for (const id of ids) {
-          const r = await armarPlan(env, id, fetch, now);
+          const r = await armarPlan(env, id, fetch, now).catch((e) => ({ plan: undefined, motivoNo: `error: ${e instanceof Error ? e.message.slice(0, 40) : "?"}` }));
           if (r.plan) elegibles.push({ conv: id, nombre: r.plan.nombre, nivel: r.plan.nivel });
           else { const k = (r.motivoNo ?? "").replace(/\(.*\)/, "").trim(); motivos[k] = (motivos[k] ?? 0) + 1; }
         }
