@@ -83,6 +83,8 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
       WHERE c.channel = 'ycloud' AND c.last_message_at >= ?
         AND (c.paused_until IS NULL OR c.paused_until < ?)
         AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_retomar') IS NULL
+        AND COALESCE(json_extract(c.metadata, '$.crm_etapa'), '') NOT IN ('perdido', 'cerrado')
+        AND json_extract(COALESCE(c.metadata, '{}'), '$.crm_descarte') IS NULL
         AND NOT EXISTS (SELECT 1 FROM leads l WHERE l.conversation_id = c.id AND l.intent LIKE 'Cita ·%')
         AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.role = 'owner')
         AND (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') < ?

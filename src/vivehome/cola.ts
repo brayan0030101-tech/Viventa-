@@ -170,6 +170,26 @@ const descartada = (c: ConvFila): boolean => {
 
 const ultimos9 = (s: string) => s.replace(/\D/g, "").slice(-9);
 
+const RECHAZO = /ya no (estoy|me) interesad|no (estoy|me) interesad|no me interesa|no quiero (m[aá]s )?(informaci|que me escrib)|dejen de escribir|no (me )?escrib[ai]n m[aá]s/i;
+
+/**
+ * ¿El cliente dijo que NO le interesa (último mensaje suyo, aquí o en la conversación enlazada de Instagram↔WhatsApp) o el bot anotó «No quiere continuar»?
+ * Pasó el 21 oct: un cliente tocó «Ya no estoy interesado/a» y 10 min después le llegó una cotización.
+ */
+export async function dijoQueNo(db: Db, convId: string): Promise<boolean> {
+  const ids = new Set<string>([convId]);
+  const enlace = await db.first<{ m: string | null }>("SELECT json_extract(COALESCE(metadata, '{}'), '$.viventa_retomar_ig') AS m FROM conversations WHERE id = ?", [convId]);
+  if (enlace?.m) ids.add(enlace.m);
+  for (const r of await db.all<{ id: string }>("SELECT id FROM conversations WHERE json_extract(COALESCE(metadata, '{}'), '$.viventa_retomar_ig') = ?", [convId])) ids.add(r.id);
+  for (const id of ids) {
+    const msgs = await db.all<{ content: string }>("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 3", [id]);
+    if (msgs.some((m) => RECHAZO.test(m.content))) return true;
+    const notas = await db.all<{ notes: string | null }>("SELECT notes FROM leads WHERE conversation_id = ? AND notes IS NOT NULL", [id]);
+    if (notas.some((l) => /no quiere continuar/i.test(l.notes ?? ""))) return true;
+  }
+  return false;
+}
+
 /** Conversaciones a considerar según el modo (sin las que ya tienen fila en la cola). */
 async function candidatos(db: Db, modo: Modo, now: number): Promise<ConvFila[]> {
   const conFila = new Set((await db.all<{ conv_id: string }>("SELECT DISTINCT conv_id FROM cotizaciones_bot")).map((r) => r.conv_id));
@@ -187,7 +207,10 @@ async function candidatos(db: Db, modo: Modo, now: number): Promise<ConvFila[]> 
     .map((r) => r.conversation_id)
     .filter((id) => !conFila.has(id));
   const conCita = new Set((await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%'")).map((r) => r.conversation_id));
-  return (await convsPorId(db, ids.filter((id) => !conCita.has(id)))).filter((c) => ["ycloud", "zernio"].includes(c.channel) && !descartada(c));
+  const posibles = (await convsPorId(db, ids.filter((id) => !conCita.has(id)))).filter((c) => ["ycloud", "zernio"].includes(c.channel) && !descartada(c));
+  const out: ConvFila[] = [];
+  for (const c of posibles) if (!(await dijoQueNo(db, c.id))) out.push(c);
+  return out;
 }
 
 /** ¿Ya recibió una cotización de Maricela (enlace de ViveHome en un mensaje saliente)? */
@@ -422,6 +445,10 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
             await actualizar(db, f.id, { estado: "omitida", error: "la conversación la tomó una persona o se descartó" }, now);
             continue;
           }
+          if (await dijoQueNo(db, f.conv_id)) {
+            await actualizar(db, f.id, { estado: "omitida", error: "el cliente dijo que no le interesa" }, now);
+            continue;
+          }
           if (f.ronda === 1 && (await yaTieneCotizacion(db, lead))) {
             await actualizar(db, f.id, { estado: "omitida", error: "ya tiene cotización de Maricela" }, now);
             continue;
@@ -547,7 +574,7 @@ async function enviarPlantillas(env: Env, db: Db, modo: Modo, now: number, deps:
     if (n >= MAX_PLANTILLAS_POR_PASADA) break;
     const conv = convs.find((c) => c.id === f.conv_id);
     const lead = leads.find((l) => l.convId === f.conv_id);
-    if (!conv || !lead || (conv.paused_until && conv.paused_until > now) || descartada(conv) || conCita.has(conv.id) || (f.ronda === 1 && (await yaTieneCotizacion(db, lead)))) {
+    if (!conv || !lead || (conv.paused_until && conv.paused_until > now) || descartada(conv) || conCita.has(conv.id) || (await dijoQueNo(db, conv.id)) || (f.ronda === 1 && (await yaTieneCotizacion(db, lead)))) {
       await actualizar(db, f.id, { estado: "omitida", error: "antes de la plantilla: la tomó una persona, se descartó, agendó o ya tiene cotización" }, now);
       continue;
     }
