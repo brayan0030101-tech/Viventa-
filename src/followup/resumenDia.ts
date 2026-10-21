@@ -94,7 +94,11 @@ export function puntuarLead(f: FichaLead): Prioridad {
   if (ingresos >= 2_000) suma(1, `Ingresos ${m.ingresosMensuales}`);
   if (horaDeLlamadaPedida(f.notas)) suma(1, "Pidió hora de llamada");
   if (CAMPOS_FICHA.filter((k) => m[k]).length >= 6) suma(1, "Ficha casi completa");
-  return { puntos: p, nivel: p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
+  // Regla de Maricela (21 oct 2026): empleado + ingresos de 1.500 € o más + cuota mensual de 400 € o más = caliente, sin importar los puntos.
+  const esEmpleado = /(emplead|contrato|n[oó]mina|funcionari|asalariad)/i.test(m.tipoEmpleo ?? "") && !/(aut[oó]nomo|independiente|por (su|mi) cuenta)/i.test(m.tipoEmpleo ?? "");
+  const perfilCaliente = esEmpleado && ingresos >= 1_500 && mes >= 400;
+  if (perfilCaliente) razones.push("Perfil caliente: empleado, ingresos de 1.500 € o más y cuota de 400 € o más al mes");
+  return { puntos: p, nivel: perfilCaliente || p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
 }
 
 // ─── Datos de los leads ────────────────────────────────────────────────────────

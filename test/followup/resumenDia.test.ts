@@ -25,6 +25,23 @@ describe("parseMonto", () => {
   });
 });
 
+describe("puntuarLead: regla de Maricela (empleado, ≥ 1.500 € de ingresos, ≥ 400 € de cuota = caliente)", () => {
+  const ficha = (m: Record<string, string>) => ({ metadata: m, notas: "", telefono: "" });
+  it("empleado con 1.500 € y 400 € al mes es caliente aunque sume pocos puntos", () => {
+    const p = puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1500 euros", capacidadMensual: "400 euros" }));
+    expect(p.nivel).toBe("caliente");
+    expect(p.razones.join(" ")).toContain("Perfil caliente");
+  });
+  it("cuota en pesos también cuenta (2 millones COP ≈ 444 €)", () => {
+    expect(puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1500 €", capacidadMensual: "2 millones COP" })).nivel).toBe("caliente");
+  });
+  it("no es caliente si no es empleado, si gana menos o si la cuota es menor", () => {
+    expect(puntuarLead(ficha({ tipoEmpleo: "Autónomo", ingresosMensuales: "2000 euros", capacidadMensual: "500 euros" })).nivel).not.toBe("caliente");
+    expect(puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1200 euros", capacidadMensual: "500 euros" })).nivel).not.toBe("caliente");
+    expect(puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1500 euros", capacidadMensual: "200 euros" })).nivel).not.toBe("caliente");
+  });
+});
+
 describe("puntuarLead", () => {
   it("ahorro alto, cuota y entrega inmediata = caliente", () => {
     const p = puntuarLead({
