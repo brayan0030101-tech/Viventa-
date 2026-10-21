@@ -114,6 +114,48 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         plantillas: (t.json?.items ?? []).map((x: any) => ({ name: x.name, language: x.language, category: x.category, status: x.status, reason: x.reason, cuerpo: String(x.components?.find((c: any) => c.type === "BODY")?.text ?? "").slice(0, 120) })),
         error: t.status >= 400 ? t.json : undefined,
       };
+    } else if (pedido.startsWith("cal:slots:")) {
+      const dia = pedido.slice(10);
+      const r = await fetch(`https://api.cal.com/v2/slots?eventTypeId=${Number(env.CALCOM_EVENT_TYPE_ID || 0)}&start=${dia}&end=${dia}&timeZone=Europe%2FMadrid`, { headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": "2024-09-04" } });
+      const j: any = await r.json().catch(() => ({}));
+      out = { http: r.status, dia, slots: Object.values(j?.data ?? {}).flat().map((x: any) => String(x?.start ?? x).slice(11, 16)) };
+    } else if (pedido === "cal:leer" || pedido.startsWith("cal:ajustar:")) {
+      // Duración del evento de Cal.com (pedido de Maricela 21 oct: 45 min con una hora entre inicios). «cal:ajustar:45:60» = duración:intervalo.
+      const id = Number(env.CALCOM_EVENT_TYPE_ID || 0);
+      const cab = { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": "2024-06-14", "Content-Type": "application/json" };
+      const base = `https://api.cal.com/v2/event-types/${id}`;
+      const campos = (j: any) => { const d = j?.data ?? j; return { id: d?.id, titulo: d?.title, duracion: d?.lengthInMinutes ?? d?.length, intervalo: d?.slotInterval, antes: d?.beforeEventBuffer, despues: d?.afterEventBuffer, minAviso: d?.minimumBookingNotice }; };
+      let cambio: unknown;
+      if (pedido.startsWith("cal:ajustar:")) {
+        const [, , dur, inter] = pedido.split(":");
+        const r = await fetch(base, { method: "PATCH", headers: cab, body: JSON.stringify({ lengthInMinutes: Number(dur), slotInterval: Number(inter) }) });
+        cambio = { http: r.status, cuerpo: r.status >= 400 ? (await r.text()).slice(0, 400) : undefined };
+      }
+      const r = await fetch(base, { headers: cab });
+      out = { id, cambio, ahora: campos(await r.json().catch(() => ({}))), http: r.status };
+    } else if (pedido === "rescatar_botones") {
+      // Respuestas a botones de plantilla («Sí, quiero continuar») que llegaron antes de que el bot supiera leerlas: se reinyectan una vez.
+      const db = new Db(env.DB);
+      const filas = await db.all<{ desde: string; ts: number; crudo: string }>("SELECT desde, ts, crudo FROM entrantes_log WHERE tipo = 'button' AND producidos = 0 AND crudo IS NOT NULL ORDER BY ts DESC");
+      const vistos = new Set<string>();
+      const res: Array<{ conv: string; resultado: string }> = [];
+      for (const f of filas) {
+        if (vistos.has(f.desde)) continue;
+        vistos.add(f.desde);
+        let m: any = {};
+        try { m = JSON.parse(f.crudo)?.whatsappInboundMessage ?? {}; } catch { /* fila rota */ }
+        const dig = String(f.desde ?? "").replace(/\D/g, "");
+        const conv = await db.first<{ id: string; channel: string; channel_user_id: string; paused_until: number | null; display_name: string | null }>("SELECT id, channel, channel_user_id, paused_until, display_name FROM conversations WHERE channel = 'ycloud' AND channel_user_id = ?", [dig]);
+        const texto = String(m.button?.text ?? m.button?.payload ?? "").trim();
+        if (!conv || !texto) { res.push({ conv: dig, resultado: "omitido: sin conversación o sin texto" }); continue; }
+        const despues = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role IN ('assistant','owner') AND created_at > ?", [conv.id, f.ts]);
+        if ((despues?.n ?? 0) > 0) { res.push({ conv: conv.id, resultado: "omitido: ya se le contestó" }); continue; }
+        if ((conv.paused_until ?? 0) > Date.now()) { res.push({ conv: conv.id, resultado: "omitido: pausada" }); continue; }
+        const { agentStub } = await import("../src/agent-stub");
+        await agentStub(env, conv.channel, conv.channel_user_id).ingest({ channel: conv.channel, channelUserId: conv.channel_user_id, displayName: conv.display_name ?? undefined, text: texto });
+        res.push({ conv: conv.id, resultado: `reinyectado «${texto}»` });
+      }
+      out = { rescate: res };
     } else if (pedido.startsWith("msgs:")) {
       // Mensajes recientes de YCloud hacia un número (solo metadatos: tipo, estado, hora, campos extra; nunca el texto).
       const num = pedido.slice(5).replace(/\D/g, "");

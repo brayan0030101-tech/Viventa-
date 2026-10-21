@@ -353,6 +353,15 @@ describe("botones de WhatsApp (YCloud)", () => {
     expect(out[0]?.text).toBe("Mar 13 oct");
   });
 
+  it("el toque de un botón de una PLANTILLA (type button) también llega como texto", async () => {
+    const out = await parseYCloudEvents(
+      inbound({ id: "i3", wamid: "w3", from: "+34600000000", type: "button", button: { payload: "Sí, quiero continuar", text: "Sí, quiero continuar" } }) as any,
+      env,
+      ORIGIN,
+    );
+    expect(out[0]?.text).toBe("Sí, quiero continuar");
+  });
+
   it("un usuario de WhatsApp con nombre de usuario (sin teléfono, solo fromUserId) llega al bot y se le contesta con `recipient`", async () => {
     const out = await parseYCloudEvents(
       {

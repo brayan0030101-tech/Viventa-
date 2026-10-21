@@ -23,6 +23,7 @@ interface EventoEntrante {
     text?: { body?: string };
     context?: { id?: string; from?: string };
     interactive?: { button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
+    button?: { payload?: string; text?: string };
     customerProfile?: { name?: string; username?: string };
   };
 }
@@ -34,7 +35,7 @@ export async function bitacoraEntrante(env: Env, ev: EventoEntrante, producidos:
   await db.run(
     "CREATE TABLE IF NOT EXISTS entrantes_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, wamid TEXT, desde TEXT, tipo TEXT, texto TEXT, boton_id TEXT, boton_titulo TEXT, cita_a TEXT, producidos INTEGER NOT NULL, crudo TEXT)",
   );
-  const boton = m.interactive?.button_reply ?? m.interactive?.list_reply;
+  const boton = m.interactive?.button_reply ?? m.interactive?.list_reply ?? (m.button ? { id: m.button.payload, title: m.button.text } : undefined);
   await db.run("INSERT INTO entrantes_log (ts, wamid, desde, tipo, texto, boton_id, boton_titulo, cita_a, producidos, crudo) VALUES (?,?,?,?,?,?,?,?,?,?)", [
     now,
     m.wamid ?? m.id ?? ev.id ?? null,

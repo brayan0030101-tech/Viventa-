@@ -43,6 +43,8 @@ interface YCloudInboundMessage {
   text?: { body?: string };
   // Toque de un botón (reply buttons) o de una lista interactiva.
   interactive?: { button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
+  // Toque de un botón de una PLANTILLA (type "button"): llega distinto al de un mensaje interactivo.
+  button?: { payload?: string; text?: string };
   image?: YCloudMedia;
   audio?: YCloudMedia;
   document?: YCloudMedia & { filename?: string };
@@ -252,6 +254,8 @@ export async function parseYCloudEvents(
     text = m.text?.body || undefined;
   } else if (m.type === "interactive") {
     text = m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || undefined;
+  } else if (m.type === "button") {
+    text = m.button?.text || m.button?.payload || undefined;
   } else if (m.type === "image" && m.image?.id) {
     imageUrl = (await signedMediaUrl(m.image.id, env, origin, m.image.link)) ?? undefined;
     text = m.image.caption || undefined;

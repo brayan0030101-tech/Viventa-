@@ -16,11 +16,11 @@ import { armarLeads, llamadasAgendadas, formatoLlamada } from "../src/followup/r
 import { zonaDeResidencia, horaEn, esEspana } from "../src/lib/zonaCliente";
 
 const H = 3600_000;
-/** Primer inicio permitido y último inicio (la llamada dura 30 min: termina a las 16:00). */
+/** Primer inicio permitido y último inicio (la llamada dura 45 min y los inicios van de hora en hora: la última, 15:00, termina a las 15:45). */
 const DESDE = "10:00";
 const HASTA = "15:30";
 const MAX_DIAS = 5;
-export const DURACION_LLAMADA_MIN = 30;
+export const DURACION_LLAMADA_MIN = 45;
 
 const DIAS = new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long" });
 
@@ -186,7 +186,7 @@ export async function diasParaOferta(env: Env, now: number): Promise<DiaLlamada[
 export function proponerLlamadaTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:
-      "Úsala UNA vez, justo después de guardar con captureLead los datos del cliente al terminar el guion. Dice si al cliente le toca que se le ofrezca una videollamada con Maricela (clientes calientes o tibios) y, si es así, devuelve los horarios libres reales (hora de España, llamadas de 30 min) para ofrecérselos. Si ofrecerLlamada es false, cierra con el mensaje normal de despedida. Si el cliente dice que no puede de día, vuelve a llamarla con horario «noche».",
+      "Úsala UNA vez, justo después de guardar con captureLead los datos del cliente al terminar el guion. Dice si al cliente le toca que se le ofrezca una videollamada con Maricela (clientes calientes o tibios) y, si es así, devuelve los horarios libres reales (hora de España, llamadas de 45 min, una por hora) para ofrecérselos. Si ofrecerLlamada es false, cierra con el mensaje normal de despedida. Si el cliente dice que no puede de día, vuelve a llamarla con horario «noche».",
     inputSchema: z.object({
       horario: z
         .enum(["dia", "noche"])

@@ -271,8 +271,15 @@ describe("videollamada: recordatorios y resumen", () => {
     expect(messageOwnerMock).not.toHaveBeenCalled();
   });
 
+  it("manda el de 24 h también a citas agendadas a última hora (con ≥ 2 h desde que se agendó)", async () => {
+    await seedCita("34600000027", NOW + 20 * H, NOW - 3 * H); // agendada con 23 h de antelación
+    const r = await runRecordatoriosLlamada(env, NOW);
+    expect(r.r24).toBe(1);
+    expect(sendOutboundMock.mock.calls[0][1].text).toMatch(/hoy|mañana/);
+  });
+
   it("no manda el de 24 h si la cita se agendó hace poco, ni de citas canceladas", async () => {
-    await seedCita("34600000022", NOW + 20 * H, NOW - 2 * H); // agendada con 22 h de antelación
+    await seedCita("34600000022", NOW + 20 * H, NOW - 1 * H); // agendada hace 1 h
     await seedCita("34600000023", NOW + 23.5 * H, NOW - 5 * 24 * H, "Cancelada");
     const r = await runRecordatoriosLlamada(env, NOW);
     expect(r.r24).toBe(0);
@@ -472,7 +479,7 @@ describe("oferta de videollamada a clientes calificados", () => {
     const r = await runOfertaLlamada(env, A_LAS_11);
     expect(r.sent).toBe(1);
     const arg = sendOutboundMock.mock.calls[0][1];
-    expect(arg.text).toContain("videollamada de 30 minutos");
+    expect(arg.text).toContain("videollamada de 45 minutos");
     expect(arg.buttons).toHaveLength(3);
     const c = await db.first<{ paused_until: number | null }>("SELECT paused_until FROM conversations WHERE id = ?", [id]);
     expect(c?.paused_until).toBeNull();

@@ -108,7 +108,7 @@ export async function calcularInforme(env: Env, periodo: Periodo, now = Date.now
   }
 
   const oferta = await db.all<{ conversation_id: string }>(
-    "SELECT DISTINCT conversation_id FROM messages WHERE role = 'assistant' AND created_at >= ? AND content LIKE '%videollamada de 30 minutos%'",
+    "SELECT DISTINCT conversation_id FROM messages WHERE role = 'assistant' AND created_at >= ? AND (content LIKE '%videollamada de 30 minutos%' OR content LIKE '%videollamada de 45 minutos%')",
     [desde],
   );
 

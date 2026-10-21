@@ -8,6 +8,7 @@
  *  · entrega_fallida — WhatsApp/Instagram rechazó un mensaje (ventana de 24 h, saldo agotado, límite…);
  *  · fallo_ia — falló la IA al preparar la respuesta;
  *  · entrega_al_agente — un mensaje del cliente no pudo entregarse al bot (lo registra el webhook);
+ *  · pausada_olvidada — una persona del equipo intervino (el bot quedó pausado) y el cliente lleva ≥ 3 h esperando respuesta; se vuelve a avisar cada 12 h hasta que alguien conteste;
  *  · cotizacion_fallida — el bot no pudo crear o enviar una cotización de ViveHome (lo registra src/vivehome/cola.ts).
  * Cada hallazgo se cierra solo cuando la situación se resuelve (cita agendada, alguien respondió, pasaron 24 h).
  */
@@ -18,7 +19,7 @@ import { esCortesia } from "./sinRespuesta";
 const MIN = 60_000;
 const H = 3_600_000;
 
-export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida";
+export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida" | "pausada_olvidada";
 
 export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string; grave: boolean }> = {
   listo_sin_cita: { icono: "🎯", texto: "Buen perfil sin videollamada agendada", grave: true },
@@ -30,6 +31,7 @@ export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string;
   entrega_al_agente: { icono: "📥", texto: "Mensaje del cliente que no llegó al bot", grave: true },
   mejora_sugerida: { icono: "💡", texto: "Mejora sugerida para el bot", grave: false },
   revision_ia: { icono: "🧠", texto: "Revisión diaria con IA: el bot actuó mal", grave: true },
+  pausada_olvidada: { icono: "⏸️", texto: "Cliente esperando respuesta con el bot pausado (una persona intervino y no volvió a contestar)", grave: true },
   cotizacion_fallida: { icono: "🧾", texto: "Cotización del bot que falló (ViveHome)", grave: true },
   mensaje_ilegible: { icono: "🙈", texto: "Mensaje de WhatsApp que el bot no pudo leer (el cliente no recibió respuesta)", grave: true },
 };
@@ -89,6 +91,33 @@ async function detectarSinRespuesta(db: Db, now: number): Promise<Candidato[]> {
     const conv = await db.first<{ display_name: string | null; channel: string; paused_until: number | null }>("SELECT display_name, channel, paused_until FROM conversations WHERE id = ?", [id]);
     if (!conv || !["ycloud", "zernio"].includes(conv.channel) || (conv.paused_until && conv.paused_until > now)) continue;
     out.push({ tipo: "sin_respuesta", convId: id, clave: String(m.created_at), detalle: `${conv.display_name || "Cliente"}: «${m.content.replace(/\s+/g, " ").slice(0, 90)}»` });
+  }
+  return out;
+}
+
+/** El bot se pausa cuando Maricela o Camila contestan: si después se les olvida, el cliente se enfría. Pasadas ≥ 3 h sin respuesta se avisa (hasta 10 días atrás). */
+async function detectarPausadasOlvidadas(db: Db, now: number): Promise<Candidato[]> {
+  const convs = await db.all<{ id: string; display_name: string | null; paused_until: number | null }>(
+    "SELECT id, display_name, paused_until FROM conversations WHERE last_message_at BETWEEN ? AND ? AND channel IN ('ycloud', 'zernio')",
+    [now - 10 * 24 * H, now - 3 * H],
+  );
+  const out: Candidato[] = [];
+  for (const c of convs) {
+    const ult = await db.first<{ role: string; created_at: number; content: string }>("SELECT role, created_at, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1", [c.id]);
+    if (!ult || ult.role !== "user" || now - ult.created_at < 3 * H || esCortesia(ult.content)) continue;
+    const pausada = !!c.paused_until && c.paused_until > now;
+    const intervino = pausada || ((await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'owner' AND created_at > ?", [c.id, now - 10 * 24 * H]))?.n ?? 0) > 0;
+    if (!intervino) continue;
+    const leads = await db.all<{ name: string | null; intent: string | null; notes: string | null }>("SELECT name, intent, notes FROM leads WHERE conversation_id = ?", [c.id]);
+    if (leads.some((l) => /no quiere continuar|ya no estoy interesad/i.test(`${l.intent ?? ""} ${l.notes ?? ""}`))) continue;
+    const horas = Math.floor((now - ult.created_at) / H);
+    const tiempo = horas >= 48 ? `${Math.floor(horas / 24)} días` : `${horas} h`;
+    out.push({
+      tipo: "pausada_olvidada",
+      convId: c.id,
+      clave: String(ult.created_at),
+      detalle: `${c.display_name || leads.find((l) => l.name)?.name || "Cliente"} lleva ${tiempo} esperando respuesta${pausada ? " y el bot está pausado" : ""}: «${ult.content.replace(/\s+/g, " ").slice(0, 90)}»`,
+    });
   }
   return out;
 }
@@ -176,15 +205,18 @@ async function cerrarResueltos(db: Db, now: number): Promise<number> {
   const abiertos = await db.all<Hallazgo>("SELECT * FROM auditoria_hallazgos WHERE resuelto_en IS NULL");
   let cerrados = 0;
   for (const h of abiertos) {
-    let resuelto = now - h.creado > 24 * H;
+    let resuelto = now - h.creado > (h.tipo === "pausada_olvidada" ? 10 * 24 * H : 24 * H);
     if (!resuelto) {
       const conv = await db.first<{ paused_until: number | null }>("SELECT paused_until FROM conversations WHERE id = ?", [h.conv_id]);
       const pausada = !!conv?.paused_until && conv.paused_until > now;
-      const desde = h.tipo === "sin_respuesta" ? Number(h.clave) : h.creado;
-      const rol = h.tipo === "sin_respuesta" || h.tipo === "handoff_silencioso" ? "('assistant', 'owner')" : "('owner')";
+      const desde = h.tipo === "sin_respuesta" || h.tipo === "pausada_olvidada" ? Number(h.clave) : h.creado;
+      const rol = h.tipo === "sin_respuesta" || h.tipo === "handoff_silencioso" || h.tipo === "mensaje_ilegible" || h.tipo === "pausada_olvidada" ? "('assistant', 'owner')" : "('owner')";
       const resp = await db.first<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role IN ${rol} AND created_at > ?`, [h.conv_id, desde + (h.tipo === "handoff_silencioso" ? 0 : 1000)]);
       const cita = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM leads WHERE conversation_id = ? AND intent LIKE 'Cita ·%' AND created_at > ?", [h.conv_id, h.creado - 24 * H]);
-      resuelto = (resp?.n ?? 0) > 0 || ((h.tipo === "listo_sin_cita" || h.tipo === "dato_sin_respaldo" || h.tipo === "handoff_silencioso") && (cita?.n ?? 0) > 0) || (pausada && h.tipo !== "entrega_fallida");
+      const cotizada = h.tipo === "cotizacion_fallida"
+        ? (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_enviadas WHERE tel = ? AND enviada_en > ?", [h.conv_id.replace(/^\w+:/, ""), h.creado]).catch(() => null))?.n ?? 0
+        : 0;
+      resuelto = cotizada > 0 || (resp?.n ?? 0) > 0 || ((h.tipo === "listo_sin_cita" || h.tipo === "dato_sin_respaldo" || h.tipo === "handoff_silencioso") && (cita?.n ?? 0) > 0) || (pausada && h.tipo !== "entrega_fallida" && h.tipo !== "pausada_olvidada");
     }
     if (resuelto) {
       await db.run("UPDATE auditoria_hallazgos SET resuelto_en = ? WHERE id = ?", [now, h.id]);
@@ -200,7 +232,7 @@ export async function runAuditor(env: Env, now = Date.now()): Promise<{ nuevos: 
   const db = new Db(env.DB);
   await asegurarTablaAuditoria(db);
   const candidatos: Candidato[] = [];
-  for (const d of [detectarSinRespuesta, detectarListosSinCita, detectarTickets, detectarEntregasYFallosIA]) {
+  for (const d of [detectarSinRespuesta, detectarPausadasOlvidadas, detectarListosSinCita, detectarTickets, detectarEntregasYFallosIA]) {
     try {
       candidatos.push(...(await d(db, now)));
     } catch (e) {
@@ -212,6 +244,8 @@ export async function runAuditor(env: Env, now = Date.now()): Promise<{ nuevos: 
     if (await registrarHallazgo(env, { tipo: c.tipo, convId: c.convId, clave: c.clave, detalle: c.detalle }, now)) nuevos++;
   }
   const cerrados = await cerrarResueltos(db, now);
+  // Un cliente olvidado sigue esperando: se vuelve a avisar cada 12 h mientras nadie conteste.
+  await db.run("UPDATE auditoria_hallazgos SET avisado_en = NULL WHERE tipo = 'pausada_olvidada' AND resuelto_en IS NULL AND avisado_en IS NOT NULL AND avisado_en < ?", [now - 12 * H]);
 
   // Aviso: todo lo abierto que aún no se avisó, en un solo mensaje.
   const sinAvisar = await db.all<Hallazgo>("SELECT * FROM auditoria_hallazgos WHERE resuelto_en IS NULL AND avisado_en IS NULL ORDER BY creado ASC LIMIT 30");
