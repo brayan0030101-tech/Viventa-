@@ -12,7 +12,7 @@ import { armarLeads, evaluarCalificacion, type LeadResumen } from "../src/follow
 import { esNumeroColombiano } from "../src/channels/ycloud";
 import { dijoQueNo } from "../src/vivehome/cola";
 import { notifyCamila } from "../src/lib/camila";
-import { buscarCandidato, crearCandidato, crearNota, crearTarea, cambiarEstadoCandidato, duenoDeCandidato, duenoZoho, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
+import { buscarCandidato, crearCandidato, crearNota, crearTarea, cambiarEstadoCandidato, duenoDeCandidato, duenoZoho, ejecutarTransicion, transicionesDe, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
 import { fechaDisponibleZoho, masDiasAgenda } from "./crm-agenda.local";
 import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
 
@@ -162,6 +162,17 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
 
 // ─── Ejecutar ─────────────────────────────────────────────────────────────────────────────────────
 
+/** Zoho deja los candidatos nuevos en «Nuevo» y el paso a «En Prospección» es una transición del Plan de acción («Prospectar»): se ejecuta; si no existe, se escribe el estado. */
+export async function pasarAProspeccion(env: Env, leadId: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  const trans = (await transicionesDe(env, leadId, f, now).catch(() => [])).find((t) => /prospect/i.test(t.nombre));
+  if (trans) {
+    await ejecutarTransicion(env, leadId, trans.id, trans.pideNota ? { Notes: "El bot completó la prospección y dejó nota y tarea." } : {}, f, now);
+    return `transición «${trans.nombre}»`;
+  }
+  await cambiarEstadoCandidato(env, leadId, ESTADO_PROSPECCION, f, now);
+  return "estado escrito";
+}
+
 export type ResultadoSubida =
   | { estado: "creado"; leadId: string; tarea: string }
   | { estado: "ya_existe"; leadId: string; dueno: string; propio: boolean }
@@ -204,6 +215,7 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
       await cambiarEstadoCandidato(env, leadId, ESTADO_PROSPECCION, f, now).catch((e2) => console.error("[subidaZoho] estado:", e2));
     }
     await crearNota(env, leadId, plan.nota, f, now);
+    await pasarAProspeccion(env, leadId, f, now).catch((e2) => console.error("[subidaZoho] prospección:", e2));
     const hoyStr = hoy(now);
     const disp = await fechaDisponibleZoho(env, plan.tarea.deseada, hoyStr, f, now, plan.nivel === "caliente").catch(() => ({ fecha: plan.tarea.deseada, motivo: "" }));
     const tarea = await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: disp.fecha, ownerId: dueno.id }, f, now);

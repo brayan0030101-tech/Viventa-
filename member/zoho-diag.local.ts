@@ -68,6 +68,23 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido.startsWith("prospectar:")) {
+    // Pasa a «En Prospección» a los candidatos que el bot creó y quedaron en «Nuevo» (ids separados por coma). Después lee su estado.
+    await st.set("zoho_diag_pedir", "");
+    const { pasarAProspeccion } = await import("./crm-zohosubida.local");
+    const res: Array<{ id: string; como?: string; error?: string; estado?: string }> = [];
+    for (const id of pedido.slice(11).split(",").map((x) => x.trim()).filter((x) => /^\d{6,30}$/.test(x)).slice(0, 5)) {
+      try {
+        const como = await pasarAProspeccion(env, id, fetch, now);
+        const j = (await zohoGet(env, `/Leads/${id}?fields=Lead_Status`, fetch, now)) as { data?: Array<{ Lead_Status?: string }> };
+        res.push({ id, como, estado: j.data?.[0]?.Lead_Status });
+      } catch (e) {
+        res.push({ id, error: e instanceof Error ? e.message.slice(0, 160) : String(e) });
+      }
+    }
+    await st.set("zoho_diag_resultado", JSON.stringify({ prospectar: res }));
+    return;
+  }
   if (pedido === "campos_leads") {
     // Solo lectura: campos del módulo de Candidatos (nombre de API, tipo, obligatorio, opciones) y qué campos trae un candidato reciente (solo los nombres y valores de listas).
     await st.set("zoho_diag_pedir", "");
