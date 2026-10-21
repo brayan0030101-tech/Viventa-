@@ -209,7 +209,7 @@ export function textoMensaje(o: {
   if (o.tipo === "a_la_medida") {
     const opciones = o.n === 1 ? "una opción" : `${o.n} opciones`;
     return (
-      `${hola} Con lo que me contaste, te preparé una cotización con ${opciones} en ${lugares} que se ${o.n === 1 ? "ajusta" : "ajustan"} a lo que puedes pagar al mes:\n` +
+      `${hola} Con lo que me contaste, te preparé una cotización con ${opciones} en ${lugares}${lugares.includes("muy cerca de") ? "," : ""} que se ${o.n === 1 ? "ajusta" : "ajustan"} a lo que puedes pagar al mes:\n` +
       `${o.enlace}\n\n` +
       `Ahí ves el valor ${o.n === 1 ? "del apartamento" : "de cada apartamento"}, ${(o.pcts ?? [20]).every((x) => x === 20) ? "la cuota inicial del 20 %" : o.n === 1 ? `la cuota inicial del ${o.pcts?.[0]} %` : "la cuota inicial de cada uno"} y cuánto pagarías mes a mes. ${o.n === 1 ? "En" : "Por ejemplo, en"} ${proyecto} serían ${cuota}.\n\n` +
       (o.n === 1 ? `¿Qué te parece?` : `¿Cuál te llamó más la atención?`)

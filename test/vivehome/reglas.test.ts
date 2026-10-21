@@ -132,6 +132,8 @@ describe("mensaje al cliente", () => {
   it("si las opciones son de una ciudad vecina, lo aclara", () => {
     const m = textoMensaje({ nombre: "Ana", tipo: "mas_economicas", enlace: "X", ciudades: ["Jamundí", "Jamundí"], ciudadCliente: "Cali", n: 2, ejemplo: { proyecto: "Ambar", mensualidad: 1_133_343, meses: 35 } });
     expect(m).toContain("que hay hoy en Jamundí, muy cerca de Cali:");
+    const m4 = textoMensaje({ nombre: "Ana", tipo: "a_la_medida", enlace: "X", ciudades: ["Dosquebradas"], ciudadCliente: "Pereira", n: 1, ejemplo: { proyecto: "Ciudad Campestre", mensualidad: 1, meses: 1 } });
+    expect(m4).toContain("en Dosquebradas, muy cerca de Pereira, que se ajusta");
     const m2 = textoMensaje({ nombre: "Ana", tipo: "a_la_medida", enlace: "X", ciudades: ["Bogotá D.C."], ciudadCliente: "Bogotá D.C.", n: 1, ejemplo: { proyecto: "Alborada", mensualidad: 1, meses: 1 } });
     expect(m2).toContain("una opción en Bogotá que se ajusta");
     expect(m2).not.toContain("muy cerca");
