@@ -29,7 +29,10 @@ export function captureLeadTool(env: Env, getConversationId: () => string | null
       plazoCompra: z.string().optional().describe("Cuándo quiere comprar (ya, en 1-2 años, etc.)"),
       entregaInmediataOFutura: z.string().optional().describe("Prefiere entrega inmediata o sobre planos/a futuro"),
       compraSoloOAcompanado: z.string().optional().describe("Si compra solo o acompañado (pareja, familia)"),
-      posibilidadAumentarIngresos: z.string().optional().describe("Solo si gana menos de 1.300 € al mes: si tiene posibilidad de aumentar sus ingresos o alguien que le ayude con la compra (di «no» o lo que respondió)"),
+      reportadoDatacredito: z.string().optional().describe("Si está reportado en Datacrédito (centrales de riesgo): «Sí» o «No», tal como lo dijo"),
+      puedeQuitarReporte: z.string().optional().describe("Solo si está reportado: si puede ponerse al día / quitar el reporte pronto (lo que respondió)"),
+      ingresosCoComprador: z.string().optional().describe("Si compra con otra persona: sus ingresos mensuales aproximados, tal como los dijo"),
+      datosCoComprador: z.string().optional().describe("Si compra con otra persona: su nombre, correo y teléfono"),
       // Cita agendada (Outlet o videollamada) — llenalo SIEMPRE que confirmes
       // una fecha/hora con el cliente, para que el recordatorio automático del
       // día anterior funcione. citaFecha en formato YYYY-MM-DD.
@@ -40,7 +43,7 @@ export function captureLeadTool(env: Env, getConversationId: () => string | null
     execute: async ({
       name, contact, intent, notes,
       ciudadResidencia, ciudadCompra, motivoCompra, ahorroDisponible, capacidadMensual,
-      ingresosMensuales, tipoEmpleo, antiguedadLaboral, plazoCompra, entregaInmediataOFutura, compraSoloOAcompanado, posibilidadAumentarIngresos,
+      ingresosMensuales, tipoEmpleo, antiguedadLaboral, plazoCompra, entregaInmediataOFutura, compraSoloOAcompanado, reportadoDatacredito, puedeQuitarReporte, ingresosCoComprador, datosCoComprador,
       citaTipo, citaFecha, citaHora,
     }) => {
       const convId = getConversationId();
@@ -58,7 +61,10 @@ export function captureLeadTool(env: Env, getConversationId: () => string | null
       if (plazoCompra) metadata.plazoCompra = plazoCompra;
       if (entregaInmediataOFutura) metadata.entregaInmediataOFutura = entregaInmediataOFutura;
       if (compraSoloOAcompanado) metadata.compraSoloOAcompanado = compraSoloOAcompanado;
-      if (posibilidadAumentarIngresos) metadata.posibilidadAumentarIngresos = posibilidadAumentarIngresos;
+      if (reportadoDatacredito) metadata.reportadoDatacredito = reportadoDatacredito;
+      if (puedeQuitarReporte) metadata.puedeQuitarReporte = puedeQuitarReporte;
+      if (ingresosCoComprador) metadata.ingresosCoComprador = ingresosCoComprador;
+      if (datosCoComprador) metadata.datosCoComprador = datosCoComprador;
       if (citaTipo) metadata.citaTipo = citaTipo;
       if (citaFecha) metadata.citaFecha = citaFecha;
       if (citaHora) metadata.citaHora = citaHora;

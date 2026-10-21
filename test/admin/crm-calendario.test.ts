@@ -28,7 +28,7 @@ beforeEach(async () => {
   const d1 = (await mf.getD1Database("DB")) as any;
   db = new Db(d1);
   env = { DB: d1, BUSINESS_NAME: "Viventa", BOT_TIER: "pro" } as unknown as Env;
-  await cliente("ycloud:34600000001", "Ana López Ruiz", { ahorroDisponible: "20 mil euros", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadCompra: "Medellín", ciudadResidencia: "Estados Unidos, Miami" });
+  await cliente("ycloud:34600000001", "Ana López Ruiz", { ahorroDisponible: "20 mil euros", ingresosMensuales: "2000", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadCompra: "Medellín", ciudadResidencia: "Estados Unidos, Miami" });
   await cliente("ycloud:34600000002", "Luis Mora", { ciudadCompra: "Cali" });
   await llamada("c1", "ycloud:34600000001", "2026-10-12T08:00:00.000Z", { zonaCliente: "America/New_York", zonaEtiqueta: "EE. UU. (costa este)" }); // 10:00 España
   await llamada("c2", "ycloud:34600000002", "2026-10-12T09:30:00.000Z"); // 11:30

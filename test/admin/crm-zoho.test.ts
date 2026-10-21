@@ -15,7 +15,7 @@ const NOW = Date.UTC(2026, 9, 12, 12, 0);
 const H = 3600_000;
 
 const COMPLETO = (extra: Record<string, string> = {}) => ({
-  ahorroDisponible: "20 mil euros", capacidadMensual: "1000", ciudadCompra: "Medellín", ciudadResidencia: "España, Madrid", ...extra,
+  ahorroDisponible: "20 mil euros", ingresosMensuales: "2000", capacidadMensual: "1000", tipoEmpleo: "empleado", reportadoDatacredito: "No", ciudadCompra: "Medellín", ciudadResidencia: "España, Madrid", ...extra,
 });
 
 async function cliente(id: string, nombre: string, meta: Record<string, string>, contact: string, hace: number, convMeta?: Record<string, string>) {

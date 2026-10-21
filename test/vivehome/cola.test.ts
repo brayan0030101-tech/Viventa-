@@ -65,7 +65,7 @@ function simular(opts: { fallarCrear?: boolean; siguienteId?: number } = {}): Si
 async function cliente(tel: string, nombre: string, meta: Record<string, string>, ultimoMsg = NOW - 2 * H): Promise<string> {
   const c = await new ConversationsRepo(db).getOrCreate("ycloud", tel, nombre);
   await new MessagesRepo(db).append(c.id, "user", "hola", { createdAt: ultimoMsg });
-  await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)", [crypto.randomUUID(), c.id, nombre, `${nombre.split(" ")[0].toLowerCase()}@correo.com`, "Lead", JSON.stringify(meta), NOW - 3 * H, NOW - 3 * H]);
+  await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)", [crypto.randomUUID(), c.id, nombre, `${nombre.split(" ")[0].toLowerCase()}@correo.com`, "Lead", JSON.stringify({ ingresosMensuales: "2000 euros", ...meta }), NOW - 3 * H, NOW - 3 * H]);
   return c.id;
 }
 
@@ -133,7 +133,7 @@ describe("cotizaciones del bot", () => {
   });
 
   it("no le alcanza: manda las 2 más económicas y anota en la ficha que NO se cotizó a la medida", async () => {
-    const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Bogotá", capacidadMensual: "200 euros" });
+    const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Bogotá", capacidadMensual: "350 euros" });
     await cliente("34600000009", "Otro", { ciudadCompra: "Cali", capacidadMensual: "500 euros" });
     await ajustar(AJUSTE_MODO, "activo");
     const s = simular();

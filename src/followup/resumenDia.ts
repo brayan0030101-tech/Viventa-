@@ -94,16 +94,87 @@ export function puntuarLead(f: FichaLead): Prioridad {
   if (ingresos >= 2_000) suma(1, `Ingresos ${m.ingresosMensuales}`);
   if (horaDeLlamadaPedida(f.notas)) suma(1, "Pidió hora de llamada");
   if (CAMPOS_FICHA.filter((k) => m[k]).length >= 6) suma(1, "Ficha casi completa");
-  // Regla de Maricela (21 oct 2026): empleado + ingresos de 1.500 € o más + cuota mensual de 400 € o más = caliente, sin importar los puntos.
-  const esEmpleado = /(emplead|contrato|n[oó]mina|funcionari|asalariad)/i.test(m.tipoEmpleo ?? "") && !/(aut[oó]nomo|independiente|por (su|mi) cuenta)/i.test(m.tipoEmpleo ?? "");
-  const perfilCaliente = esEmpleado && ingresos >= 1_500 && mes >= 400;
-  if (perfilCaliente) razones.push("Perfil caliente: empleado, ingresos de 1.500 € o más y cuota de 400 € o más al mes");
-  // Regla de Maricela (21 oct 2026): gana menos de 1.300 € al mes, no puede aumentarlos y no tiene a nadie que le ayude = frío, sin importar los puntos.
-  const solo = /\bsol[oa]\b|\bnadie\b|sin ayuda|individual/i.test(m.compraSoloOAcompanado ?? "") && !/acompa|pareja|espos|esposa|familia|hermano|padre|madre|socio/i.test(m.compraSoloOAcompanado ?? "");
-  const sinPosibilidad = /^\s*no\b|sin posibilidad|ninguna|no (tiene|tengo|puede|puedo|hay)/i.test(m.posibilidadAumentarIngresos ?? "");
-  const sinRecursos = ingresos > 0 && ingresos < 1_300 && solo && sinPosibilidad;
-  if (sinRecursos) razones.push("Perfil frío: gana menos de 1.300 € al mes, no puede aumentarlos y no tiene quién le ayude");
-  return { puntos: p, nivel: sinRecursos ? "frio" : perfilCaliente || p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
+  const cal = evaluarCalificacion(m, p);
+  if (cal.motivo) razones.push(cal.motivo);
+  return { puntos: p, nivel: cal.nivel, razones };
+}
+
+/** Tipo de cambio que usa Maricela para pasar pesos a euros (1,5 millones ≈ 400 €). */
+const COP_POR_EURO = 3_700;
+const NUM_PALABRA: Record<string, number> = { un: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
+
+/** Euros aproximados de un monto en texto libre: acepta euros («1.500 €») y pesos («1.500.000», «un millón quinientos», «2 millones COP»). */
+export function parseEuros(texto: string | null | undefined): number {
+  const t = String(texto ?? "").toLowerCase();
+  if (!t.trim()) return 0;
+  const euros = /€|eur/.test(t);
+  let n = 0;
+  const pal = t.match(/\b(un|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+mill[oó]n(?:es)?(\s+y\s+medio|\s+quinientos)?/);
+  if (pal) n = NUM_PALABRA[pal[1]] * 1_000_000 + (pal[2] ? 500_000 : 0);
+  else {
+    const m = t.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)\s*(millones|mill[oó]n|miles|mil|k)?(?![a-záéíóúñ])/);
+    if (!m) return 0;
+    let raw = m[1];
+    if (/^\d{1,3}([.,]\d{3})+$/.test(raw)) raw = raw.replace(/[.,]/g, "");
+    else raw = raw.replace(",", ".");
+    n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    const suf = m[2] ?? "";
+    if (/^mill/.test(suf)) n *= 1_000_000;
+    else if (suf === "mil" || suf === "miles" || suf === "k") n *= 1_000;
+  }
+  if (!euros && (/cop|peso|colomb|mill[oó]n|millones/.test(t) || n >= 100_000)) n = n / COP_POR_EURO;
+  return Math.round(n);
+}
+
+export const CAMPOS_PREGUNTAS = ["ciudadResidencia", "ciudadCompra", "entregaInmediataOFutura", "ahorroDisponible", "capacidadMensual", "tipoEmpleo", "ingresosMensuales", "reportadoDatacredito", "compraSoloOAcompanado"];
+
+export interface Calificacion {
+  nivel: "caliente" | "tibio" | "frio";
+  ingresos: number;
+  cuota: number;
+  reportado: boolean;
+  /** true = dijo que se pone al día pronto; false = no; null = no se sabe. */
+  puedeQuitarReporte: boolean | null;
+  completo: boolean;
+  faltan: string[];
+  motivo?: string;
+}
+
+const esSi = (t: string | undefined) => !!t && !/^\s*no\b/i.test(t) && (/^\s*s[ií](?![a-záéíóúñ])/i.test(t) || /reportad|mora|deuda|negativ/i.test(t));
+
+/**
+ * Calificación (reglas de Maricela y Brayan, 21 oct 2026). Ingresos en euros (con pareja o familiar que compra con él, se suman).
+ *  · Caliente: empleado + ingresos ≥ 1.500 € + destina ≥ 400 €/mes + NO reportado en Datacrédito.
+ *  · Tibio: ingresos ≥ 1.300 € y destina ≥ 300 €/mes (también quien está reportado pero dice que se pone al día pronto).
+ *  · Frío: ingresos < 1.300 € o destina < 300 €/mes (≈ 1 millón de pesos), o reportado sin posibilidad de ponerse al día.
+ * Si faltan datos de ingresos o cuota, se usa el puntaje antiguo (tibio con 3 puntos o más, nunca caliente).
+ */
+export function evaluarCalificacion(m: Record<string, string>, puntos = 0): Calificacion {
+  const acompanado = /acompa|pareja|espos|con otra|con mi|familia|hermano|padre|madre|socio|novi/i.test(m.compraSoloOAcompanado ?? "") && !/^\s*(solo|sola|no)\b/i.test(m.compraSoloOAcompanado ?? "");
+  const ingresos = parseEuros(m.ingresosMensuales) + (acompanado ? parseEuros(m.ingresosCoComprador) : 0);
+  const cuota = parseEuros(m.capacidadMensual);
+  const empleado = /(emplead|contrato|n[oó]mina|funcionari|asalariad)/i.test(m.tipoEmpleo ?? "") && !/(aut[oó]nomo|independiente|por (su|mi) cuenta)/i.test(m.tipoEmpleo ?? "");
+  const reportado = esSi(m.reportadoDatacredito);
+  const q = m.puedeQuitarReporte ?? "";
+  const puedeQuitarReporte = !q.trim() ? null : /^\s*no\b/i.test(q) ? false : /s[ií]|pronto|al d[ií]a|pagar|pago|saldar/i.test(q) ? true : null;
+  const faltan = CAMPOS_PREGUNTAS.filter((k) => !String(m[k] ?? "").trim());
+  if (reportado && puedeQuitarReporte === null && !String(m.puedeQuitarReporte ?? "").trim()) faltan.push("puedeQuitarReporte");
+  const base = { ingresos, cuota, reportado, puedeQuitarReporte, completo: faltan.length === 0, faltan };
+
+  let nivel: Calificacion["nivel"];
+  let motivo: string | undefined;
+  if (cuota > 0 && cuota < 300) { nivel = "frio"; motivo = "Destina menos de 300 € al mes"; }
+  else if (ingresos > 0 && ingresos < 1_300) { nivel = "frio"; motivo = "Ingresos menores de 1.300 € al mes"; }
+  else if (ingresos > 0 && cuota > 0) {
+    nivel = empleado && ingresos >= 1_500 && cuota >= 400 ? "caliente" : "tibio";
+    if (nivel === "caliente") motivo = "Perfil caliente: empleado, ingresos de 1.500 € o más y cuota de 400 € o más";
+  } else nivel = puntos >= 3 ? "tibio" : "frio";
+  if (reportado) {
+    if (puedeQuitarReporte === false) { nivel = "frio"; motivo = "Reportado en Datacrédito y no puede ponerse al día"; }
+    else if (nivel === "caliente") { nivel = "tibio"; motivo = "Reportado en Datacrédito: no es caliente hasta ponerse al día"; }
+  }
+  return { nivel, motivo, ...base };
 }
 
 // ─── Datos de los leads ────────────────────────────────────────────────────────

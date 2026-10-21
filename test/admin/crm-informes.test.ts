@@ -23,7 +23,7 @@ beforeEach(async () => {
   const d1 = (await mf.getD1Database("DB")) as any;
   db = new Db(d1);
   env = { DB: d1, BUSINESS_NAME: "Viventa", BOT_TIER: "pro" } as unknown as Env;
-  const caliente = { ahorroDisponible: "20 mil euros", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadCompra: "Medellín" };
+  const caliente = { ahorroDisponible: "20 mil euros", ingresosMensuales: "2000", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadCompra: "Medellín" };
   await conv("ycloud:34600000001", "ycloud", "Ana López", NOW - 2 * D, caliente);
   await conv("ycloud:34600000002", "ycloud", "Luis Mora", NOW - 1 * D, { ciudadCompra: "Cali" });
   await conv("zernio:7", "zernio", "pepe_ig", NOW - 3600_000, null);

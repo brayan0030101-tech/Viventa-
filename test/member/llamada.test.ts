@@ -67,15 +67,29 @@ describe("proponerLlamada", () => {
   }
   const correr = (id: string) => (proponerLlamadaTool(env, () => id) as any).execute({});
 
-  it("cliente frío: también se ofrece la llamada (decisión del dueño, 13 oct 2026)", async () => {
-    const id = await cliente({ ciudadCompra: "Cali" });
+  it("cliente frío (destina menos de 300 €): no se ofrece la llamada y se le da el mensaje de «no cumple»", async () => {
+    const id = await cliente({ ciudadCompra: "Cali", ingresosMensuales: "1500", capacidadMensual: "150 euros" });
     const r = await correr(id);
-    expect(r.ofrecerLlamada).toBe(true);
-    expect(r.prioridad).toBe("frio");
+    expect(r.ofrecerLlamada).toBe(false);
+    expect(r.motivo).toBe("no_cumple_condiciones");
+    expect(r.message).toContain("400 euros");
+  });
+  it("si faltan preguntas (Datacrédito, compra sola o acompañada) no se ofrece todavía", async () => {
+    const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora" });
+    const r = await correr(id);
+    expect(r.ofrecerLlamada).toBe(false);
+    expect(r.motivo).toBe("faltan_preguntas");
+    expect(r.faltan).toEqual(["reportadoDatacredito", "compraSoloOAcompanado"]);
+  });
+  it("reportado en Datacrédito: no se ofrece (aunque diga que se pone al día, hasta que haya cotización enviada)", async () => {
+    const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", reportadoDatacredito: "Sí", puedeQuitarReporte: "Sí, pronto", compraSoloOAcompanado: "Solo" });
+    const r = await correr(id);
+    expect(r.ofrecerLlamada).toBe(false);
+    expect(r.motivo).toBe("reportado");
   });
   it("cliente tibio/caliente: devuelve horarios reales y pide correo si falta", async () => {
     const id = await cliente(
-      { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora" },
+      { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", reportadoDatacredito: "No", compraSoloOAcompanado: "Solo", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora" },
       "",
     );
     const r = await correr(id);
@@ -86,7 +100,7 @@ describe("proponerLlamada", () => {
     expect(r.opciones.map((o: any) => o.hora)).toEqual(["10:00", "13:30"]);
   });
   it("si no hay huecos o falla la agenda, lo dice para usar el comodín", async () => {
-    const id = await cliente({ ahorroDisponible: "10.000", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora", ciudadResidencia: "España, Girona", ciudadCompra: "Cali" });
+    const id = await cliente({ ahorroDisponible: "10.000", ingresosMensuales: "2000", reportadoDatacredito: "No", compraSoloOAcompanado: "Solo", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora", ciudadResidencia: "España, Girona", ciudadCompra: "Cali" });
     rangoMock.mockResolvedValueOnce({ ok: false, reason: "http_500" });
     const r = await correr(id);
     expect(r.ofrecerLlamada).toBe(true);
@@ -94,7 +108,7 @@ describe("proponerLlamada", () => {
     expect(r.message).toContain("comodín");
   });
   it("si ya tiene una llamada agendada, no la ofrece otra vez", async () => {
-    const id = await cliente({ ahorroDisponible: "10.000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", ciudadResidencia: "España, Girona", ciudadCompra: "Cali" });
+    const id = await cliente({ ahorroDisponible: "10.000", ingresosMensuales: "2000", reportadoDatacredito: "No", compraSoloOAcompanado: "Solo", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", ciudadResidencia: "España, Girona", ciudadCompra: "Cali" });
     await db.run("INSERT INTO leads (id, conversation_id, name, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
       ["c1", id, "Ana", "Cita · Videollamada · 2026-10-14 10:00", JSON.stringify({ estado: "Reservada (Cal.com)", calStart: "2026-10-14T10:00:00.000+02:00" }), "new", NOW, NOW]);
     const r = await correr(id);
@@ -148,7 +162,7 @@ describe("armarDias: 4 por día y tachados REALES", () => {
 describe("interruptor de la oferta de llamada", () => {
   let env: Env;
   let db: Db;
-  const COMPLETO = { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora" };
+  const COMPLETO = { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", reportadoDatacredito: "No", compraSoloOAcompanado: "Solo", capacidadMensual: "800", tipoEmpleo: "empleado contrato indefinido", entregaInmediataOFutura: "ahora" };
   beforeEach(async () => {
     const mf = await createTestMiniflare();
     const d1 = (await mf.getD1Database("DB")) as any;

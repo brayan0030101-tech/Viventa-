@@ -12,10 +12,12 @@ import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
 import { calcomConfigured, calcomTimeZone, getAvailableSlotsRange, getUpcomingBookingStarts, resolveEventTypeId } from "../src/integrations/calcom";
-import { armarLeads, llamadasAgendadas, formatoLlamada } from "../src/followup/resumenDia";
+import { armarLeads, llamadasAgendadas, formatoLlamada, evaluarCalificacion } from "../src/followup/resumenDia";
 import { zonaDeResidencia, horaEn, esEspana } from "../src/lib/zonaCliente";
 
 const H = 3600_000;
+export const MENSAJE_NO_CUMPLE =
+  "Gracias por contarnos tu situación. Lamentablemente por ahora no cumples con las condiciones para adquirir una vivienda con crédito hipotecario: se requiere poder destinar al menos 400 euros al mes. Esperamos que en una próxima ocasión puedas tener esa disponibilidad para poder brindarte el servicio.";
 /** Primer inicio permitido y último inicio (la llamada dura 45 min y los inicios van de hora en hora: la última, 15:00, termina a las 15:45). */
 const DESDE = "10:00";
 const HASTA = "15:30";
@@ -224,9 +226,15 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         if (lead.llamada) {
           return { ofrecerLlamada: false as const, motivo: "ya_tiene_llamada", llamada: lead.llamada };
         }
-        // Desde el 13 oct 2026 la oferta va a TODOS los clientes (también «fríos»): el dueño pidió que
-        // el bot siga hasta agendar con quien terminó el guion; el puntaje solo ordena la lista del equipo.
         const nivel = lead.prioridad.nivel;
+        // Desde el 21 oct 2026 (reunión Maricela–Brayan): la videollamada es solo para quien cumple las condiciones y respondió TODAS las preguntas.
+        const cal = evaluarCalificacion(lead.ficha.metadata);
+        if (nivel === "frio") return { ofrecerLlamada: false as const, motivo: "no_cumple_condiciones", prioridad: nivel, message: MENSAJE_NO_CUMPLE };
+        if (cal.faltan.length) return { ofrecerLlamada: false as const, motivo: "faltan_preguntas", faltan: cal.faltan, message: `Todavía faltan datos antes de ofrecer la videollamada (${cal.faltan.join(", ")}). Sigue con el guion y pregúntalos de a uno; luego vuelve a llamar esta herramienta.` };
+        if (cal.reportado) {
+          const cot = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_bot WHERE conv_id = ? AND estado = 'enviada'", [convId]).catch(() => null);
+          if (!(cal.puedeQuitarReporte === true && (cot?.n ?? 0) > 0)) return { ofrecerLlamada: false as const, motivo: "reportado", message: "El cliente está reportado en Datacrédito: no se le ofrece videollamada todavía. Si dijo que se pone al día pronto, el sistema le enviará una cotización y, si le interesa y la ve viable, ahí sí se agenda. Cierra con amabilidad." };
+        }
 
         if (!calcomConfigured(env)) return { ofrecerLlamada: false as const, motivo: "agenda_no_configurada" };
         const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");

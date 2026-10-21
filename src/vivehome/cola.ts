@@ -20,7 +20,7 @@
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { SettingsRepo } from "../db/settings";
-import { armarLeads, correoParaFormulario, type LeadResumen } from "../followup/resumenDia";
+import { armarLeads, correoParaFormulario, evaluarCalificacion, type LeadResumen } from "../followup/resumenDia";
 import { puedeEscribirAhora } from "../lib/horarioCliente";
 import { registrarHallazgo } from "../followup/auditor";
 import { asegurarTablaCotizaciones } from "../followup/cotizaciones";
@@ -443,6 +443,10 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
           }
           if ((conv.paused_until && conv.paused_until > now) || descartada(conv)) {
             await actualizar(db, f.id, { estado: "omitida", error: "la conversación la tomó una persona o se descartó" }, now);
+            continue;
+          }
+          if (lead.prioridad.nivel === "frio" || (evaluarCalificacion(lead.ficha.metadata).reportado && evaluarCalificacion(lead.ficha.metadata).puedeQuitarReporte !== true)) {
+            await actualizar(db, f.id, { estado: "omitida", error: "no cumple las condiciones (frío o reportado sin ponerse al día)" }, now);
             continue;
           }
           if (await dijoQueNo(db, f.conv_id)) {

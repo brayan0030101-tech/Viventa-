@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import {
-  parseMonto, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos, correoParaFormulario, lineaLlamadas,
+  parseMonto, parseEuros, evaluarCalificacion, puntuarLead, armarLeads, csvZoho, mensajesResumen, urlFormulario, runResumenDia, comandoEquipo, enlaceRegistro, AYUDA_EQUIPO, faltantes, runExcelListos, leadsListos, correoParaFormulario, lineaLlamadas,
 } from "../../src/followup/resumenDia";
 import type { Env } from "../../src/env";
 
@@ -25,38 +25,44 @@ describe("parseMonto", () => {
   });
 });
 
-describe("puntuarLead: regla de Maricela (empleado, ≥ 1.500 € de ingresos, ≥ 400 € de cuota = caliente)", () => {
+describe("calificación (reunión Maricela–Brayan, 21 oct 2026)", () => {
   const ficha = (m: Record<string, string>) => ({ metadata: m, notas: "", telefono: "" });
-  it("empleado con 1.500 € y 400 € al mes es caliente aunque sume pocos puntos", () => {
-    const p = puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1500 euros", capacidadMensual: "400 euros" }));
+  const caliente = { tipoEmpleo: "Empleado", ingresosMensuales: "1500 euros", capacidadMensual: "400 euros", reportadoDatacredito: "No" };
+  it("caliente: empleado, ingresos ≥ 1.500 €, cuota ≥ 400 € y no reportado", () => {
+    const p = puntuarLead(ficha(caliente));
     expect(p.nivel).toBe("caliente");
     expect(p.razones.join(" ")).toContain("Perfil caliente");
   });
-  it("cuota en pesos también cuenta (2 millones COP ≈ 444 €)", () => {
-    expect(puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1500 €", capacidadMensual: "2 millones COP" })).nivel).toBe("caliente");
+  it("la cuota en pesos cuenta (1,5 millones ≈ 400 €; «un millón quinientos»)", () => {
+    expect(puntuarLead(ficha({ ...caliente, capacidadMensual: "1.500.000" })).nivel).toBe("caliente");
+    expect(puntuarLead(ficha({ ...caliente, capacidadMensual: "un millón quinientos" })).nivel).toBe("caliente");
+    expect(parseEuros("1 millón")).toBe(270);
   });
-  it("no es caliente si no es empleado, si gana menos o si la cuota es menor", () => {
-    expect(puntuarLead(ficha({ tipoEmpleo: "Autónomo", ingresosMensuales: "2000 euros", capacidadMensual: "500 euros" })).nivel).not.toBe("caliente");
-    expect(puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1200 euros", capacidadMensual: "500 euros" })).nivel).not.toBe("caliente");
-    expect(puntuarLead(ficha({ tipoEmpleo: "Empleado", ingresosMensuales: "1500 euros", capacidadMensual: "200 euros" })).nivel).not.toBe("caliente");
+  it("tibio: ingresos ≥ 1.300 € y cuota ≥ 300 € pero no cumple lo de caliente", () => {
+    expect(puntuarLead(ficha({ ...caliente, capacidadMensual: "350 euros" })).nivel).toBe("tibio");
+    expect(puntuarLead(ficha({ ...caliente, ingresosMensuales: "1400 euros" })).nivel).toBe("tibio");
+    expect(puntuarLead(ficha({ ...caliente, tipoEmpleo: "Autónomo" })).nivel).toBe("tibio");
   });
-});
-
-describe("puntuarLead: regla de Maricela para frío (< 1.300 €, sin posibilidad de aumentar y sin apoyo)", () => {
-  const ficha = (m: Record<string, string>) => ({ metadata: m, notas: "", telefono: "+34600000000" });
-  const base = { ahorroDisponible: "20000 euros", capacidadMensual: "300 euros", tipoEmpleo: "Empleado", entregaInmediataOFutura: "ahora", ingresosMensuales: "1000 euros" };
-  it("es frío aunque sume muchos puntos", () => {
-    const p = puntuarLead(ficha({ ...base, compraSoloOAcompanado: "Solo", posibilidadAumentarIngresos: "No" }));
-    expect(p.nivel).toBe("frio");
-    expect(p.razones.join(" ")).toContain("Perfil frío");
+  it("frío: destina menos de 300 € (≈ 1 millón de pesos) o gana menos de 1.300 €", () => {
+    expect(puntuarLead(ficha({ ...caliente, capacidadMensual: "150 euros" })).nivel).toBe("frio");
+    expect(puntuarLead(ficha({ ...caliente, capacidadMensual: "800.000" })).nivel).toBe("frio");
+    expect(puntuarLead(ficha({ ...caliente, ingresosMensuales: "1200 euros" })).nivel).toBe("frio");
   });
-  it("no se aplica si tiene a alguien que le ayude, si puede aumentar sus ingresos o si no se sabe", () => {
-    expect(puntuarLead(ficha({ ...base, compraSoloOAcompanado: "Con su esposa", posibilidadAumentarIngresos: "No" })).nivel).not.toBe("frio");
-    expect(puntuarLead(ficha({ ...base, compraSoloOAcompanado: "Solo", posibilidadAumentarIngresos: "Sí, está buscando otro trabajo" })).nivel).not.toBe("frio");
-    expect(puntuarLead(ficha({ ...base })).nivel).not.toBe("frio");
+  it("compra con otra persona: se suman los ingresos de las dos personas", () => {
+    const sola = { tipoEmpleo: "Empleado", ingresosMensuales: "900 euros", capacidadMensual: "450 euros", reportadoDatacredito: "No" };
+    expect(puntuarLead(ficha(sola)).nivel).toBe("frio");
+    expect(puntuarLead(ficha({ ...sola, compraSoloOAcompanado: "Con mi esposo", ingresosCoComprador: "1000 euros" })).nivel).toBe("caliente");
   });
-  it("no se aplica con ingresos de 1.300 € o más", () => {
-    expect(puntuarLead(ficha({ ...base, ingresosMensuales: "1400 euros", compraSoloOAcompanado: "Solo", posibilidadAumentarIngresos: "No" })).nivel).not.toBe("frio");
+  it("reportado en Datacrédito: nunca caliente; si no puede ponerse al día es frío, si lo hará pronto es tibio", () => {
+    expect(puntuarLead(ficha({ ...caliente, reportadoDatacredito: "Sí" })).nivel).toBe("tibio");
+    expect(puntuarLead(ficha({ ...caliente, reportadoDatacredito: "Sí", puedeQuitarReporte: "No, es una deuda grande" })).nivel).toBe("frio");
+    expect(puntuarLead(ficha({ ...caliente, reportadoDatacredito: "Sí", puedeQuitarReporte: "Sí, lo pago pronto" })).nivel).toBe("tibio");
+  });
+  it("evaluarCalificacion dice qué preguntas faltan", () => {
+    const c = evaluarCalificacion({ ...caliente });
+    expect(c.completo).toBe(false);
+    expect(c.faltan).toContain("compraSoloOAcompanado");
+    expect(c.faltan).not.toContain("reportadoDatacredito");
   });
 });
 
@@ -65,7 +71,7 @@ describe("puntuarLead", () => {
     const p = puntuarLead({
       telefono: "+34600000001",
       notas: "Hora de llamada pedida: 18:00",
-      metadata: { ahorroDisponible: "20 mil euros", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadResidencia: "a", ciudadCompra: "b" },
+      metadata: { ahorroDisponible: "20 mil euros", ingresosMensuales: "2000", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadResidencia: "a", ciudadCompra: "b" },
     });
     expect(p.nivel).toBe("caliente");
   });

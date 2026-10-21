@@ -26,7 +26,7 @@ beforeEach(async () => {
   db = new Db(d1);
   env = { DB: d1, BUSINESS_NAME: "Viventa", BOT_TIER: "pro" } as unknown as Env;
   await cliente("ycloud:34600000001", "ycloud", "34600000001", "Ana López Ruiz",
-    { ahorroDisponible: "20 mil euros", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadCompra: "Medellín", ciudadResidencia: "España, Madrid" }, "ana@correo.com");
+    { ahorroDisponible: "20 mil euros", ingresosMensuales: "2000", capacidadMensual: "1000", tipoEmpleo: "contrato indefinido", entregaInmediataOFutura: "ahora", ciudadCompra: "Medellín", ciudadResidencia: "España, Madrid" }, "ana@correo.com");
   await cliente("zernio:99", "zernio", "99", "pepe_ig", {});
   await msg("ycloud:34600000001", "user", "Hola <b>buenas</b>", NOW - 3000);
   await msg("ycloud:34600000001", "assistant", "¿Qué día te queda mejor?\n[[botones: Lun 12 oct | Mar 13 oct]]", NOW - 2500);
