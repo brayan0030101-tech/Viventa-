@@ -12,6 +12,7 @@ export const ETAPAS = [
   { id: "agendada", nombre: "Llamada agendada", icono: "📅", ayuda: "Tiene videollamada pendiente" },
   { id: "hecha", nombre: "Llamada hecha", icono: "📞", ayuda: "Ya habló con Maricela" },
   { id: "probable", nombre: "Más probables de comprar", icono: "⭐", ayuda: "Los que Maricela cree que van a comprar (los elige ella; los quita cuando negocia, cierra o descarta)" },
+  { id: "cierre", nombre: "En cierre", icono: "🎯", ayuda: "Cliente caliente que ya habló con Maricela y ya tiene el formulario enviado (registrado en Zoho)" },
   { id: "negociando", nombre: "Negociando", icono: "🤝", ayuda: "Hay avance concreto" },
   { id: "cerrado", nombre: "Cerrado", icono: "🏆", ayuda: "Compró / reservó" },
   { id: "perdido", nombre: "Perdido", icono: "✖️", ayuda: "Sin respuesta 21 días después de la llamada" },
@@ -38,7 +39,11 @@ export function etapaAutomatica(f: FilaCrm, ctx: Pick<Contexto, "resultados" | "
   const res = ctx.resultados.get(id);
   if (res === "concretado" || res === "parcial") return "negociando";
   const ll = ctx.llamadas.get(id);
-  if (res || ll?.pasada) return now - f.ultimo > ENFRIA_DIAS * DIA ? "perdido" : "hecha";
+  if (res || ll?.pasada) {
+    if (now - f.ultimo > ENFRIA_DIAS * DIA) return "perdido";
+    // En cierre (pedido de Brayan, 21 oct 2026): caliente + ya habló con Maricela + formulario enviado (registrado en Zoho).
+    return f.lead.prioridad.nivel === "caliente" && f.registro === "registrado" ? "cierre" : "hecha";
+  }
   if (ll?.agendada || f.lead.llamada) return "agendada";
   const campos = Object.entries(f.lead.ficha.metadata).filter(([k, v]) => v && !/^(cita|cal)/i.test(k)).length;
   return f.lead.prioridad.nivel !== "frio" || campos >= 3 ? "calificado" : "nuevo";
@@ -118,7 +123,7 @@ function tarjeta(t: TarjetaPipeline, now: number): string {
   const l = f.lead;
   const m = l.ficha.metadata;
   const dias = Math.floor((now - f.ultimo) / DIA);
-  const quieto = dias >= 5 && (t.etapa === "hecha" || t.etapa === "negociando" || t.etapa === "agendada");
+  const quieto = dias >= 5 && (t.etapa === "hecha" || t.etapa === "cierre" || t.etapa === "negociando" || t.etapa === "agendada");
   const opciones = ETAPAS.map((e) => `<option value="${e.id}"${e.id === t.etapa ? " selected" : ""}>${e.icono} ${e.nombre}</option>`).join("")
     + (t.manual ? `<option value="auto">↺ Volver a automático</option>` : "");
   return `<div class="pl-card" draggable="true" data-conv="${esc(l.convId)}">
@@ -159,8 +164,8 @@ export async function renderCrmPipeline(env: Env, now = Date.now()): Promise<str
     </div>`;
   }).join("");
   const n = (id: EtapaId) => col(id).length;
-  const conLlamada = n("hecha") + n("negociando") + n("cerrado");
-  const resumen = `<div class="text-dim" style="font-size:12.5px;margin-bottom:12px">${todas.length} clientes · ${n("agendada")} con llamada agendada · ${conLlamada} ya hablaron con Maricela · ${n("probable")} más probables de comprar · ${n("negociando")} negociando · ${n("cerrado")} cerrados. Arrastra una tarjeta a otra columna o usa el selector. Las etapas se mueven solas con la llamada y su resultado; lo que muevas tú manda. En <b>⭐ Más probables de comprar</b> pones tú a los clientes que crees que van a comprar (búscalos por nombre, teléfono o correo): se quedan ahí hasta que los muevas a Negociando, Cerrado o Perdido, o los quites.</div>`;
+  const conLlamada = n("hecha") + n("cierre") + n("negociando") + n("cerrado");
+  const resumen = `<div class="text-dim" style="font-size:12.5px;margin-bottom:12px">${todas.length} clientes · ${n("agendada")} con llamada agendada · ${conLlamada} ya hablaron con Maricela · ${n("probable")} más probables de comprar · ${n("cierre")} en cierre · ${n("negociando")} negociando · ${n("cerrado")} cerrados. Arrastra una tarjeta a otra columna o usa el selector. Las etapas se mueven solas con la llamada y su resultado; lo que muevas tú manda. En <b>⭐ Más probables de comprar</b> pones tú a los clientes que crees que van a comprar (búscalos por nombre, teléfono o correo): se quedan ahí hasta que los muevas a Negociando, Cerrado o Perdido, o los quites.</div>`;
   const body = `${ESTILO_CRM}<style>
     .pl-board{display:grid;grid-template-columns:repeat(8,minmax(210px,1fr));gap:10px;overflow-x:auto;padding-bottom:12px}
     .pl-col{background:var(--panel2);border:1px solid var(--line);min-height:300px;display:flex;flex-direction:column}
