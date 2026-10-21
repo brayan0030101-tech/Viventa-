@@ -123,6 +123,7 @@ const ETIQUETAS: Record<string, string> = {
   tipoEmpleo: "Tipo de empleo",
   antiguedadLaboral: "Antigüedad laboral",
   compraSoloOAcompanado: "Compra solo / acompañado",
+  posibilidadAumentarIngresos: "Puede aumentar ingresos / tiene apoyo",
   situacionMigratoria: "Situación de residencia",
   estatusMigratorio: "Situación de residencia",
   autorizacion: "Autorización de datos",

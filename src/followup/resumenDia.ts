@@ -98,7 +98,12 @@ export function puntuarLead(f: FichaLead): Prioridad {
   const esEmpleado = /(emplead|contrato|n[oó]mina|funcionari|asalariad)/i.test(m.tipoEmpleo ?? "") && !/(aut[oó]nomo|independiente|por (su|mi) cuenta)/i.test(m.tipoEmpleo ?? "");
   const perfilCaliente = esEmpleado && ingresos >= 1_500 && mes >= 400;
   if (perfilCaliente) razones.push("Perfil caliente: empleado, ingresos de 1.500 € o más y cuota de 400 € o más al mes");
-  return { puntos: p, nivel: perfilCaliente || p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
+  // Regla de Maricela (21 oct 2026): gana menos de 1.300 € al mes, no puede aumentarlos y no tiene a nadie que le ayude = frío, sin importar los puntos.
+  const solo = /\bsol[oa]\b|\bnadie\b|sin ayuda|individual/i.test(m.compraSoloOAcompanado ?? "") && !/acompa|pareja|espos|esposa|familia|hermano|padre|madre|socio/i.test(m.compraSoloOAcompanado ?? "");
+  const sinPosibilidad = /^\s*no\b|sin posibilidad|ninguna|no (tiene|tengo|puede|puedo|hay)/i.test(m.posibilidadAumentarIngresos ?? "");
+  const sinRecursos = ingresos > 0 && ingresos < 1_300 && solo && sinPosibilidad;
+  if (sinRecursos) razones.push("Perfil frío: gana menos de 1.300 € al mes, no puede aumentarlos y no tiene quién le ayude");
+  return { puntos: p, nivel: sinRecursos ? "frio" : perfilCaliente || p >= 6 ? "caliente" : p >= 3 ? "tibio" : "frio", razones };
 }
 
 // ─── Datos de los leads ────────────────────────────────────────────────────────

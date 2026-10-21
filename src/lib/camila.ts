@@ -90,6 +90,7 @@ const CAMPOS: Array<[string, string]> = [
   ["tipoEmpleo", "Trabajo"],
   ["antiguedadLaboral", "Antigüedad laboral"],
   ["compraSoloOAcompanado", "Compra"],
+  ["posibilidadAumentarIngresos", "¿Puede aumentar ingresos o tiene apoyo?"],
 ];
 
 interface LeadRow {

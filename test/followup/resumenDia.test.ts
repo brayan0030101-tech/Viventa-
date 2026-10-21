@@ -42,6 +42,24 @@ describe("puntuarLead: regla de Maricela (empleado, ≥ 1.500 € de ingresos, �
   });
 });
 
+describe("puntuarLead: regla de Maricela para frío (< 1.300 €, sin posibilidad de aumentar y sin apoyo)", () => {
+  const ficha = (m: Record<string, string>) => ({ metadata: m, notas: "", telefono: "+34600000000" });
+  const base = { ahorroDisponible: "20000 euros", capacidadMensual: "300 euros", tipoEmpleo: "Empleado", entregaInmediataOFutura: "ahora", ingresosMensuales: "1000 euros" };
+  it("es frío aunque sume muchos puntos", () => {
+    const p = puntuarLead(ficha({ ...base, compraSoloOAcompanado: "Solo", posibilidadAumentarIngresos: "No" }));
+    expect(p.nivel).toBe("frio");
+    expect(p.razones.join(" ")).toContain("Perfil frío");
+  });
+  it("no se aplica si tiene a alguien que le ayude, si puede aumentar sus ingresos o si no se sabe", () => {
+    expect(puntuarLead(ficha({ ...base, compraSoloOAcompanado: "Con su esposa", posibilidadAumentarIngresos: "No" })).nivel).not.toBe("frio");
+    expect(puntuarLead(ficha({ ...base, compraSoloOAcompanado: "Solo", posibilidadAumentarIngresos: "Sí, está buscando otro trabajo" })).nivel).not.toBe("frio");
+    expect(puntuarLead(ficha({ ...base })).nivel).not.toBe("frio");
+  });
+  it("no se aplica con ingresos de 1.300 € o más", () => {
+    expect(puntuarLead(ficha({ ...base, ingresosMensuales: "1400 euros", compraSoloOAcompanado: "Solo", posibilidadAumentarIngresos: "No" })).nivel).not.toBe("frio");
+  });
+});
+
 describe("puntuarLead", () => {
   it("ahorro alto, cuota y entrega inmediata = caliente", () => {
     const p = puntuarLead({
