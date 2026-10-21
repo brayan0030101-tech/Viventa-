@@ -100,6 +100,9 @@ export async function procesarReunionFathom(env: Env, r: ReunionFathom, now = Da
   }
   const leadId = await emparejarLlamada(env, r, now);
   if (!leadId) {
+    // Reuniones que no son con un cliente (p. ej. con Brayan o el equipo): se guarda el texto para poder analizarlo después.
+    await db.run("CREATE TABLE IF NOT EXISTS crm_fathom_texto (recording_id TEXT PRIMARY KEY, titulo TEXT, creado INTEGER NOT NULL, texto TEXT NOT NULL)");
+    await db.run("INSERT OR REPLACE INTO crm_fathom_texto (recording_id, titulo, creado, texto) VALUES (?,?,?,?)", [rid, titulo, now, texto.slice(0, 400_000)]);
     await db.run("UPDATE crm_fathom SET estado = 'sin_cita' WHERE recording_id = ?", [rid]);
     await avisar("📝 Fathom: llamada sin cliente asociado", `Fathom grabó «${titulo}» pero no encontré la cita del CRM para asociarla. No se analizó.`);
     return { estado: "sin_cita" };
