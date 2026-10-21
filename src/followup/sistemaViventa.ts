@@ -366,10 +366,11 @@ export async function runRecordatoriosLlamada(
     if (!conv) continue;
     const ref: ConvRef = { id: conv.id, channel: conv.channel, channel_user_id: conv.channel_user_id, display_name: conv.display_name };
 
-    // Recordatorio 24 h: solo si la cita se agendó con ≥ 24 h de antelación.
-    if (falta <= 24 * H && falta > 2 * H && lead.created_at <= inicio - 24 * H && (await puedeEscribirAhora(db, ref, now)) && (await claim(db, "leads", lead.id, "viventa_r24", now))) {
+    // Recordatorio 24 h (confirmación): también para citas agendadas a última hora, siempre que hayan pasado ≥ 2 h desde que se agendó
+    // (así el cliente no recibe dos avisos seguidos). Dice «hoy» o «mañana» según el día de España.
+    if (falta <= 24 * H && falta > 2 * H && lead.created_at <= now - 2 * H && (await puedeEscribirAhora(db, ref, now)) && (await claim(db, "leads", lead.id, "viventa_r24", now))) {
       const text =
-        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Te recuerdo que mañana tienes tu videollamada con Maricela a las ${hora} (hora de España${local}). ` +
+        `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Te recuerdo que ${fechaEs(inicio, tz) === fechaEs(now, tz) ? "hoy" : "mañana"} tienes tu videollamada con Maricela a las ${hora} (hora de España${local}). ` +
         `¿Sigue en pie, o prefieres reprogramarla?` +
         (meta.calMeetingUrl ? `\n\nEste es tu enlace para entrar: ${meta.calMeetingUrl}` : "");
       try {
