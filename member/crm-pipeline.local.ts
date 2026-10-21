@@ -12,7 +12,7 @@ export const ETAPAS = [
   { id: "agendada", nombre: "Llamada agendada", icono: "📅", ayuda: "Tiene videollamada pendiente" },
   { id: "hecha", nombre: "Llamada hecha", icono: "📞", ayuda: "Ya habló con Maricela" },
   { id: "probable", nombre: "Más probables de comprar", icono: "⭐", ayuda: "Los que Maricela cree que van a comprar (los elige ella; los quita cuando negocia, cierra o descarta)" },
-  { id: "cierre", nombre: "En cierre", icono: "🎯", ayuda: "Cliente caliente que ya habló con Maricela y ya tiene el formulario enviado (registrado en Zoho)" },
+  { id: "cierre", nombre: "En cierre", icono: "🎯", ayuda: "Cliente caliente que ya habló con Maricela y ya tiene el formulario de viabilidad enviado (estado «Formulario CC» o posterior en Zoho)" },
   { id: "negociando", nombre: "Negociando", icono: "🤝", ayuda: "Hay avance concreto" },
   { id: "cerrado", nombre: "Cerrado", icono: "🏆", ayuda: "Compró / reservó" },
   { id: "perdido", nombre: "Perdido", icono: "✖️", ayuda: "Sin respuesta 21 días después de la llamada" },
@@ -20,7 +20,12 @@ export const ETAPAS = [
 export type EtapaId = (typeof ETAPAS)[number]["id"];
 export const etapaValida = (v: unknown): v is EtapaId => ETAPAS.some((e) => e.id === v);
 
+/** Estados de Zoho que significan «ya se le envió el formulario de viabilidad» (Maricela: transición «Diligenciar Formulario CC» y lo que sigue). */
+export const ESTADOS_FORMULARIO_ENVIADO = ["Formulario CC", "En Pre-calificación", "Resultado Pre-calificación", "Pre-calificado Incompleto", "Enviado a constructora", "Puente"];
+
 interface Contexto {
+  /** conversación → estado del candidato en Zoho (lo guarda la sincronización) */
+  zoho?: Map<string, string>;
   /** conversación → resultado de la última llamada analizada */
   resultados: Map<string, string>;
   /** conversación → llamadas */
@@ -34,15 +39,15 @@ interface Contexto {
 const ENFRIA_DIAS = 21;
 const DIA = 24 * 3600_000;
 
-export function etapaAutomatica(f: FilaCrm, ctx: Pick<Contexto, "resultados" | "llamadas">, now = Date.now()): EtapaId {
+export function etapaAutomatica(f: FilaCrm, ctx: Pick<Contexto, "resultados" | "llamadas" | "zoho">, now = Date.now()): EtapaId {
   const id = f.lead.convId;
   const res = ctx.resultados.get(id);
   if (res === "concretado" || res === "parcial") return "negociando";
   const ll = ctx.llamadas.get(id);
   if (res || ll?.pasada) {
     if (now - f.ultimo > ENFRIA_DIAS * DIA) return "perdido";
-    // En cierre (pedido de Brayan, 21 oct 2026): caliente + ya habló con Maricela + formulario enviado (registrado en Zoho).
-    return f.lead.prioridad.nivel === "caliente" && f.registro === "registrado" ? "cierre" : "hecha";
+    // En cierre (pedido de Brayan, 21 oct 2026): caliente + ya habló con Maricela + formulario de viabilidad enviado (estado «Formulario CC» o posterior en Zoho).
+    return f.lead.prioridad.nivel === "caliente" && ESTADOS_FORMULARIO_ENVIADO.includes(ctx.zoho?.get(id) ?? "") ? "cierre" : "hecha";
   }
   if (ll?.agendada || f.lead.llamada) return "agendada";
   const campos = Object.entries(f.lead.ficha.metadata).filter(([k, v]) => v && !/^(cita|cal)/i.test(k)).length;
@@ -69,6 +74,8 @@ export async function cargarPipeline(env: Env, now = Date.now()): Promise<Tarjet
     if (l.estado === "agendada") prev.agendada = true;
     llamadas.set(l.convId, prev);
   }
+  const zoho = new Map<string, string>();
+  for (const z of await db.all<{ id: string; e: string | null }>("SELECT id, json_extract(metadata, '$.zoho_estado') AS e FROM conversations WHERE json_extract(metadata, '$.zoho_estado') IS NOT NULL")) if (z.e) zoho.set(z.id, z.e);
   const manual = new Map<string, string>();
   const ms = await db.all<{ id: string; e: string | null }>("SELECT id, json_extract(metadata, '$.crm_etapa') AS e FROM conversations WHERE json_extract(metadata, '$.crm_etapa') IS NOT NULL");
   for (const m of ms) if (m.e) manual.set(m.id, m.e);
@@ -79,7 +86,7 @@ export async function cargarPipeline(env: Env, now = Date.now()): Promise<Tarjet
   }
   return filas.map((fila) => {
     const man = manual.get(fila.lead.convId);
-    return man && etapaValida(man) ? { fila, etapa: man, manual: true, ...(man === "probable" && probableEn.has(fila.lead.convId) ? { probableEn: probableEn.get(fila.lead.convId) } : {}) } : { fila, etapa: etapaAutomatica(fila, { resultados, llamadas }, now), manual: false };
+    return man && etapaValida(man) ? { fila, etapa: man, manual: true, ...(man === "probable" && probableEn.has(fila.lead.convId) ? { probableEn: probableEn.get(fila.lead.convId) } : {}) } : { fila, etapa: etapaAutomatica(fila, { resultados, llamadas, zoho }, now), manual: false };
   });
 }
 

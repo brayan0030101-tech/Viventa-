@@ -252,3 +252,33 @@ export async function runSubidaZoho(env: Env, now = Date.now(), f: FetchFn = fet
   if (resumen.length) await notifyCamila(env, { heading: "📤 El bot subió clientes a Zoho", body: resumen.join("\n") }).catch(() => false);
   return out;
 }
+
+// ─── Estado del candidato en Zoho (para «En cierre») ─────────────────────────────────────────────
+
+/**
+ * Una vez por hora lee en Zoho el estado de los clientes calientes que ya hablaron con Maricela y lo guarda en la conversación (`zoho_estado`):
+ * así el CRM sabe quién ya tiene el formulario de viabilidad enviado («Formulario CC» o posterior) sin consultar Zoho en cada pantalla.
+ */
+export async function runSincronizarEstadosZoho(env: Env, now = Date.now(), f: FetchFn = fetch): Promise<number> {
+  if (!zohoListo(env)) return 0;
+  const st = new SettingsRepo(new Db(env.DB));
+  const ult = Number((await st.get("zoho_estados_sync")) ?? 0);
+  if (now - ult < 3_600_000) return 0;
+  await st.set("zoho_estados_sync", String(now));
+  const { cargarPipeline } = await import("./crm-pipeline.local");
+  const db = new Db(env.DB);
+  let n = 0;
+  for (const t of await cargarPipeline(env, now)) {
+    if (n >= 40) break;
+    if (!["hecha", "cierre", "probable", "negociando"].includes(t.etapa) || t.fila.lead.prioridad.nivel !== "caliente") continue;
+    try {
+      const c = await buscarCandidato(env, { correos: t.fila.lead.correo ? t.fila.lead.correo.split(",") : [], telefono: t.fila.lead.telefono }, f, now);
+      if (!c?.estado) continue;
+      await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.zoho_estado', ?, '$.zoho_lead_id', ?) WHERE id = ?", [c.estado, c.id, t.fila.lead.convId]);
+      n++;
+    } catch (e) {
+      console.error("[zohoEstados]", e);
+    }
+  }
+  return n;
+}

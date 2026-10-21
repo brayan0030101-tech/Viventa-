@@ -61,14 +61,14 @@ describe("pipeline", () => {
     expect(await etapaDe("ycloud:34600000001")).toBe("perdido");
   });
 
-  it("«En cierre»: caliente + ya habló con Maricela + formulario enviado (registrado en Zoho)", async () => {
+  it("«En cierre»: caliente + ya habló con Maricela + estado «Formulario CC» en Zoho", async () => {
     const id = "ycloud:34600000001";
     await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
       ["cita1", id, "x", "", "Cita · Videollamada Viventa · x", JSON.stringify({ calStart: "2026-10-12T09:00:00.000Z", estado: "Reservada (Cal.com)" }), "new", NOW - 9e6, NOW - 9e6]);
     // Habló con Maricela y es caliente, pero aún no se le envió el formulario: sigue en «Llamada hecha».
     await db.run("UPDATE leads SET metadata = ? WHERE id = ?", [JSON.stringify({ ciudadCompra: "Medellín", ahorroDisponible: "20 mil euros", capacidadMensual: "500 euros", ingresosMensuales: "3000", tipoEmpleo: "empleado", ciudadResidencia: "Madrid" }), `l-${id}`]);
     expect(await etapaDe(id)).toBe("hecha");
-    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_registrado', '2026-10-12T10:00:00Z') WHERE id = ?", [id]);
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.zoho_estado', 'Formulario CC') WHERE id = ?", [id]);
     expect(await etapaDe(id)).toBe("cierre");
     // Sin ser caliente no entra, aunque esté registrado.
     await db.run("UPDATE leads SET metadata = ? WHERE id = ?", [JSON.stringify({ ciudadCompra: "Medellín" }), `l-${id}`]);

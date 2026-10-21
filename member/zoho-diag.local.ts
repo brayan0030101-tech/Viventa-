@@ -68,6 +68,22 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido === "seg_prueba") {
+    // Solo lectura: carga la lista de seguimientos como la ve Maricela y resume el orden (calientes y en cierre primero) y las fechas.
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const { cargarSeguimientos } = await import("./crm-seguimientos.local");
+      const r = await cargarSeguimientos(env, now);
+      const por = { enCierre: 0, calientes: 0, otros: 0 };
+      for (const x of r.filas) { if (x.enCierre) por.enCierre++; else if (x.nivel === "caliente") por.calientes++; else por.otros++; }
+      let orden = true; let visto = 0;
+      for (const x of r.filas) { const p = x.enCierre ? 0 : x.nivel === "caliente" ? 1 : 2; if (p < visto) orden = false; visto = Math.max(visto, p); }
+      await st.set("zoho_diag_resultado", JSON.stringify({ seg_prueba: { tareas: r.filas.length, vencidas: r.filas.filter((x) => x.atraso > 0).length, ...por, ordenCorrecto: orden, primeras: r.filas.slice(0, 8).map((x) => ({ nivel: x.nivel ?? "sin dato", enCierre: !!x.enCierre, atraso: x.atraso, estado: x.cand.estado })) } }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido.startsWith("transiciones:")) {
     await st.set("zoho_diag_pedir", "");
     const id = pedido.slice(13).trim();
