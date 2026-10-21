@@ -295,15 +295,16 @@ describe("fase 2: actualizar Zoho", () => {
     expect(escrituras.filter((e) => e.method === "PUT" && e.url.includes("/Tasks/"))).toHaveLength(1);
   });
 
-  it("«futuro»: ejecuta la transición con su motivo y la nota obligatoria, completa la tarea y NO crea otra (Zoho la crea a 3 meses)", async () => {
+  it("«futuro»: ejecuta la transición con su motivo y la nota obligatoria, completa la tarea y crea una propia a ~25 días (Zoho crea la suya a 3 meses; ninguna tarea puede quedar a más de un mes)", async () => {
     generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"futuro","mensaje":"Hola [nombre], cuando quieras, aquí estamos.","motivo_cierre":"Interesado más adelante","nota":"Sin respuesta tras 4 intentos.","tarea_siguiente":""}' });
     await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
     await activar();
     const r = await aplicarEnZoho(env, TAREA, { nota: "Sin respuesta tras 4 intentos.", tareaSiguiente: "", motivo: "Tiene entrega futura" }, { f: zoho as never }, NOW);
     expect(r.ok && r.manual).toBeUndefined();
-    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`PUT /Leads/${LEAD}/actions/blueprint`, `PUT /Tasks/${TAREA}`]);
+    expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`PUT /Leads/${LEAD}/actions/blueprint`, `POST /Tasks`, `PUT /Tasks/${TAREA}`]);
     expect(escrituras[0].body).toEqual({ transition_id: "2259602001737850666", data: { motivo: "Tiene entrega futura", Notes: "Sin respuesta tras 4 intentos." } });
-    expect(escrituras[1].body).toEqual({ Status: "Completa" });
+    expect(JSON.stringify(escrituras[1].body)).toContain("mensaje mensual");
+    expect(escrituras[2].body).toEqual({ Status: "Completa" });
   });
 
   it("«perdido»: guarda la nota, ejecuta la transición «Cliente perdido» con el motivo y completa la tarea (sin tarea nueva)", async () => {

@@ -466,6 +466,17 @@ export function crmApp(): Hono<Vars> {
     return c.html(await fragmentoBorrador(c.env, String(f["tarea"] ?? ""), f["r"] === "1"));
   });
 
+  // Esperando un humano (prospección que el bot no pudo terminar)
+  app.get("/esperando-humano", async (c) => {
+    const { renderCrmHumano } = await import("./crm-humano.local");
+    return pagina(c, await renderCrmHumano(c.env));
+  });
+  app.post("/esperando-humano/hecho", async (c) => {
+    const { marcarLlamada } = await import("./crm-humano.local");
+    await marcarLlamada(c.env, String((await c.req.parseBody())["conv"] ?? ""));
+    return c.redirect(`${BASE}/esperando-humano`);
+  });
+
   // Por agendar
   app.get("/por-agendar", async (c) => {
     const { renderCrmPorAgendar } = await import("./crm-poragendar.local");

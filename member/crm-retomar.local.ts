@@ -125,6 +125,45 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
       console.error(`[retomarMasivo] ${c.id}:`, e);
     }
   }
+  // SEGUNDO INTENTO (reunión del 21 oct): a quien no contestó a la plantilla en 3 días se le escribe UNA vez más; si tampoco contesta, pasa a «Esperando un humano» en el CRM.
+  if (out.sent < MAX_POR_PASADA && seguidosFallidos < 2) {
+    const segundos = await db.all<{ id: string; channel_user_id: string; marca: string; ult_cli: number | null }>(
+      `SELECT c.id, c.channel_user_id, json_extract(c.metadata, '$.viventa_retomar') AS marca,
+              (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS ult_cli
+         FROM conversations c
+        WHERE c.channel = 'ycloud' AND (c.paused_until IS NULL OR c.paused_until < ?)
+          AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_retomar') LIKE '20%'
+          AND json_extract(COALESCE(c.metadata, '{}'), '$.viventa_retomar2') IS NULL
+          AND COALESCE(json_extract(c.metadata, '$.crm_etapa'), '') NOT IN ('perdido', 'cerrado')
+          AND json_extract(COALESCE(c.metadata, '{}'), '$.crm_descarte') IS NULL
+          AND NOT EXISTS (SELECT 1 FROM leads l WHERE l.conversation_id = c.id AND l.intent LIKE 'Cita ·%')
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.role = 'owner')
+        LIMIT 60`,
+      [now],
+    );
+    for (const c of segundos) {
+      if (out.sent >= MAX_POR_PASADA || seguidosFallidos >= 2) break;
+      const enviadoEn = Date.parse(c.marca);
+      if (!Number.isFinite(enviadoEn) || now - enviadoEn < 3 * DIA) continue;
+      if ((c.ult_cli ?? 0) > enviadoEn) {
+        // Contestó: ya no hace falta el segundo intento.
+        await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_retomar2', 'contesto') WHERE id = ?", [c.id]);
+        continue;
+      }
+      if (!(await puedeEscribirAhora(db, { id: c.id, channel: "ycloud", channel_user_id: c.channel_user_id }, now))) continue;
+      try {
+        await sendYCloudTemplate(env, c.channel_user_id, TPL_RETOMAR, "es_ES", []);
+        await new MessagesRepo(db).append(c.id, "assistant", TEXTO_RETOMAR, { createdAt: now });
+        await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_retomar2', ?) WHERE id = ?", [new Date(now).toISOString(), c.id]);
+        out.sent++;
+        seguidosFallidos = 0;
+      } catch (e) {
+        out.fallos++;
+        seguidosFallidos++;
+        console.error(`[retomarMasivo] 2.º intento ${c.id}:`, e);
+      }
+    }
+  }
   if (out.sent > 0 || out.fallos > 0) {
     try {
       const { notifyCamila } = await import("../src/lib/camila");

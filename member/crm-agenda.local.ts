@@ -33,7 +33,7 @@ export interface FechaElegida {
  * Primer día desde `deseada` (nunca antes de `hoy`) que no sea fin de semana y tenga menos de 25 tareas.
  * `contar(fecha)` devuelve cuántas tareas hay ya ese día (se consulta como máximo una vez por fecha).
  */
-export async function elegirFecha(deseada: string, hoy: string, contar: (fecha: string) => Promise<number>): Promise<FechaElegida> {
+export async function elegirFecha(deseada: string, hoy: string, contar: (fecha: string) => Promise<number>, sinTope = false): Promise<FechaElegida> {
   let f = deseada < hoy ? hoy : deseada;
   const razones: string[] = [];
   if (deseada < hoy) razones.push("esa fecha ya pasó");
@@ -43,7 +43,8 @@ export async function elegirFecha(deseada: string, hoy: string, contar: (fecha: 
       f = masDiasAgenda(f, 1);
       continue;
     }
-    const n = await contar(f);
+    // Clientes calientes o en cierre: se respeta su fecha aunque el día pase de 25 tareas (no se pueden enfriar).
+    const n = sinTope ? 0 : await contar(f);
     if (n >= MAX_TAREAS_DIA) {
       razones.push(`el ${nombreDia(f)} ${f} ya tiene ${n} tareas (tope ${MAX_TAREAS_DIA})`);
       f = masDiasAgenda(f, 1);
@@ -62,10 +63,10 @@ export async function tareasDelDia(env: Env, fecha: string, f?: FetchFn, now = D
   return filas.length;
 }
 
-export async function fechaDisponibleZoho(env: Env, deseada: string, hoy: string, f?: FetchFn, now = Date.now()): Promise<FechaElegida> {
+export async function fechaDisponibleZoho(env: Env, deseada: string, hoy: string, f?: FetchFn, now = Date.now(), sinTope = false): Promise<FechaElegida> {
   const cache = new Map<string, number>();
   return elegirFecha(deseada, hoy, async (d) => {
     if (!cache.has(d)) cache.set(d, await tareasDelDia(env, d, f, now));
     return cache.get(d)!;
-  });
+  }, sinTope);
 }
