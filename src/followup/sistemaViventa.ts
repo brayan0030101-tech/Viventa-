@@ -693,7 +693,7 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
     const leadName = (await db.first<{ name: string | null }>("SELECT name FROM leads WHERE conversation_id = ? AND name IS NOT NULL AND intent NOT LIKE 'Cita ·%' ORDER BY created_at DESC LIMIT 1", [c.id]))?.name;
     const nombre = primerNombre(leadName, c.display_name);
     const text =
-      `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Maricela puede llamarte en una videollamada de 30 minutos para orientarte con tu caso. ` +
+      `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Maricela puede llamarte en una videollamada de 45 minutos para orientarte con tu caso. ` +
       `¿Qué día te queda mejor? (hora de España)`;
     try {
       // La conversación quedó pausada al pasar al equipo: se reactiva para que el bot atienda la respuesta.

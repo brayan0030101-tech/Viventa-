@@ -82,7 +82,7 @@ describe("proponerLlamada", () => {
     expect(r.ofrecerLlamada).toBe(true);
     expect(["tibio", "caliente"]).toContain(r.prioridad);
     expect(r.necesitaCorreo).toBe(true);
-    expect(r.duracionMin).toBe(30);
+    expect(r.duracionMin).toBe(45);
     expect(r.opciones.map((o: any) => o.hora)).toEqual(["10:00", "13:30"]);
   });
   it("si no hay huecos o falla la agenda, lo dice para usar el comodín", async () => {

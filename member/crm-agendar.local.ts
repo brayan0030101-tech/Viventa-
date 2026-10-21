@@ -163,9 +163,9 @@ export async function previsualizar(env: Env, entrada: EntradaAgenda, now = Date
   if (ms < now) base.aviso = "Esa fecha y hora ya pasaron.";
   base.cliente = await buscarCliente(env, entrada.tel, entrada.correo, now);
   {
-    // ¿Choca con otra llamada del CRM (30 min de duración)? Siempre se bloquea: así no se cruzan los horarios.
+    // ¿Choca con otra llamada del CRM (45 min de duración)? Siempre se bloquea: así no se cruzan los horarios.
     const { cargarLlamadas } = await import("./crm-calendario.local");
-    const otra = (await cargarLlamadas(env, now)).find((l) => l.estado === "agendada" && l.convId !== base.cliente?.convId && Math.abs(l.inicio - ms) < 30 * 60_000);
+    const otra = (await cargarLlamadas(env, now)).find((l) => l.estado === "agendada" && l.convId !== base.cliente?.convId && Math.abs(l.inicio - ms) < 45 * 60_000);
     if (otra) base.choque = `${otra.nombre} a las ${hmMadrid(otra.inicio)}`;
   }
   if (calcomConfigured(env)) {

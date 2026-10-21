@@ -479,7 +479,7 @@ describe("oferta de videollamada a clientes calificados", () => {
     const r = await runOfertaLlamada(env, A_LAS_11);
     expect(r.sent).toBe(1);
     const arg = sendOutboundMock.mock.calls[0][1];
-    expect(arg.text).toContain("videollamada de 30 minutos");
+    expect(arg.text).toContain("videollamada de 45 minutos");
     expect(arg.buttons).toHaveLength(3);
     const c = await db.first<{ paused_until: number | null }>("SELECT paused_until FROM conversations WHERE id = ?", [id]);
     expect(c?.paused_until).toBeNull();

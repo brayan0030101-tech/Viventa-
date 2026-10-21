@@ -114,6 +114,20 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         plantillas: (t.json?.items ?? []).map((x: any) => ({ name: x.name, language: x.language, category: x.category, status: x.status, reason: x.reason, cuerpo: String(x.components?.find((c: any) => c.type === "BODY")?.text ?? "").slice(0, 120) })),
         error: t.status >= 400 ? t.json : undefined,
       };
+    } else if (pedido === "cal:leer" || pedido.startsWith("cal:ajustar:")) {
+      // Duración del evento de Cal.com (pedido de Maricela 21 oct: 45 min con una hora entre inicios). «cal:ajustar:45:60» = duración:intervalo.
+      const id = Number(env.CALCOM_EVENT_TYPE_ID || 0);
+      const cab = { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": "2024-06-14", "Content-Type": "application/json" };
+      const base = `https://api.cal.com/v2/event-types/${id}`;
+      const campos = (j: any) => { const d = j?.data ?? j; return { id: d?.id, titulo: d?.title, duracion: d?.lengthInMinutes ?? d?.length, intervalo: d?.slotInterval, antes: d?.beforeEventBuffer, despues: d?.afterEventBuffer, minAviso: d?.minimumBookingNotice }; };
+      let cambio: unknown;
+      if (pedido.startsWith("cal:ajustar:")) {
+        const [, , dur, inter] = pedido.split(":");
+        const r = await fetch(base, { method: "PATCH", headers: cab, body: JSON.stringify({ lengthInMinutes: Number(dur), slotInterval: Number(inter) }) });
+        cambio = { http: r.status, cuerpo: r.status >= 400 ? (await r.text()).slice(0, 400) : undefined };
+      }
+      const r = await fetch(base, { headers: cab });
+      out = { id, cambio, ahora: campos(await r.json().catch(() => ({}))), http: r.status };
     } else if (pedido.startsWith("msgs:")) {
       // Mensajes recientes de YCloud hacia un número (solo metadatos: tipo, estado, hora, campos extra; nunca el texto).
       const num = pedido.slice(5).replace(/\D/g, "");
