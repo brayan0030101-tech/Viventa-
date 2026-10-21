@@ -43,6 +43,21 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "permiso_crear") {
+    // Sin crear nada: manda un registro VACÍO a Leads. Si el permiso existe, Zoho contesta «campo obligatorio»; si no, «sin permiso de escritura».
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const { tokenZoho } = await import("./crm-zohoapi.local");
+      const tk = await tokenZoho(env, now);
+      const base = (env.ZOHO_API_URL || "https://www.zohoapis.com").replace(/\/+$/, "");
+      const r = await fetch(`${base}/crm/v2/Leads`, { method: "POST", headers: { Authorization: `Zoho-oauthtoken ${tk}`, "Content-Type": "application/json" }, body: JSON.stringify({ data: [{}] }) });
+      const j = (await r.json().catch(() => ({}))) as { data?: Array<{ code?: string; message?: string; details?: unknown }>; code?: string; message?: string };
+      await st.set("zoho_diag_resultado", JSON.stringify({ permiso_crear: { http: r.status, codigo: j.data?.[0]?.code ?? j.code, mensaje: j.data?.[0]?.message ?? j.message, detalle: j.data?.[0]?.details } }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ permiso_crear: { error: e instanceof Error ? e.message.slice(0, 120) : String(e) } }));
+    }
+    return;
+  }
   if (pedido.startsWith("buscar:")) {
     // Solo lectura: busca palabras en las notas de Zoho (ej. «impuestos») y dice a qué candidato pertenecen. Para ubicar un cliente que Maricela no encuentra.
     await st.set("zoho_diag_pedir", "");
