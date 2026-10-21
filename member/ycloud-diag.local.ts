@@ -133,6 +133,46 @@ export async function runYcloudDiag(env: Env): Promise<void> {
       }
       const r = await fetch(base, { headers: cab });
       out = { id, cambio, ahora: campos(await r.json().catch(() => ({}))), http: r.status };
+    } else if (pedido === "retomar_ig") {
+      // Clientes de Instagram con la ventana de 24 h cerrada que dieron su teléfono: se les escribe por WhatsApp con la plantilla de «retomar».
+      // Se copia el historial a la conversación de WhatsApp para que el bot siga donde se quedaron. Idempotente: marca `viventa_retomar_ig` en la de Instagram.
+      const db = new Db(env.DB);
+      const { normalizarTelefono } = await import("./crm.local");
+      const { TPL_RETOMAR, TEXTO_RETOMAR } = await import("./crm-retomar.local");
+      const { puedeEscribirAhora } = await import("../src/lib/horarioCliente");
+      const { sendYCloudTemplate } = await import("../src/channels/ycloud");
+      const { ConversationsRepo } = await import("../src/db/conversations");
+      const { MessagesRepo } = await import("../src/db/messages");
+      const ahora = Date.now();
+      const ig = await db.all<{ id: string; display_name: string | null; paused_until: number | null }>("SELECT id, display_name, paused_until FROM conversations WHERE channel = 'zernio' AND last_message_at > ? AND json_extract(COALESCE(metadata, '{}'), '$.viventa_retomar_ig') IS NULL", [ahora - 30 * 86_400_000]);
+      const res: Array<{ conv: string; resultado: string }> = [];
+      for (const c of ig) {
+        const ult = (await db.first<{ t: number | null }>("SELECT MAX(created_at) AS t FROM messages WHERE conversation_id = ? AND role = 'user'", [c.id]))?.t ?? 0;
+        if (ahora - ult < 23 * 3_600_000) continue; // ventana abierta: el bot puede escribirle por Instagram
+        const cita = (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM leads WHERE conversation_id = ? AND intent LIKE 'Cita ·%'", [c.id]))?.n ?? 0;
+        const persona = (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'owner'", [c.id]))?.n ?? 0;
+        const contactos = (await db.all<{ contact: string | null }>("SELECT contact FROM leads WHERE conversation_id = ? AND contact IS NOT NULL", [c.id])).flatMap((l) => String(l.contact).split(/[;,]+/)).filter((x) => x.trim() && !x.includes("@"));
+        const tel = contactos.map((x) => normalizarTelefono(x)).filter(Boolean).pop() ?? null;
+        if (!contactos.length) continue;
+        if (!tel) { res.push({ conv: c.id, resultado: `omitido: teléfono dudoso (${contactos.join(" / ")})` }); continue; }
+        if (cita || persona || (c.paused_until ?? 0) > ahora) { res.push({ conv: c.id, resultado: "omitido: tiene cita, lo atendió una persona o está pausado" }); continue; }
+        const dig = tel.replace(/\D/g, "");
+        const yaExiste = (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?", [`ycloud:${dig}`]))?.n ?? 0;
+        if (yaExiste) { res.push({ conv: c.id, resultado: "omitido: ya tiene conversación en WhatsApp" }); continue; }
+        if (!(await puedeEscribirAhora(db, { id: `ycloud:${dig}`, channel: "ycloud", channel_user_id: dig }, ahora))) { res.push({ conv: c.id, resultado: "pendiente: fuera del horario del cliente" }); continue; }
+        try {
+          await sendYCloudTemplate(env, dig, TPL_RETOMAR, "es_ES", []);
+        } catch (e) { res.push({ conv: c.id, resultado: `falló: ${String((e as Error).message).slice(0, 80)}` }); continue; }
+        const nueva = await new ConversationsRepo(db).getOrCreate("ycloud", dig, c.display_name ?? undefined);
+        const hist = await db.all<{ role: string; content: string; created_at: number }>("SELECT role, content, created_at FROM messages WHERE conversation_id = ? AND role IN ('user','assistant') ORDER BY created_at DESC LIMIT 60", [c.id]);
+        const repo = new MessagesRepo(db);
+        for (const m of hist.reverse()) await repo.append(nueva.id, m.role as "user" | "assistant", m.content, { createdAt: m.created_at });
+        await repo.append(nueva.id, "assistant", TEXTO_RETOMAR, { createdAt: ahora });
+        await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_retomar', ?) WHERE id = ?", [new Date(ahora).toISOString(), nueva.id]);
+        await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_retomar_ig', ?) WHERE id = ?", [`ycloud:${dig}`, c.id]);
+        res.push({ conv: c.id, resultado: `enviado a +${dig}` });
+      }
+      out = { retomar_ig: res };
     } else if (pedido === "rescatar_botones") {
       // Respuestas a botones de plantilla («Sí, quiero continuar») que llegaron antes de que el bot supiera leerlas: se reinyectan una vez.
       const db = new Db(env.DB);
