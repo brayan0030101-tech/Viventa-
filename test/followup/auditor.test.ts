@@ -118,3 +118,46 @@ describe("página de Auditoría", () => {
     expect(html).toContain("/admin/conversations?c=ycloud%3A34600000099");
   });
 });
+
+describe("auditor: clientes olvidados con el bot pausado", () => {
+  it("avisa cuando una persona intervino, el bot quedó pausado y el cliente lleva horas sin respuesta; se cierra al contestar", async () => {
+    const id = await conv("34600000051", "Marcela");
+    await msgs.append(id, "owner", "Hola, te cuento las opciones", { createdAt: NOW - 30 * H });
+    await msgs.append(id, "user", "¿Cuánto sería la cuota inicial del proyecto?", { createdAt: NOW - 5 * H });
+    await db.run("UPDATE conversations SET paused_until = ?, last_message_at = ? WHERE id = ?", [NOW + 48 * H, NOW - 5 * H, id]);
+    expect((await runAuditor(env, NOW)).nuevos).toBe(1);
+    const h = (await abiertos()).find((x) => x.tipo === "pausada_olvidada");
+    expect(h?.resuelto_en).toBeNull();
+    expect(notifyMock.mock.calls[0][1].body).toContain("bot está pausado");
+    // Pausada sigue sin cerrarla: solo cuando alguien contesta.
+    expect((await runAuditor(env, NOW + 5 * MIN)).cerrados).toBe(0);
+    await msgs.append(id, "owner", "Son 30 millones", { createdAt: NOW + 10 * MIN });
+    expect((await runAuditor(env, NOW + 15 * MIN)).cerrados).toBe(1);
+  });
+
+  it("no avisa si el último mensaje es reciente, de cortesía, o si nadie intervino", async () => {
+    const reciente = await conv("34600000052", "R");
+    await msgs.append(reciente, "owner", "Hola", { createdAt: NOW - 20 * H });
+    await msgs.append(reciente, "user", "¿Y el precio?", { createdAt: NOW - 1 * H });
+    const gracias = await conv("34600000053", "G");
+    await msgs.append(gracias, "owner", "Listo", { createdAt: NOW - 20 * H });
+    await msgs.append(gracias, "user", "Gracias", { createdAt: NOW - 6 * H });
+    const sinPersona = await conv("34600000054", "S");
+    await msgs.append(sinPersona, "user", "¿Y el precio?", { createdAt: NOW - 6 * H });
+    await db.run("UPDATE conversations SET last_message_at = ? WHERE id IN (?, ?, ?)", [NOW - 6 * H, reciente, gracias, sinPersona]);
+    await runAuditor(env, NOW);
+    expect((await abiertos()).filter((x) => x.tipo === "pausada_olvidada")).toHaveLength(0);
+  });
+
+  it("vuelve a avisar a las 12 h si nadie contestó", async () => {
+    const id = await conv("34600000055", "Paula");
+    await msgs.append(id, "owner", "Hola", { createdAt: NOW - 30 * H });
+    await msgs.append(id, "user", "¿Tienen algo en Medellín?", { createdAt: NOW - 5 * H });
+    await db.run("UPDATE conversations SET paused_until = ?, last_message_at = ? WHERE id = ?", [NOW + 96 * H, NOW - 5 * H, id]);
+    await runAuditor(env, NOW);
+    expect(notifyMock).toHaveBeenCalledTimes(1);
+    await runAuditor(env, NOW + 13 * H);
+    await runAuditor(env, NOW + 13 * H + 5 * MIN);
+    expect(notifyMock).toHaveBeenCalledTimes(2);
+  });
+});
