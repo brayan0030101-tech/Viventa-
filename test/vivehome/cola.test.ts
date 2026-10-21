@@ -8,7 +8,7 @@ import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
 import { MessagesRepo } from "../../src/db/messages";
 import { SettingsRepo } from "../../src/db/settings";
-import { runCotizacionesBot, asegurarTablasCola, guardarCatalogo, filasDe, pedirOtraCotizacion, AJUSTE_MODO, AJUSTE_PILOTO, AJUSTE_PILOTO_OK, type Dependencias } from "../../src/vivehome/cola";
+import { runCotizacionesBot, asegurarTablasCola, guardarCatalogo, filasDe, pedirOtraCotizacion, AJUSTE_MODO, AJUSTE_PILOTO, AJUSTE_PILOTO_OK, AJUSTE_PLANTILLA, type Dependencias } from "../../src/vivehome/cola";
 import { ErrorPantalla, type TipologiaCatalogo, type PedidoCotizacion } from "../../src/vivehome/navegador";
 import { asegurarTablaCotizaciones } from "../../src/followup/cotizaciones";
 import type { Env } from "../../src/env";
@@ -23,6 +23,7 @@ const CATALOGO = [t("Abedules", "Cali", 249_395_630, 31), t("Casas de la vega", 
 
 interface Simulado {
   deps: Dependencias;
+  plantillas: Array<{ tel: string; nombre: string }>;
   creadas: PedidoCotizacion[];
   enviados: Array<{ conversationId: string; text: string }>;
   avisos: string[];
@@ -30,9 +31,13 @@ interface Simulado {
 }
 
 function simular(opts: { fallarCrear?: boolean; siguienteId?: number } = {}): Simulado {
-  const s: Simulado = { creadas: [], enviados: [], avisos: [], abiertos: 0, deps: {} };
+  const s: Simulado = { creadas: [], enviados: [], avisos: [], abiertos: 0, plantillas: [], deps: {} };
   let id = opts.siguienteId ?? 3000;
   s.deps = {
+    plantillaAprobada: async () => true,
+    enviarPlantilla: async (_e, tel, nombre) => {
+      s.plantillas.push({ tel, nombre });
+    },
     abrirNavegador: async () => {
       s.abiertos++;
       return { page: {}, cerrar: async () => undefined };
@@ -207,5 +212,64 @@ describe("cotizaciones del bot", () => {
     await runCotizacionesBot(env, NOW + 2 * H, s.deps);
     const filas = await filasDe(env, a);
     expect(filas.map((f) => [f.ronda, f.estado])).toEqual([[2, "enviada"], [1, "enviada"]]);
+  });
+
+  describe("plantilla de WhatsApp para los que tienen la ventana cerrada", () => {
+    it("con el interruptor apagado no manda nada (cuesta dinero)", async () => {
+      await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros" }, NOW - 30 * H);
+      await ajustar(AJUSTE_MODO, "activo");
+      const s = simular();
+      await runCotizacionesBot(env, NOW, s.deps);
+      await runCotizacionesBot(env, NOW + 15 * 60_000, s.deps);
+      expect(s.plantillas).toHaveLength(0);
+    });
+
+    it("activa: una sola plantilla por cliente, en su horario, solo WhatsApp; con «Sí, envíamela» sale la cotización", async () => {
+      const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros" }, NOW - 30 * H);
+      const ig = await new ConversationsRepo(db).getOrCreate("zernio", "ig-123", "insta");
+      await new MessagesRepo(db).append(ig.id, "user", "hola", { createdAt: NOW - 30 * H });
+      await db.run("INSERT INTO leads (id, conversation_id, name, intent, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)", [crypto.randomUUID(), ig.id, "Insta Gram", "Lead", JSON.stringify({ ciudadCompra: "Cali", capacidadMensual: "500 euros" }), NOW - 3 * H, NOW - 3 * H]);
+      await ajustar(AJUSTE_MODO, "activo");
+      await ajustar(AJUSTE_PLANTILLA, "activo");
+      const s = simular();
+      await runCotizacionesBot(env, NOW, s.deps); // prepara y marca pendientes
+      await runCotizacionesBot(env, NOW + 15 * 60_000, s.deps);
+      await runCotizacionesBot(env, NOW + 30 * 60_000, s.deps);
+      expect(s.plantillas).toEqual([{ tel: "34600000001", nombre: "Laura" }]);
+      expect(s.creadas).toHaveLength(0);
+      const hilo = await db.first<{ content: string }>("SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant'", [a]);
+      expect(hilo?.content).toContain("¿Te la enviamos por aquí?");
+      await new MessagesRepo(db).append(a, "user", "Sí, envíamela", { createdAt: NOW + H });
+      await runCotizacionesBot(env, NOW + H + 60_000, s.deps);
+      expect((await filasDe(env, a))[0].estado).toBe("enviada");
+      expect(s.enviados.find((e) => e.conversationId === a)?.text).toContain("quota-information?id=");
+    });
+
+    it("con «Ahora no» no se le cotiza y queda anotado", async () => {
+      const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros" }, NOW - 30 * H);
+      await ajustar(AJUSTE_MODO, "activo");
+      await ajustar(AJUSTE_PLANTILLA, "activo");
+      const s = simular();
+      await runCotizacionesBot(env, NOW, s.deps);
+      await runCotizacionesBot(env, NOW + 15 * 60_000, s.deps);
+      expect(s.plantillas).toHaveLength(1);
+      await new MessagesRepo(db).append(a, "user", "Ahora no", { createdAt: NOW + H });
+      await runCotizacionesBot(env, NOW + H + 60_000, s.deps);
+      expect((await filasDe(env, a))[0].estado).toBe("omitida");
+      expect(s.creadas).toHaveLength(0);
+      const notas = await db.first<{ notes: string }>("SELECT notes FROM leads WHERE conversation_id = ?", [a]);
+      expect(notas?.notes).toContain("Ahora no");
+    });
+
+    it("sin aprobación de Meta no se manda", async () => {
+      await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros" }, NOW - 30 * H);
+      await ajustar(AJUSTE_MODO, "activo");
+      await ajustar(AJUSTE_PLANTILLA, "activo");
+      const s = simular();
+      s.deps.plantillaAprobada = async () => false;
+      await runCotizacionesBot(env, NOW, s.deps);
+      await runCotizacionesBot(env, NOW + 15 * 60_000, s.deps);
+      expect(s.plantillas).toHaveLength(0);
+    });
   });
 });

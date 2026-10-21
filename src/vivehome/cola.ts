@@ -36,6 +36,15 @@ export const AJUSTE_MODO = "viventa_cotizaciones_bot";
 export const AJUSTE_PILOTO = "viventa_cotizaciones_piloto";
 export const AJUSTE_PILOTO_OK = "viventa_cotizaciones_piloto_ok";
 const AJUSTE_CANDADO = "viventa_cotizaciones_bot_candado";
+/** Interruptor aparte para la plantilla de WhatsApp (cada envío lo cobra Meta): apagado | activo. */
+export const AJUSTE_PLANTILLA = "viventa_cotizaciones_plantilla";
+/** Plantilla aprobada por Brayan el 21 oct 2026 (marketing, es_ES, {{1}} = primer nombre; botones «Sí, envíamela» / «Ahora no»). */
+export const PLANTILLA_COTIZACION = "viventa_cotizacion_lista";
+export const TEXTO_PLANTILLA = (nombre: string) =>
+  `Hola ${nombre}, te escribe el equipo de Maricela Naranjo (Viventa). Con los datos que nos compartiste te preparamos una cotización personalizada de vivienda en Colombia: el valor, la cuota inicial y cuánto pagarías al mes. ¿Te la enviamos por aquí?\n[Sí, envíamela] [Ahora no]`;
+const MAX_PLANTILLAS_POR_PASADA = 8;
+/** Respuestas que significan «no quiero la cotización» (botón «Ahora no» de la plantilla o texto parecido). */
+export const RE_NO_QUIERE = /^\s*(ahora no|no,? gracias|no me interesa|no quiero|ya no)\b/i;
 
 const MIN = 60_000;
 const H = 60 * MIN;
@@ -67,6 +76,7 @@ export interface FilaCola {
   creado: number;
   actualizado: number;
   enviado_en: number | null;
+  plantilla_en?: number | null;
 }
 
 export async function asegurarTablasCola(db: Db): Promise<void> {
@@ -76,6 +86,8 @@ export async function asegurarTablasCola(db: Db): Promise<void> {
       intentos INTEGER NOT NULL DEFAULT 0, error TEXT, creado INTEGER NOT NULL, actualizado INTEGER NOT NULL, enviado_en INTEGER, UNIQUE (conv_id, ronda))`,
   );
   await db.run("CREATE INDEX IF NOT EXISTS idx_cotbot_estado ON cotizaciones_bot (estado)");
+  // Cuándo se le mandó la plantilla de WhatsApp (una sola vez por fila).
+  await db.run("ALTER TABLE cotizaciones_bot ADD COLUMN plantilla_en INTEGER").catch(() => undefined);
   await db.run("CREATE TABLE IF NOT EXISTS vivehome_catalogo (id INTEGER PRIMARY KEY CHECK (id = 1), leido_en INTEGER NOT NULL, eur REAL NOT NULL, usd REAL NOT NULL, datos TEXT NOT NULL)");
 }
 
@@ -240,6 +252,10 @@ export function borradorMensaje(lead: LeadResumen, p: Propuesta): string {
 // ─── Pasada principal ────────────────────────────────────────────────────────
 
 export interface Dependencias {
+  /** Envía la plantilla de WhatsApp (en el Worker: YCloud). */
+  enviarPlantilla?: (env: Env, telefono: string, nombre: string) => Promise<void>;
+  /** ¿Meta ya aprobó la plantilla? */
+  plantillaAprobada?: (env: Env) => Promise<boolean>;
   /** Abre un navegador ya listo (en el Worker: Cloudflare Browser Rendering). */
   abrirNavegador?: (env: Env) => Promise<{ page: Pagina; cerrar: () => Promise<void> }>;
   enviar?: (env: Env, t: { conversationId: string; channel: string; channelUserId: string; text: string }, now: number) => Promise<void>;
@@ -305,10 +321,20 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
   try {
     await asegurarTablaCotizaciones(db);
     // Quien estaba fuera de la ventana de 24 h y volvió a escribir: vuelve a la cola.
+    // Si respondió «Ahora no» a la plantilla, no se le cotiza.
     for (const f of await db.all<FilaCola>("SELECT * FROM cotizaciones_bot WHERE estado = 'pendiente_plantilla'")) {
       const u = await ultimoDelCliente(db, f.conv_id);
-      if (u && now - u < VENTANA) await actualizar(db, f.id, { estado: "propuesta" }, now);
+      if (!u || now - u >= VENTANA) continue;
+      const texto = f.plantilla_en
+        ? (await db.first<{ content: string }>("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' AND created_at > ? ORDER BY created_at DESC LIMIT 1", [f.conv_id, f.plantilla_en]))?.content ?? ""
+        : "";
+      if (texto && RE_NO_QUIERE.test(texto)) {
+        await actualizar(db, f.id, { estado: "omitida", error: `respondió «${texto.slice(0, 40)}» a la plantilla` }, now);
+        await anotarEnFicha(db, f.conv_id, `[Cotización del bot] Respondió «${texto.slice(0, 40)}» a la plantilla: no se le envió cotización.`);
+      } else await actualizar(db, f.id, { estado: "propuesta" }, now);
     }
+
+    await enviarPlantillas(env, db, res.modo, now, deps).catch((e) => console.error("[cotizacionesBot] plantillas:", e));
 
     let cat = await catalogoGuardado(db);
     const nuevos = (await candidatos(db, res.modo, now)).slice(0, 60);
@@ -469,6 +495,76 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
     await settings.set(AJUSTE_CANDADO, "0");
   }
   return res;
+}
+
+async function plantillaAprobadaPorDefecto(env: Env): Promise<boolean> {
+  const st = new SettingsRepo(new Db(env.DB));
+  const marca = `${PLANTILLA_COTIZACION}_aprobada`;
+  if (((await st.get(marca)) ?? "") === "si") return true;
+  if (!env.YCLOUD_API_KEY) return false;
+  const h = { "X-API-Key": env.YCLOUD_API_KEY };
+  const numeros = (await (await fetch("https://api.ycloud.com/v2/whatsapp/phoneNumbers?limit=20", { headers: h })).json()) as { items?: Array<{ phoneNumber?: string; wabaId?: string }> };
+  const mio = (numeros.items ?? []).find((n) => String(n.phoneNumber ?? "").replace(/\D/g, "") === (env.YCLOUD_WA_FROM ?? "").replace(/\D/g, "")) ?? numeros.items?.[0];
+  if (!mio?.wabaId) return false;
+  const t = (await (await fetch(`https://api.ycloud.com/v2/whatsapp/templates?limit=100&filter.wabaId=${encodeURIComponent(mio.wabaId)}`, { headers: h })).json()) as { items?: Array<{ name?: string; status?: string }> };
+  const estado = (t.items ?? []).find((x) => x.name === PLANTILLA_COTIZACION)?.status ?? "";
+  if (estado === "APPROVED") {
+    await st.set(marca, "si");
+    await avisoEquipo(env, "✅ Meta aprobó la plantilla de cotización", `La plantilla «${PLANTILLA_COTIZACION}» ya está APROBADA. Se enviará a los pendientes de WhatsApp solo si el ajuste ${AJUSTE_PLANTILLA} está en «activo».`);
+    return true;
+  }
+  if (/REJECTED|PAUSED|DISABLED/.test(estado) && ((await st.get(`${marca}_aviso`)) ?? "") !== estado) {
+    await st.set(`${marca}_aviso`, estado);
+    await avisoEquipo(env, "⚠️ Meta NO aprobó la plantilla de cotización", `La plantilla «${PLANTILLA_COTIZACION}» quedó en estado ${estado}. No se enviará nada.`);
+  }
+  return false;
+}
+
+async function enviarPlantillaPorDefecto(env: Env, telefono: string, nombre: string): Promise<void> {
+  const { sendYCloudTemplate } = await import("../channels/ycloud");
+  await sendYCloudTemplate(env, telefono, PLANTILLA_COTIZACION, "es_ES", [nombre]);
+}
+
+/**
+ * Plantilla de WhatsApp a los pendientes (ventana de 24 h cerrada): «¿Te la enviamos por aquí?». Si toca «Sí, envíamela», su ventana se abre y la
+ * cotización sale en la pasada siguiente; si toca «Ahora no», no se le cotiza. Una sola vez por cliente, de 9 a 21 h de su hora, solo WhatsApp
+ * (Instagram no tiene plantillas), solo con el interruptor `viventa_cotizaciones_plantilla` = activo y la plantilla aprobada por Meta.
+ */
+async function enviarPlantillas(env: Env, db: Db, modo: Modo, now: number, deps: Dependencias): Promise<number> {
+  const st = new SettingsRepo(db);
+  if (((await st.get(AJUSTE_PLANTILLA)) ?? "").trim().toLowerCase() !== "activo") return 0;
+  const okPiloto = new Set(lista(await st.get(AJUSTE_PILOTO_OK)));
+  const filas = (await db.all<FilaCola>("SELECT * FROM cotizaciones_bot WHERE estado = 'pendiente_plantilla' AND plantilla_en IS NULL AND conv_id LIKE 'ycloud:%' ORDER BY creado ASC")).filter(
+    (f) => modo === "activo" || okPiloto.has(f.conv_id),
+  );
+  if (!filas.length) return 0;
+  if (!(await (deps.plantillaAprobada ?? plantillaAprobadaPorDefecto)(env))) return 0;
+  const convs = await convsPorId(db, filas.map((f) => f.conv_id));
+  const leads = await leadsDe(db, convs);
+  const conCita = new Set((await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%'")).map((r) => r.conversation_id));
+  let n = 0;
+  for (const f of filas) {
+    if (n >= MAX_PLANTILLAS_POR_PASADA) break;
+    const conv = convs.find((c) => c.id === f.conv_id);
+    const lead = leads.find((l) => l.convId === f.conv_id);
+    if (!conv || !lead || (conv.paused_until && conv.paused_until > now) || descartada(conv) || conCita.has(conv.id) || (f.ronda === 1 && (await yaTieneCotizacion(db, lead)))) {
+      await actualizar(db, f.id, { estado: "omitida", error: "antes de la plantilla: la tomó una persona, se descartó, agendó o ya tiene cotización" }, now);
+      continue;
+    }
+    if (!(await puedeEscribirAhora(db, conv, now))) continue;
+    const nombre = primerNombre(lead.nombre) || "👋";
+    // Se marca antes de enviar: si el envío falla no se reintenta solo (cuesta dinero); queda el hallazgo.
+    await actualizar(db, f.id, { plantilla_en: now }, now);
+    try {
+      await (deps.enviarPlantilla ?? enviarPlantillaPorDefecto)(env, conv.channel_user_id, nombre);
+      const { MessagesRepo } = await import("../db/messages");
+      await new MessagesRepo(db).append(conv.id, "assistant", TEXTO_PLANTILLA(nombre));
+      n++;
+    } catch (e) {
+      await registrarHallazgo(env, { tipo: "cotizacion_fallida", convId: f.conv_id, clave: `plantilla-${f.id}`, detalle: `${lead.nombre}: no se pudo enviar la plantilla de cotización (${(e instanceof Error ? e.message : String(e)).slice(0, 160)})` }, now);
+    }
+  }
+  return n;
 }
 
 /** Mensaje definitivo con las cifras exactas que ve el cliente en la cotización publicada. */
