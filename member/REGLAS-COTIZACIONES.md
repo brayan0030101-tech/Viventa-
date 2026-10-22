@@ -36,3 +36,9 @@ Antes de empezar: `git pull origin main` y leer también `member/HISTORIAL-DEL-P
 ## No pisar
 - Las instrucciones del bot viven en D1 `settings.custom_instructions`. No sobrescribirlas completas: hay un guardián
   (`runGuardianInstrucciones`) que avisa si faltan los marcadores de reglas. Respaldar antes de editar.
+
+## Desplegar sin pisarse
+- Antes de CUALQUIER `pnpm run deploy`: `git pull --rebase origin main`, correr las pruebas y recién entonces desplegar. Desplegar desde una copia vieja
+  quita del Worker los cambios de la otra sesión (pasó con la fecha fija de tareas de Zoho).
+- Después de desplegar: `git push origin HEAD:main` de inmediato. Si el push falla por «fast-forward», volver a traer `main`, probar y redesplegar.
+- Los ajustes compartidos de D1 (`ycloud_diag_pedir`, `zoho_diag_pedir`) solo se escriben si están vacíos; no pisar el pedido de la otra sesión.
