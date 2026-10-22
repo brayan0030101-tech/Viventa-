@@ -58,3 +58,13 @@ describe("plan del día", () => {
     expect(html).toContain("Prometido en las llamadas");
   });
 });
+
+describe("páginas de instrucciones y pruebas del bot", () => {
+  it("se dibujan sin errores", async () => {
+    const { renderInstrucciones } = await import("../../member/crm-instrucciones.local");
+    const { renderPruebas } = await import("../../member/crm-pruebas.local");
+    await db.run("INSERT INTO settings (key, value, updated_at) VALUES ('custom_instructions', 'SISTEMA DE ATENCION VIVENTA', 1)");
+    expect(await renderInstrucciones(env)).toContain("Instrucciones del bot");
+    expect(await renderPruebas(env)).toContain("Probar el bot");
+  });
+});
