@@ -68,6 +68,20 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido === "pruebas_bot") {
+    // Corre las conversaciones de prueba del bot (≈ 0,40 USD) y deja un resumen. Lo mismo que el botón de CRM → «Probar el bot».
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const { correrPruebas } = await import("./crm-pruebas.local");
+      const id = await correrPruebas(env, now);
+      const fila = await new Db(env.DB).first<{ resultados: string }>("SELECT resultados FROM pruebas_bot WHERE id = ?", [id]);
+      const res = JSON.parse(fila?.resultados ?? "[]") as Array<{ id: string; ok: boolean; respuesta: string; checks: Array<{ que: string; ok: boolean }>; error?: string }>;
+      await st.set("zoho_diag_resultado", JSON.stringify({ pruebas_bot: { bien: res.filter((r) => r.ok).length, total: res.length, fallos: res.filter((r) => !r.ok).map((r) => ({ id: r.id, error: r.error, respuesta: r.respuesta.slice(0, 260), mal: r.checks.filter((c) => !c.ok).map((c) => c.que) })) } }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido === "seg_prueba") {
     // Solo lectura: carga la lista de seguimientos como la ve Maricela y resume el orden (calientes y en cierre primero) y las fechas.
     await st.set("zoho_diag_pedir", "");
