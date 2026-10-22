@@ -318,3 +318,6 @@
 ## 2026-10-22 — Botón «Abrir en Zoho»
 - Seguimientos: cada cliente lleva el enlace «🔗 Abrir en Zoho» a su ficha de candidato (`urlFichaZoho`, región según `ZOHO_API_URL`).
 - Auditoría: botón «🔗 Zoho» en cada hallazgo; abre `/crm/zoho/abrir?conv=…`, que busca al cliente en Zoho por correo/teléfono (la primera vez, y guarda `zoho_lead_id`) y redirige a su ficha. Si no está en Zoho, muestra un aviso.
+
+## 2026-10-22 — Seguimientos: botones WhatsApp y panel
+- Bajo «Abrir en Zoho» ahora hay «💬 Abrir en WhatsApp» (wa.me con su teléfono) y «🤖 Abrir en el panel» (conversación en el panel de Forja, solo si el cliente tiene conversación con el bot; `FilaSeguimiento.convId`).

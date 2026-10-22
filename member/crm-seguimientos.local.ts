@@ -473,6 +473,8 @@ export interface FilaSeguimiento {
   atraso: number; // días de atraso (0 = hoy)
   canal: "ycloud" | "zernio" | "";
   ventanaAbierta: boolean;
+  /** Conversación de WhatsApp con el bot (para abrirla en el panel de Forja), si existe. */
+  convId?: string;
   borrador: Borrador | null;
   /** Temperatura del cliente en el CRM y si ya está «En cierre» (habló con Maricela y tiene el formulario). */
   nivel?: "caliente" | "tibio" | "frio";
@@ -503,19 +505,21 @@ export async function cargarSeguimientos(env: Env, now = Date.now(), f?: FetchFn
     const claves = [cand.movil, cand.telefono].map(clavePhone).filter(Boolean);
     let canal: FilaSeguimiento["canal"] = "";
     let ventanaAbierta = false;
+    let convId: string | undefined;
     if (claves.length) {
-      const c = await db.first<{ channel: string; ult: number | null }>(
-        `SELECT c.channel AS channel, (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS ult
+      const c = await db.first<{ id: string; channel: string; ult: number | null }>(
+        `SELECT c.id AS id, c.channel AS channel, (SELECT MAX(created_at) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS ult
            FROM conversations c WHERE c.channel = 'ycloud' AND c.channel_user_id LIKE ? ORDER BY c.last_message_at DESC LIMIT 1`,
         [`%${claves[0]}`],
       );
       if (c) {
         canal = "ycloud";
+        convId = c.id;
         ventanaAbierta = !!c.ult && now - c.ult < 24 * H;
       }
     }
     const crm = claves.map((k) => pr.get(k)).find(Boolean);
-    filas.push({ tarea: t, cand, atraso: Math.max(0, diasEntre(t.vence, hoy)), canal, ventanaAbierta, borrador: bor.get(t.id) ?? null, nivel: crm?.nivel, enCierre: !!crm?.enCierre });
+    filas.push({ tarea: t, cand, atraso: Math.max(0, diasEntre(t.vence, hoy)), canal, ventanaAbierta, convId, borrador: bor.get(t.id) ?? null, nivel: crm?.nivel, enCierre: !!crm?.enCierre });
   }
   // Los clientes en cierre y los calientes van primero (reunión del 21 oct): son los que no se pueden enfriar.
   const peso = (x: FilaSeguimiento): number => (x.enCierre ? 0 : x.nivel === "caliente" ? 1 : 2);
@@ -661,7 +665,12 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
               <form hx-post="/crm/seguimientos/fecha" hx-target="#fec-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="find button" style="margin:6px 0 0;display:flex;gap:4px;flex-wrap:wrap" title="Cambiar la fecha de esta tarea (sin fines de semana, máximo ${MAX_TAREAS_DIA} por día)">
                 <input type="hidden" name="tarea" value="${esc(x.tarea.id)}"><input type="date" name="fecha" min="${esc(hoy)}" value="${esc(masDias(hoy, 1))}" required class="crm-in" style="font-size:11px;padding:3px 4px;width:118px">
                 <button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar</button></form><span id="fec-${esc(x.tarea.id)}" style="display:block;margin-top:3px"></span></span>
-            <span>${x.enCierre ? `<span style="color:var(--accent);font-size:11px;font-weight:700">🎯 EN CIERRE</span><br>` : x.nivel === "caliente" ? `<span style="color:var(--bad);font-size:11px;font-weight:700">🔥 CALIENTE</span><br>` : ""}<b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span><br><a href="${esc(urlFichaZoho(env, x.tarea.leadId))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="Abre la ficha de este cliente en Zoho CRM">🔗 Abrir en Zoho</a></span>
+            <span>${x.enCierre ? `<span style="color:var(--accent);font-size:11px;font-weight:700">🎯 EN CIERRE</span><br>` : x.nivel === "caliente" ? `<span style="color:var(--bad);font-size:11px;font-weight:700">🔥 CALIENTE</span><br>` : ""}<b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span><br><a href="${esc(urlFichaZoho(env, x.tarea.leadId))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="Abre la ficha de este cliente en Zoho CRM">🔗 Abrir en Zoho</a>${(() => {
+              const dig = (x.cand.movil || x.cand.telefono || "").replace(/\D/g, "");
+              const wa = dig.length >= 9 ? `<a href="https://wa.me/${esc(dig)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="Abre su WhatsApp directamente">💬 Abrir en WhatsApp</a>` : "";
+              const panel = x.convId ? `<a href="/admin/conversations?c=${esc(encodeURIComponent(x.convId))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="La conversación con el bot, en el panel de Forja">🤖 Abrir en el panel</a>` : "";
+              return [wa, panel].filter(Boolean).map((l) => `<br>${l}`).join("");
+            })()}</span>
             <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Seguimiento")}<br><span class="text-dim" style="font-size:10.5px">${esc(canal)}</span></span>
             <span class="text-dim" style="font-size:11.5px">${x.borrador ? `${ETIQ_TEMP[x.borrador.temperatura].txt}<br>${ETIQ_ACC[x.borrador.accion]}` : "Sin preparar"}</span>
             <span style="text-align:right"><button class="bigbtn" style="cursor:pointer;padding:6px 12px;font-size:12px" hx-post="/crm/seguimientos/preparar" hx-vals='{"tarea":"${esc(x.tarea.id)}"}' hx-target="#bor-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="this">${x.borrador ? "Ver mensaje" : "Preparar mensaje"}</button></span>
