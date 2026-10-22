@@ -161,3 +161,18 @@ describe("auditor: clientes olvidados con el bot pausado", () => {
     expect(notifyMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("auditor: Instagram sin WhatsApp", () => {
+  it("avisa de un cliente de Instagram que conversa y no dio su teléfono; no avisa si ya lo dio", async () => {
+    const ig = await convs.getOrCreate("zernio", "7001", "ig_uno");
+    for (let i = 0; i < 6; i++) await msgs.append(ig.id, "user", `mensaje ${i}`, { createdAt: NOW - 3 * H + i * 1000 });
+    await db.run("UPDATE conversations SET last_message_at = ? WHERE id = ?", [NOW - 30 * MIN, ig.id]);
+    const ig2 = await convs.getOrCreate("zernio", "7002", "ig_dos");
+    for (let i = 0; i < 6; i++) await msgs.append(ig2.id, "user", `mensaje ${i}`, { createdAt: NOW - 3 * H + i * 1000 });
+    await db.run("UPDATE conversations SET last_message_at = ? WHERE id = ?", [NOW - 30 * MIN, ig2.id]);
+    await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, created_at, updated_at) VALUES (?,?,?,?,?,?,?)", ["l2", ig2.id, "Dos", "+34600000099", "x", NOW, NOW]);
+    await runAuditor(env, NOW);
+    const h = (await abiertos()).filter((x) => x.tipo === "instagram_sin_telefono");
+    expect(h.map((x) => x.conv_id)).toEqual([ig.id]);
+  });
+});

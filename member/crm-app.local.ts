@@ -466,6 +466,43 @@ export function crmApp(): Hono<Vars> {
     return c.html(await fragmentoBorrador(c.env, String(f["tarea"] ?? ""), f["r"] === "1"));
   });
 
+  // Instrucciones del bot (historial y restaurar) y pruebas del bot: solo administrador
+  app.get("/instrucciones", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede ver esto.", 403);
+    const { renderInstrucciones } = await import("./crm-instrucciones.local");
+    return pagina(c, await renderInstrucciones(c.env));
+  });
+  app.post("/instrucciones/restaurar", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede hacer esto.", 403);
+    const form = await c.req.formData().catch(() => null);
+    const { renderInstrucciones, restaurarInstrucciones } = await import("./crm-instrucciones.local");
+    const r = await restaurarInstrucciones(c.env, Number(form?.get("id") ?? -1));
+    return pagina(c, await renderInstrucciones(c.env, { aviso: r.ok ? "Versión restaurada. La versión anterior quedó guardada en el historial." : r.error }));
+  });
+  app.get("/pruebas", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede ver esto.", 403);
+    const { renderPruebas } = await import("./crm-pruebas.local");
+    return pagina(c, await renderPruebas(c.env));
+  });
+  app.post("/pruebas/correr", async (c) => {
+    if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede hacer esto.", 403);
+    const { correrPruebas, renderPruebas } = await import("./crm-pruebas.local");
+    c.executionCtx.waitUntil(correrPruebas(c.env).catch((e) => console.error("pruebas del bot:", e)));
+    return pagina(c, await renderPruebas(c.env, { aviso: "Corriendo las pruebas: recarga esta página en un minuto para ver el resultado." }));
+  });
+
+  // Recorrido del cliente (embudo)
+  app.get("/embudo", async (c) => {
+    const { renderCrmEmbudo } = await import("./crm-embudo.local");
+    return pagina(c, await renderCrmEmbudo(c.env, Number(c.req.query("dias") ?? 30)));
+  });
+
+  // Plan del día
+  app.get("/plan", async (c) => {
+    const { renderCrmPlan } = await import("./crm-plan.local");
+    return pagina(c, await renderCrmPlan(c.env));
+  });
+
   // Esperando un humano (prospección que el bot no pudo terminar)
   app.get("/esperando-humano", async (c) => {
     const { renderCrmHumano } = await import("./crm-humano.local");

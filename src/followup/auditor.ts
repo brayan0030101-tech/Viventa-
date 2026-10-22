@@ -20,7 +20,7 @@ import { esNumeroColombiano } from "../channels/ycloud";
 const MIN = 60_000;
 const H = 3_600_000;
 
-export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida" | "pausada_olvidada";
+export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida" | "pausada_olvidada" | "instagram_sin_telefono";
 
 export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string; grave: boolean }> = {
   listo_sin_cita: { icono: "🎯", texto: "Buen perfil sin videollamada agendada", grave: true },
@@ -32,6 +32,7 @@ export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string;
   entrega_al_agente: { icono: "📥", texto: "Mensaje del cliente que no llegó al bot", grave: true },
   mejora_sugerida: { icono: "💡", texto: "Mejora sugerida para el bot", grave: false },
   revision_ia: { icono: "🧠", texto: "Revisión diaria con IA: el bot actuó mal", grave: true },
+  instagram_sin_telefono: { icono: "📵", texto: "Cliente de Instagram conversando que aún no dio su WhatsApp (se puede pedir mientras la ventana está abierta)", grave: false },
   pausada_olvidada: { icono: "⏸️", texto: "Cliente esperando respuesta con el bot pausado (una persona intervino y no volvió a contestar)", grave: true },
   cotizacion_fallida: { icono: "🧾", texto: "Cotización del bot que falló (ViveHome)", grave: true },
   mensaje_ilegible: { icono: "🙈", texto: "Mensaje de WhatsApp que el bot no pudo leer (el cliente no recibió respuesta)", grave: true },
@@ -120,6 +121,22 @@ async function detectarPausadasOlvidadas(db: Db, now: number): Promise<Candidato
       clave: String(ult.created_at),
       detalle: `${c.display_name || leads.find((l) => l.name)?.name || "Cliente"} lleva ${tiempo} esperando respuesta${pausada ? " y el bot está pausado" : ""}: «${ult.content.replace(/\s+/g, " ").slice(0, 90)}»`,
     });
+  }
+  return out;
+}
+
+/** Instagram solo deja escribir 24 h: quien conversa mucho y no dio su WhatsApp se pierde después. Mientras la ventana está abierta, hay que pedírselo. */
+async function detectarInstagramSinTelefono(db: Db, now: number): Promise<Candidato[]> {
+  const convs = await db.all<{ id: string; display_name: string | null }>(
+    "SELECT id, display_name FROM conversations WHERE channel = 'zernio' AND last_message_at > ? AND (paused_until IS NULL OR paused_until < ?)", [now - 20 * H, now]);
+  const out: Candidato[] = [];
+  for (const c of convs) {
+    const n = (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'user'", [c.id]))?.n ?? 0;
+    if (n < 5) continue;
+    const ls = await db.all<{ contact: string | null; intent: string | null }>("SELECT contact, intent FROM leads WHERE conversation_id = ?", [c.id]);
+    if (ls.some((l) => (l.intent ?? "").startsWith("Cita ·"))) continue;
+    if (ls.some((l) => String(l.contact ?? "").split(/[;,\s]+/).some((k) => !k.includes("@") && k.replace(/\D/g, "").length >= 8))) continue;
+    out.push({ tipo: "instagram_sin_telefono", convId: c.id, clave: "", detalle: `${c.display_name || "Cliente"} lleva ${n} mensajes en Instagram y no ha dado su WhatsApp: pídeselo ahora` });
   }
   return out;
 }
@@ -234,7 +251,7 @@ export async function runAuditor(env: Env, now = Date.now()): Promise<{ nuevos: 
   const db = new Db(env.DB);
   await asegurarTablaAuditoria(db);
   const candidatos: Candidato[] = [];
-  for (const d of [detectarSinRespuesta, detectarPausadasOlvidadas, detectarListosSinCita, detectarTickets, detectarEntregasYFallosIA]) {
+  for (const d of [detectarSinRespuesta, detectarPausadasOlvidadas, detectarInstagramSinTelefono, detectarListosSinCita, detectarTickets, detectarEntregasYFallosIA]) {
     try {
       candidatos.push(...(await d(db, now)));
     } catch (e) {
