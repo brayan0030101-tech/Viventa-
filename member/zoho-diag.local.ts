@@ -44,7 +44,7 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     return;
   }
   if (pedido.startsWith("tareas_bot:")) {
-    // Deja las tareas de los candidatos creados por el bot con el título fijo y fecha de hoy. «tareas_bot:<conv>,<conv>»
+    // Deja las tareas de los candidatos creados por el bot con el título fijo y fecha de hoy. «tareas_bot:[AAAA-MM-DD:]<conv>,<conv>»
     await st.set("zoho_diag_pedir", "");
     const out: unknown[] = [];
     try {
@@ -52,12 +52,13 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       const { ASUNTO_TAREA_BOT } = await import("./crm-zohosubida.local");
       const { hoyMadrid } = await import("./crm-seguimientos.local");
       const db = new Db(env.DB);
-      for (const conv of pedido.slice(11).split(",").map((x) => x.trim()).filter(Boolean)) {
+      const fechaPedida = /^tareas_bot:(\d{4}-\d{2}-\d{2}):/.exec(pedido)?.[1];
+      for (const conv of pedido.replace(/^tareas_bot:(\d{4}-\d{2}-\d{2}:)?/, "").split(",").map((x) => x.trim()).filter(Boolean)) {
         const m = await db.first<{ z: string | null }>("SELECT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE id = ?", [conv]);
         const leadId = m?.z ?? "";
         if (!/^\d{6,30}$/.test(leadId)) { out.push({ conv, error: "sin zoho_lead_id" }); continue; }
         const filas = await coql(env, `select id, Subject, Due_Date from Tasks where (What_Id = '${leadId}' or Who_Id = '${leadId}') limit 20`);
-        for (const t of filas) { await cambiarAsuntoYFechaTarea(env, String(t["id"]), ASUNTO_TAREA_BOT, hoyMadrid(Date.now())); out.push({ conv, tarea: t["id"], antes: `${t["Subject"]} / ${t["Due_Date"]}` }); }
+        for (const t of filas) { await cambiarAsuntoYFechaTarea(env, String(t["id"]), ASUNTO_TAREA_BOT, fechaPedida ?? hoyMadrid(Date.now())); out.push({ conv, tarea: t["id"], antes: `${t["Subject"]} / ${t["Due_Date"]}` }); }
       }
     } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
     await st.set("zoho_diag_resultado", JSON.stringify({ tareas_bot: out }));
