@@ -275,6 +275,19 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         cuentas: { status: cuentas.status, items: lista(cuentas.j).map((a: any) => ({ id: a._id ?? a.id, plataforma: a.platform, usuario: a.username ?? a.displayName, perfil: a.profileId?._id ?? a.profileId })), crudo: cuentas.status >= 400 ? cuentas.j : undefined },
         automatizaciones: { status: autos.status, items: lista(autos.j).map((a: any) => ({ id: a._id ?? a.id, nombre: a.name, activa: a.isActive, palabras: a.keywords, stats: a.stats })), crudo: autos.status >= 400 ? autos.j : undefined },
       };
+    } else if (pedido.startsWith("zernio_ver:")) {
+      // Solo lectura: configuración completa de UNA automatización de comentarios (mensajes, palabras, respuesta pública).
+      const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
+      const r = await fetch(`${base}/comment-automations/${encodeURIComponent(pedido.slice(11).trim())}`, { headers: { Authorization: `Bearer ${env.ZERNIO_API_KEY ?? ""}` } });
+      out = { status: r.status, respuesta: (await r.text()).slice(0, 5000) };
+    } else if (pedido.startsWith("zernio_editar:")) {
+      // Cambia UNA automatización de comentarios: «zernio_editar:<id>:<json>» (PATCH con el JSON). Aprobado por el dueño.
+      const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
+      const resto = pedido.slice(14);
+      const i = resto.indexOf(":");
+      const id = resto.slice(0, i).trim();
+      const r = await fetch(`${base}/comment-automations/${encodeURIComponent(id)}`, { method: "PATCH", headers: { Authorization: `Bearer ${env.ZERNIO_API_KEY ?? ""}`, "Content-Type": "application/json" }, body: resto.slice(i + 1) });
+      out = { status: r.status, respuesta: (await r.text()).slice(0, 3000) };
     } else if (pedido.startsWith("zernio_crear:")) {
       // Crea UNA automatización de comentarios en Zernio con el cuerpo JSON recibido (aprobado por el dueño).
       const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
