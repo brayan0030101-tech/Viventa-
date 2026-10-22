@@ -108,8 +108,12 @@ export async function renderCrmEmbudo(env: Env, dias: number, now = Date.now()):
       <div style="font-size:11.5px">${pasa ? `<span class="text-muted">${pasa}</span>` : ""}${pierde > 0 ? `<br><span style="color:var(--bad)">−${pierde} se pierden aquí</span>` : ""}</div></div>`;
   }).join("");
   const tab = (d: number) => `<a class="crm-in" href="/crm/embudo?dias=${d}" style="text-decoration:none;font-size:12px;padding:6px 12px;${d === periodo ? "background:var(--accent);color:var(--bg);font-weight:700" : ""}">Últimos ${d} días</a>`;
+  const { estadisticaPuente } = await import("./puente-whatsapp.local");
+  const pu = await estadisticaPuente(env, now - periodo * DIA).catch(() => ({ enviados: 0, pasaron: 0 }));
+  const puente = pu.enviados ? `<div class="crm-card" style="padding:12px 18px;margin-bottom:12px;font-size:13px">📲 <b>Instagram → WhatsApp:</b> se mandaron ${pu.enviados} enlaces y <b>${pu.pasaron}</b> clientes pasaron a WhatsApp (${Math.round((pu.pasaron / pu.enviados) * 100)}%).</div>` : "";
   const body = `${ESTILO_CRM}
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">${[7, 30, 90].map(tab).join("")}</div>
+    ${puente}
     <div class="text-dim" style="font-size:12.5px;margin-bottom:12px;line-height:1.55">De las personas que <b>escribieron por primera vez</b> en el periodo, cuántas llegan a cada paso. Los que escribieron hace pocos días todavía pueden avanzar. Los números colombianos no cuentan.</div>
     <div class="crm-card" style="padding:14px 18px">${filas}</div>`;
   return crmLayout({ title: "Recorrido del cliente", activa: "embudo", body, env });

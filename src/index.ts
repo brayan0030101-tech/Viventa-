@@ -231,6 +231,15 @@ async function ingestOne(env: Env, msg: IncomingMessage): Promise<boolean> {
       if (await seenBefore(new Db(env.DB), msg.providerMessageId)) return true; // reenvío duplicado
       marcado = true;
     }
+    // Instagram → WhatsApp: si el mensaje trae la «Ref» del enlace, se une con su conversación de Instagram ANTES de que el bot conteste.
+    if (msg.channel === "ycloud" && msg.text && /\bRef\.?\s*[A-Z0-9]{4}\b/i.test(msg.text)) {
+      try {
+        const { vincularPuente } = await import("../member/puente-whatsapp.local");
+        await vincularPuente(env, `ycloud:${msg.channelUserId}`, msg.channelUserId, msg.text, msg.displayName);
+      } catch (e) {
+        console.error("puente whatsapp:", e);
+      }
+    }
     for (let intento = 1; ; intento++) {
       try {
         await agentStub(env, msg.channel, msg.channelUserId).ingest(msg);

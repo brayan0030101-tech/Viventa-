@@ -60,8 +60,13 @@ export const ESCENARIOS: Escenario[] = [
     espera: [{ que: "pasa el caso al equipo", ok: (r) => /equipo|paso tu caso|te escrib/.test(r) }] },
   { id: "es_bot", titulo: "Pregunta si es un bot", previo: apertura, cliente: "¿Eres un bot o una persona?",
     espera: [{ que: "responde con honestidad (asistente virtual)", ok: (r) => /asistente virtual|asistente|inteligencia artificial/.test(r) }, { que: "no se hace pasar por Maricela", ok: (r) => !/soy maricela/.test(r) }] },
-  { id: "instagram_whatsapp", titulo: "Instagram: pide el WhatsApp desde el inicio", canal: "Instagram", previo: [{ role: "user", content: "Hola Maricela, vi tu perfil y quiero información" }, { role: "assistant", content: "Hola, gracias por escribirnos. Te atiende el equipo comercial de Maricela Naranjo. Antes de empezar, ¿nos autorizas a registrar los datos que nos compartas para gestionar tu asesoría y hacer seguimiento a tu solicitud?" }], cliente: "Sí, autorizo",
-    espera: [{ que: "pide el número de WhatsApp con indicativo", ok: (r) => /whatsapp/.test(r) && /indicativo|numero|telefono/.test(r) }] },
+  { id: "instagram_whatsapp", titulo: "Instagram: primer mensaje → autorización, nombre y pasar a WhatsApp", canal: "Instagram", previo: [], cliente: "Hola Maricela, vi tu perfil y quiero información para comprar vivienda",
+    espera: [
+      { que: "menciona que seguirán por WhatsApp", ok: (r) => /whatsapp/.test(r) },
+      { que: "pide la autorización", ok: (r) => /autoriz/.test(r) },
+      { que: "pide el nombre", ok: (r) => /como te llamas|tu nombre|cual es tu nombre/.test(r) },
+      { que: "NO empieza el guion de preguntas (ingresos, ahorro, correo)", ok: (r) => !/ingreso|ahorro|correo|cuota/.test(r) },
+    ] },
 ];
 
 export interface ResultadoEscenario { id: string; titulo: string; respuesta: string; checks: Array<{ que: string; ok: boolean }>; ok: boolean; error?: string }

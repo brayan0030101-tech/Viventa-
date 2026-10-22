@@ -32,7 +32,7 @@ export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string;
   entrega_al_agente: { icono: "📥", texto: "Mensaje del cliente que no llegó al bot", grave: true },
   mejora_sugerida: { icono: "💡", texto: "Mejora sugerida para el bot", grave: false },
   revision_ia: { icono: "🧠", texto: "Revisión diaria con IA: el bot actuó mal", grave: true },
-  instagram_sin_telefono: { icono: "📵", texto: "Cliente de Instagram conversando que aún no dio su WhatsApp (se puede pedir mientras la ventana está abierta)", grave: false },
+  instagram_sin_telefono: { icono: "📵", texto: "Cliente de Instagram que aún no pasó a WhatsApp (hay que empujarlo mientras la ventana está abierta)", grave: false },
   pausada_olvidada: { icono: "⏸️", texto: "Cliente esperando respuesta con el bot pausado (una persona intervino y no volvió a contestar)", grave: true },
   cotizacion_fallida: { icono: "🧾", texto: "Cotización del bot que falló (ViveHome)", grave: true },
   mensaje_ilegible: { icono: "🙈", texto: "Mensaje de WhatsApp que el bot no pudo leer (el cliente no recibió respuesta)", grave: true },
@@ -152,16 +152,17 @@ async function detectarPausadasOlvidadas(db: Db, now: number): Promise<Candidato
 
 /** Instagram solo deja escribir 24 h: quien conversa mucho y no dio su WhatsApp se pierde después. Mientras la ventana está abierta, hay que pedírselo. */
 async function detectarInstagramSinTelefono(db: Db, now: number): Promise<Candidato[]> {
-  const convs = await db.all<{ id: string; display_name: string | null }>(
-    "SELECT id, display_name FROM conversations WHERE channel = 'zernio' AND last_message_at > ? AND (paused_until IS NULL OR paused_until < ?)", [now - 20 * H, now]);
+  const convs = await db.all<{ id: string; display_name: string | null; metadata: string | null }>(
+    "SELECT id, display_name, metadata FROM conversations WHERE channel = 'zernio' AND last_message_at > ? AND (paused_until IS NULL OR paused_until < ?)", [now - 20 * H, now]);
   const out: Candidato[] = [];
   for (const c of convs) {
     const n = (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = 'user'", [c.id]))?.n ?? 0;
-    if (n < 5) continue;
+    if (n < 3) continue;
+    if (/"viventa_puente"/.test(c.metadata ?? "")) continue; // ya pasó a WhatsApp
     const ls = await db.all<{ contact: string | null; intent: string | null }>("SELECT contact, intent FROM leads WHERE conversation_id = ?", [c.id]);
     if (ls.some((l) => (l.intent ?? "").startsWith("Cita ·"))) continue;
     if (ls.some((l) => String(l.contact ?? "").split(/[;,\s]+/).some((k) => !k.includes("@") && k.replace(/\D/g, "").length >= 8))) continue;
-    out.push({ tipo: "instagram_sin_telefono", convId: c.id, clave: "", detalle: `${c.display_name || "Cliente"} lleva ${n} mensajes en Instagram y no ha dado su WhatsApp: pídeselo ahora` });
+    out.push({ tipo: "instagram_sin_telefono", convId: c.id, clave: "", detalle: `${c.display_name || "Cliente"} lleva ${n} mensajes en Instagram y no ha pasado a WhatsApp: mándale el enlace o pídele su número ahora` });
   }
   return out;
 }
