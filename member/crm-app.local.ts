@@ -370,7 +370,31 @@ export function crmApp(): Hono<Vars> {
   // Auditoría: lo que el auditor del bot encontró trabado o fallando
   app.get("/auditoria", async (c) => {
     const { renderAuditoria } = await import("./crm-auditoria.local");
-    return pagina(c, await renderAuditoria(c.env, Date.now(), { esAdmin: await soloAdminCtx(c) }));
+    return pagina(c, await renderAuditoria(c.env, Date.now(), { esAdmin: await soloAdminCtx(c), orden: c.req.query("orden"), tipo: c.req.query("tipo") }));
+  });
+  const volverAud = (v: unknown): string => `${BASE}/auditoria${/^[\w=&.%-]+$/.test(String(v ?? "")) && String(v) ? `?${String(v)}` : ""}`;
+  app.post("/auditoria/resolver", async (c) => {
+    const f = await c.req.parseBody();
+    const { Db } = await import("../src/db/client");
+    const { resolverHallazgo } = await import("../src/followup/auditor");
+    const u = c.get("usuario");
+    await resolverHallazgo(new Db(c.env.DB), Number(f["id"] ?? -1), u?.nombre || u?.correo || "equipo");
+    return c.redirect(volverAud(f["volver"]));
+  });
+  app.post("/auditoria/reabrir", async (c) => {
+    const f = await c.req.parseBody();
+    const { Db } = await import("../src/db/client");
+    const { reabrirHallazgo } = await import("../src/followup/auditor");
+    await reabrirHallazgo(new Db(c.env.DB), Number(f["id"] ?? -1));
+    return c.redirect(volverAud(f["volver"]));
+  });
+  app.post("/auditoria/resolver-antiguos", async (c) => {
+    const f = await c.req.parseBody();
+    const { Db } = await import("../src/db/client");
+    const { resolverAntiguos } = await import("../src/followup/auditor");
+    const u = c.get("usuario");
+    await resolverAntiguos(new Db(c.env.DB), Math.max(1, Math.min(60, Number(f["dias"] ?? 3))), u?.nombre || u?.correo || "equipo", String(f["tipo"] ?? ""));
+    return c.redirect(volverAud(f["volver"]));
   });
   app.post("/auditoria/aplicar", async (c) => {
     if (!(await soloAdminCtx(c))) return c.text("Solo el administrador puede hacer esto.", 403);

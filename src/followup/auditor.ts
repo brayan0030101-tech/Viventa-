@@ -47,12 +47,37 @@ export interface Hallazgo {
   creado: number;
   avisado_en: number | null;
   resuelto_en: number | null;
+  /** Quién lo marcó como resuelto a mano (vacío si se cerró solo). */
+  resuelto_por?: string | null;
 }
 
 export async function asegurarTablaAuditoria(db: Db): Promise<void> {
   await db.run(
     "CREATE TABLE IF NOT EXISTS auditoria_hallazgos (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT NOT NULL, conv_id TEXT NOT NULL, clave TEXT NOT NULL DEFAULT '', detalle TEXT NOT NULL DEFAULT '', creado INTEGER NOT NULL, avisado_en INTEGER, resuelto_en INTEGER, UNIQUE (tipo, conv_id, clave))",
   );
+  // Tablas creadas antes del 22 oct 2026 no tienen la columna «resuelto_por».
+  const tiene = await db.first<{ x: number }>("SELECT 1 AS x FROM pragma_table_info('auditoria_hallazgos') WHERE name = 'resuelto_por'");
+  if (!tiene) await db.run("ALTER TABLE auditoria_hallazgos ADD COLUMN resuelto_por TEXT").catch(() => undefined);
+}
+
+/** Marca un hallazgo como resuelto a mano («ya lo vimos»). */
+export async function resolverHallazgo(db: Db, id: number, quien: string, now = Date.now()): Promise<boolean> {
+  await asegurarTablaAuditoria(db);
+  const r = await db.run("UPDATE auditoria_hallazgos SET resuelto_en = ?, resuelto_por = ? WHERE id = ? AND resuelto_en IS NULL", [now, quien.slice(0, 60), id]);
+  return ((r as { meta?: { changes?: number } }).meta?.changes ?? 0) > 0;
+}
+
+/** Marca como resueltos de una vez todos los abiertos con más de `dias` días (opcionalmente solo de un tipo). */
+export async function resolverAntiguos(db: Db, dias: number, quien: string, tipo = "", now = Date.now()): Promise<number> {
+  await asegurarTablaAuditoria(db);
+  const r = await db.run(`UPDATE auditoria_hallazgos SET resuelto_en = ?, resuelto_por = ? WHERE resuelto_en IS NULL AND creado < ?${tipo ? " AND tipo = ?" : ""}`, tipo ? [now, quien.slice(0, 60), now - dias * 24 * H, tipo] : [now, quien.slice(0, 60), now - dias * 24 * H]);
+  return (r as { meta?: { changes?: number } }).meta?.changes ?? 0;
+}
+
+/** Vuelve a abrir uno marcado por error. */
+export async function reabrirHallazgo(db: Db, id: number): Promise<void> {
+  await asegurarTablaAuditoria(db);
+  await db.run("UPDATE auditoria_hallazgos SET resuelto_en = NULL, resuelto_por = NULL WHERE id = ?", [id]);
 }
 
 /** Registra un hallazgo; true si es nuevo (no existía el mismo tipo + conversación + clave). */
@@ -226,8 +251,14 @@ async function cerrarResueltos(db: Db, now: number): Promise<number> {
   for (const h of abiertos) {
     let resuelto = now - h.creado > (h.tipo === "pausada_olvidada" ? 10 * 24 * H : 24 * H);
     if (!resuelto) {
-      const conv = await db.first<{ paused_until: number | null }>("SELECT paused_until FROM conversations WHERE id = ?", [h.conv_id]);
+      const conv = await db.first<{ paused_until: number | null; metadata: string | null }>("SELECT paused_until, metadata FROM conversations WHERE id = ?", [h.conv_id]);
       const pausada = !!conv?.paused_until && conv.paused_until > now;
+      // Un cliente ya perdido, cerrado o descartado en el CRM no necesita atención: el caso se cierra solo.
+      let descartado = false;
+      try {
+        const m = conv?.metadata ? (JSON.parse(conv.metadata) as { crm_etapa?: string; crm_descarte?: unknown }) : {};
+        descartado = !!m.crm_descarte || m.crm_etapa === "perdido" || m.crm_etapa === "cerrado";
+      } catch { /* metadatos rotos */ }
       const desde = h.tipo === "sin_respuesta" || h.tipo === "pausada_olvidada" ? Number(h.clave) : h.creado;
       const rol = h.tipo === "sin_respuesta" || h.tipo === "handoff_silencioso" || h.tipo === "mensaje_ilegible" || h.tipo === "pausada_olvidada" ? "('assistant', 'owner')" : "('owner')";
       const resp = await db.first<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role IN ${rol} AND created_at > ?`, [h.conv_id, desde + (h.tipo === "handoff_silencioso" ? 0 : 1000)]);
@@ -235,7 +266,7 @@ async function cerrarResueltos(db: Db, now: number): Promise<number> {
       const cotizada = h.tipo === "cotizacion_fallida"
         ? (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_enviadas WHERE tel = ? AND enviada_en > ?", [h.conv_id.replace(/^\w+:/, ""), h.creado]).catch(() => null))?.n ?? 0
         : 0;
-      resuelto = cotizada > 0 || (resp?.n ?? 0) > 0 || ((h.tipo === "listo_sin_cita" || h.tipo === "dato_sin_respaldo" || h.tipo === "handoff_silencioso") && (cita?.n ?? 0) > 0) || (pausada && h.tipo !== "entrega_fallida" && h.tipo !== "pausada_olvidada");
+      resuelto = descartado || cotizada > 0 || (resp?.n ?? 0) > 0 || ((h.tipo === "listo_sin_cita" || h.tipo === "dato_sin_respaldo" || h.tipo === "handoff_silencioso") && (cita?.n ?? 0) > 0) || (pausada && h.tipo !== "entrega_fallida" && h.tipo !== "pausada_olvidada");
     }
     if (resuelto) {
       await db.run("UPDATE auditoria_hallazgos SET resuelto_en = ? WHERE id = ?", [now, h.id]);

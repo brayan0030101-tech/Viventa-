@@ -176,3 +176,31 @@ describe("auditor: Instagram sin WhatsApp", () => {
     expect(h.map((x) => x.conv_id)).toEqual([ig.id]);
   });
 });
+
+describe("auditoría: resolver a mano y datos del cliente", () => {
+  it("resolverHallazgo / resolverAntiguos / reabrir y quién lo hizo", async () => {
+    const { resolverHallazgo, resolverAntiguos, reabrirHallazgo } = await import("../../src/followup/auditor");
+    const a = await conv("34600000091", "Uno");
+    const b = await conv("34600000092", "Dos");
+    await registrarHallazgo(env, { tipo: "listo_sin_cita", convId: a, detalle: "x" }, NOW - 5 * 24 * H);
+    await registrarHallazgo(env, { tipo: "listo_sin_cita", convId: b, detalle: "y" }, NOW - 1 * H);
+    const filas = await db.all<{ id: number; conv_id: string }>("SELECT id, conv_id FROM auditoria_hallazgos ORDER BY id");
+    expect(await resolverAntiguos(db, 3, "Camila", "", NOW)).toBe(1);
+    expect(await resolverHallazgo(db, filas[1].id, "Camila", NOW)).toBe(true);
+    expect(await resolverHallazgo(db, filas[1].id, "Camila", NOW)).toBe(false);
+    await reabrirHallazgo(db, filas[1].id);
+    const r = await db.all<{ conv_id: string; resuelto_en: number | null; resuelto_por: string | null }>("SELECT conv_id, resuelto_en, resuelto_por FROM auditoria_hallazgos ORDER BY id");
+    expect(r[0].resuelto_por).toBe("Camila");
+    expect(r[1].resuelto_en).toBeNull();
+  });
+
+  it("la página muestra el teléfono y el botón de WhatsApp del cliente", async () => {
+    const { renderAuditoria } = await import("../../member/crm-auditoria.local");
+    const id = await conv("34600000093", "Marta Gil");
+    await registrarHallazgo(env, { tipo: "listo_sin_cita", convId: id, detalle: "Marta ya dio sus datos" }, NOW - H);
+    const html = await renderAuditoria({ ...env, CRM_SESSION_SECRET: "x".repeat(30) } as any, NOW);
+    expect(html).toContain("+34600000093");
+    expect(html).toContain("https://wa.me/34600000093");
+    expect(html).toContain("✔ Resuelto");
+  });
+});
