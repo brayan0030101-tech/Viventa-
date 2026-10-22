@@ -7,9 +7,9 @@ import { Db } from "../src/db/client";
 import { armarLeads } from "../src/followup/resumenDia";
 import { esc } from "./crm.local";
 import { notaZoho } from "./crm-zohonota.local";
-import { fechaDisponibleZoho, nombreDia } from "./crm-agenda.local";
+import { nombreDia } from "./crm-agenda.local";
 import { buscarCandidato, crearNota, crearTarea, duenoZoho, zohoListo, ZohoError, type FetchFn } from "./crm-zohoapi.local";
-import { escrituraActiva, hoyMadrid, masDias } from "./crm-seguimientos.local";
+import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
 
 async function asegurar(db: Db): Promise<void> {
   await db.run(
@@ -67,9 +67,8 @@ export async function crearNotaYTarea(env: Env, convId: string, opts: { f?: Fetc
     if (futura) {
       fecha = hoyMadrid(futura.inicio);
     } else {
-      const d = await fechaDisponibleZoho(env, masDias(hoy, 1), hoy, opts.f, now);
-      fecha = d.fecha;
-      ajuste = d.motivo;
+      // Cliente nuevo en Zoho: tarea para hoy (regla de Maricela, sin tope de 25).
+      fecha = hoy;
     }
 
     let notaId = previo?.nota_id ?? "";

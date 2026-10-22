@@ -13,8 +13,8 @@ import { esNumeroColombiano } from "../src/channels/ycloud";
 import { dijoQueNo } from "../src/vivehome/cola";
 import { notifyCamila } from "../src/lib/camila";
 import { buscarCandidato, crearCandidato, crearNota, crearTarea, cambiarEstadoCandidato, duenoDeCandidato, duenoZoho, ejecutarTransicion, transicionesDe, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
-import { fechaDisponibleZoho, masDiasAgenda } from "./crm-agenda.local";
 import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
+import { conversacionesHermanas } from "./crm-zoho.local";
 
 export const AJUSTE_SUBIDA = "viventa_zoho_subida";
 export const AJUSTE_SUBIDA_IDS = "viventa_zoho_subida_ids";
@@ -150,12 +150,11 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
   const cot = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM cotizaciones_bot WHERE conv_id = ? AND estado = 'enviada'", [convId]).catch(() => null);
   const caliente = lead.prioridad.nivel === "caliente";
   const canal = conv.channel === "ycloud" ? "WhatsApp" : "Instagram";
-  const primer = nom.first || nom.last;
   return {
     plan: {
       convId, nombre: lead.nombre, telefono: lead.telefono, correo: lead.correo, nivel: lead.prioridad.nivel, datos,
       nota: armarNota(lead, (cot?.n ?? 0) > 0, ult?.content ?? "", canal, now),
-      tarea: { asunto: caliente ? `Cliente caliente: escribirle hoy a ${primer} y proponerle videollamada` : `Seguimiento a ${primer}: ver si le interesó la cotización y proponer videollamada`, deseada: masDiasAgenda(hoy(now), caliente ? 1 : 3) },
+      tarea: { asunto: ASUNTO_TAREA_BOT, deseada: hoy(now) },
     },
   };
 }
@@ -179,6 +178,9 @@ export type ResultadoSubida =
   | { estado: "no_corresponde"; motivo: string }
   | { estado: "error"; motivo: string };
 
+/** Título fijo de la tarea que crea el bot (así Camila las distingue de las demás). */
+export const ASUNTO_TAREA_BOT = "Cliente nuevo del bot: contactar y proponer videollamada";
+
 async function marcar(db: Db, convId: string, clave: string, valor: string): Promise<void> {
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), ?, ?) WHERE id = ?", [`$.${clave}`, valor, convId]);
 }
@@ -196,7 +198,7 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
     if (existente) {
       const de = await duenoDeCandidato(env, existente.id, f, now).catch(() => null);
       const propio = !de || de.id === dueno.id;
-      await marcar(db, convId, "viventa_existente", `${hoy(now)}-bot${propio ? "" : "-otra-asesora"}`);
+      for (const hermana of await conversacionesHermanas(db, convId)) await marcar(db, hermana, "viventa_existente", `${hoy(now)}-bot${propio ? "" : "-otra-asesora"}`);
       await marcar(db, convId, "zoho_lead_id", existente.id);
       if (!propio) {
         await notifyCamila(env, { heading: "⚠️ Cliente ya está en Zoho con otra asesora", body: `${plan.nombre} (${plan.telefono || plan.correo}) ya existe en Zoho a nombre de ${de?.nombre || "otra persona"} (estado «${existente.estado}»). No se creó nada. Si es un cliente caliente, conviene pedir a Rafa que te lo reasigne.` }).catch(() => false);
@@ -217,12 +219,15 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
     await crearNota(env, leadId, plan.nota, f, now);
     await pasarAProspeccion(env, leadId, f, now).catch((e2) => console.error("[subidaZoho] prospección:", e2));
     const hoyStr = hoy(now);
-    const disp = await fechaDisponibleZoho(env, plan.tarea.deseada, hoyStr, f, now, plan.nivel === "caliente").catch(() => ({ fecha: plan.tarea.deseada, motivo: "" }));
-    const tarea = await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: disp.fecha, ownerId: dueno.id }, f, now);
-    await marcar(db, convId, "viventa_registrado", new Date(now).toISOString());
-    await marcar(db, convId, "viventa_registrado_por", "bot");
-    await marcar(db, convId, "zoho_lead_id", leadId);
-    return { estado: "creado", leadId, tarea: disp.fecha, plan };
+    // Regla de Maricela: un cliente nuevo siempre queda con tarea para HOY (no se aplica el tope de 25 ni se corre por fin de semana).
+    const fechaTarea = hoyStr;
+    await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: fechaTarea, ownerId: dueno.id }, f, now);
+    for (const hermana of await conversacionesHermanas(db, convId)) {
+      await marcar(db, hermana, "viventa_registrado", new Date(now).toISOString());
+      await marcar(db, hermana, "viventa_registrado_por", "bot");
+      await marcar(db, hermana, "zoho_lead_id", leadId);
+    }
+    return { estado: "creado", leadId, tarea: fechaTarea, plan };
   } catch (e) {
     return { estado: "error", motivo: e instanceof Error ? e.message.slice(0, 200) : String(e) };
   }

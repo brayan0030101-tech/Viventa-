@@ -43,6 +43,26 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido.startsWith("tareas_bot:")) {
+    // Deja las tareas de los candidatos creados por el bot con el título fijo y fecha de hoy. «tareas_bot:<conv>,<conv>»
+    await st.set("zoho_diag_pedir", "");
+    const out: unknown[] = [];
+    try {
+      const { coql, cambiarAsuntoYFechaTarea } = await import("./crm-zohoapi.local");
+      const { ASUNTO_TAREA_BOT } = await import("./crm-zohosubida.local");
+      const { hoyMadrid } = await import("./crm-seguimientos.local");
+      const db = new Db(env.DB);
+      for (const conv of pedido.slice(11).split(",").map((x) => x.trim()).filter(Boolean)) {
+        const m = await db.first<{ z: string | null }>("SELECT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE id = ?", [conv]);
+        const leadId = m?.z ?? "";
+        if (!/^\d{6,30}$/.test(leadId)) { out.push({ conv, error: "sin zoho_lead_id" }); continue; }
+        const filas = await coql(env, `select id, Subject, Due_Date from Tasks where (What_Id = '${leadId}' or Who_Id = '${leadId}') limit 20`);
+        for (const t of filas) { await cambiarAsuntoYFechaTarea(env, String(t["id"]), ASUNTO_TAREA_BOT, hoyMadrid(Date.now())); out.push({ conv, tarea: t["id"], antes: `${t["Subject"]} / ${t["Due_Date"]}` }); }
+      }
+    } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
+    await st.set("zoho_diag_resultado", JSON.stringify({ tareas_bot: out }));
+    return;
+  }
   if (pedido === "subida_listar" || pedido.startsWith("subida_ver:")) {
     // Solo lectura: qué clientes se subirían a Zoho (y por qué no los demás), o lo que se mandaría para UN cliente. No escribe nada.
     await st.set("zoho_diag_pedir", "");

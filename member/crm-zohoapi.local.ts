@@ -285,6 +285,12 @@ export async function cambiarFechaTarea(env: Env, tareaId: string, fecha: string
   await escribir(env, `/Tasks/${tareaId}`, "PUT", { Due_Date: fecha }, f, now);
 }
 
+/** Cambia el asunto y la fecha de una tarea (uso: dejar las tareas del bot con el título fijo). */
+export async function cambiarAsuntoYFechaTarea(env: Env, tareaId: string, asunto: string, fecha: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!idValido(tareaId) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !asunto.trim()) throw new ZohoError("Datos de la tarea no válidos.");
+  await escribir(env, `/Tasks/${tareaId}`, "PUT", { Subject: asunto.slice(0, 200), Due_Date: fecha }, f, now);
+}
+
 // ─── Buscar y listar candidatos ──────────────────────────────────────────────
 
 export interface CandidatoLista extends CandidatoZoho {

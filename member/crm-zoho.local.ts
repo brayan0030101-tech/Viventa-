@@ -98,11 +98,32 @@ async function asegurarLog(db: Db): Promise<void> {
   await db.run("CREATE TABLE IF NOT EXISTS crm_zoho_log (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, accion TEXT NOT NULL, usuario TEXT NOT NULL, at INTEGER NOT NULL)");
 }
 
+/** Conversaciones de la MISMA persona (puente Instagram↔WhatsApp o mismo teléfono): se marcan juntas para que no aparezca dos veces en «Subir clientes». */
+export async function conversacionesHermanas(db: Db, convId: string): Promise<string[]> {
+  const out = new Set<string>([convId]);
+  const puentes = await db.all<{ ig_conv: string; wa_conv: string | null }>("SELECT ig_conv, wa_conv FROM puente_whatsapp WHERE ig_conv = ? OR wa_conv = ?", [convId, convId]).catch(() => []);
+  for (const p of puentes) { out.add(p.ig_conv); if (p.wa_conv) out.add(p.wa_conv); }
+  const propios = await db.all<{ contact: string | null }>("SELECT contact FROM leads WHERE conversation_id IN (" + [...out].map(() => "?").join(",") + ")", [...out]).catch(() => []);
+  const tels = new Set<string>();
+  for (const l of propios) for (const m of String(l.contact ?? "").match(/\+?\d[\d\s().-]{7,}\d/g) ?? []) { const d = m.replace(/\D/g, ""); if (d.length >= 9) tels.add(d.slice(-9)); }
+  const wa = convId.startsWith("ycloud:") ? convId.slice(7).replace(/\D/g, "") : "";
+  if (wa.length >= 9) tels.add(wa.slice(-9));
+  for (const t of tels) {
+    const filas = await db.all<{ id: string }>(
+      "SELECT c.id FROM conversations c WHERE c.channel IN ('ycloud','zernio') AND (c.id LIKE ? OR c.id IN (SELECT conversation_id FROM leads WHERE REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(contact,''),' ',''),'-',''),'+',''),'.','') LIKE ?)) LIMIT 10",
+      [`ycloud:%${t}`, `%${t}%`],
+    ).catch(() => []);
+    for (const f of filas) out.add(f.id);
+  }
+  return [...out];
+}
+
 /** Marca (o desmarca) clientes. «registrado»/«existente» no pisan una marca previa: nunca se cuenta dos veces. */
 export async function marcarZoho(env: Env, convIds: string[], accion: AccionZoho, por: string, now = Date.now()): Promise<{ cambiados: number }> {
   const db = new Db(env.DB);
   await asegurarLog(db);
-  const ids = [...new Set(convIds.filter((x) => /^[\w:.+-]{3,120}$/.test(x)))].slice(0, 300);
+  const base = [...new Set(convIds.filter((x) => /^[\w:.+-]{3,120}$/.test(x)))].slice(0, 300);
+  const ids = [...new Set((await Promise.all(base.map((b) => conversacionesHermanas(db, b)))).flat())];
   const iso = new Date(now).toISOString();
   const quien = por.trim().slice(0, 60) || "CRM";
   let cambiados = 0;

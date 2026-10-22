@@ -40,7 +40,7 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   }
   if (url.endsWith("/coql")) {
     const q = String(JSON.parse(String(init?.body)).select_query);
-    if (q.includes(`where id = '${TAREA}'`)) return json({ data: [{ id: TAREA, Subject: "Seguimiento", Due_Date: "2026-10-16", Status: "En Proceso", Who_Id: { id: LEAD }, What_Id: null, $se_module: "Leads", Description: "" }] });
+    if (q.includes(`where id = '${TAREA}'`)) return json({ data: [{ id: TAREA, Subject: "Seguimiento", Due_Date: "2026-10-15", Status: "En Proceso", Who_Id: { id: LEAD }, What_Id: null, $se_module: "Leads", Description: "" }] });
     const dia = q.match(/Due_Date = '(\d{4}-\d{2}-\d{2})'/)?.[1];
     if (dia) return json({ data: Array.from({ length: cargaPorDia[dia] ?? 0 }, (_, i) => ({ id: String(i) })) });
     if (q.includes("from Leads where Email =") || q.includes("Mobile like")) {
@@ -108,25 +108,24 @@ describe("nota y tarea del candidato nuevo", () => {
     await db.run("INSERT INTO conversations (id, channel, channel_user_id, display_name, started_at, last_message_at) VALUES (?,?,?,?,?,?)", ["ycloud:34600000001", "ycloud", "34600000001", "Ana", NOW - 5000, NOW - 1000]);
     await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", ["l1", "ycloud:34600000001", "Ana Pérez", "ana@correo.com", "compra", JSON.stringify({ ciudadCompra: "Medellín" }), "new", NOW - 4000, NOW - 4000]);
   }
-  it("busca al candidato, crea la nota y la tarea (mañana, día hábil) y no duplica al repetir", async () => {
+  it("busca al candidato, crea la nota y la tarea (para hoy: cliente nuevo)  y no duplica al repetir", async () => {
     await sembrar();
     const r = await crearNotaYTarea(env, "ycloud:34600000001", { f: zoho }, NOW);
-    expect(r).toMatchObject({ ok: true, yaHecho: false, fecha: "2026-10-16", candidato: "Ana Pérez" });
+    expect(r).toMatchObject({ ok: true, yaHecho: false, fecha: "2026-10-15", candidato: "Ana Pérez" });
     const nota = escrituras.find((e) => e.url.endsWith(`/Leads/${LEAD}/Notes`))!;
     expect(nota.body["Note_Content"]).toContain("busca vivienda en Medellín");
     const tarea = escrituras.find((e) => e.url.endsWith("/Tasks"))!;
-    expect(tarea.body).toMatchObject({ Subject: "Llamar para presentar proyectos", Due_Date: "2026-10-16", Status: "En Proceso", Owner: { id: "555" }, What_Id: { id: LEAD } });
+    expect(tarea.body).toMatchObject({ Subject: "Llamar para presentar proyectos", Due_Date: "2026-10-15", Status: "En Proceso", Owner: { id: "555" }, What_Id: { id: LEAD } });
     const n = escrituras.length;
     const otra = await crearNotaYTarea(env, "ycloud:34600000001", { f: zoho }, NOW);
     expect(otra).toMatchObject({ ok: true, yaHecho: true });
     expect(escrituras).toHaveLength(n);
   });
-  it("viernes con tarea para mañana (sábado) → lunes", async () => {
+  it("cliente nuevo: la tarea queda para hoy aunque el día ya tenga muchas", async () => {
     await sembrar();
     const viernes = Date.UTC(2026, 9, 16, 10, 0);
     const r = await crearNotaYTarea(env, "ycloud:34600000001", { f: zoho }, viernes);
-    expect(r).toMatchObject({ ok: true, fecha: "2026-10-19" });
-    expect(r.ok && r.ajuste).toContain("fin de semana");
+    expect(r).toMatchObject({ ok: true, fecha: "2026-10-16" });
   });
   it("si no lo encuentra en Zoho, no crea nada y lo explica", async () => {
     await sembrar();
