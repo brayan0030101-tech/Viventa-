@@ -18,6 +18,16 @@ Antes de empezar: `git pull origin main` y leer también `member/HISTORIAL-DEL-P
 3. WhatsApp fuera de las 24 h: solo plantilla aprobada de Meta. Instagram: solo dentro de las 24 h, sin plantillas.
 4. Nunca decir «el equipo lo confirma» para agendar: el bot agenda con Cal.com (videollamada de 45 min, un inicio por hora).
 
+## Plantilla de WhatsApp de cotización (`viventa_cotizacion_lista`)
+- Es para los que tienen la ventana de 24 h cerrada (fila `pendiente_plantilla`): «¿Te la enviamos por aquí?» con botones «Sí, envíamela» / «Ahora no».
+  «Sí» abre la ventana y la cotización sale en la pasada siguiente; «Ahora no» deja la fila `omitida` y una nota en la ficha.
+- Antes de mandarla se aplican LAS MISMAS condiciones que para crear la cotización (preguntas base completas; no fríos, no reportados sin plan,
+  no números colombianos, no a quien dijo que no, no pausados/descartados/con cita/con cotización de Maricela): la plantilla promete una
+  cotización y Meta la cobra. Si cambian las condiciones de la cola, cambiarlas también en `enviarPlantillas`.
+- Interruptor propio `viventa_cotizaciones_plantilla` (apagado | activo) y solo si Meta la aprobó. Una vez por cliente, 9–21 h de su hora,
+  máx. 8 por pasada. Solo WhatsApp (Instagram no tiene plantillas).
+- El ajuste `ycloud_diag_pedir` (crear/listar plantillas en YCloud) lo usan las dos sesiones: escribir en él solo si está vacío.
+
 ## Zoho
 - Cada vez que se vuelve a escribir a un cliente que ya está en Zoho queda una nota en su ficha (`notaSeguimientoZoho`), sin decir «bot».
 - Clientes nuevos que se suben: tarea para HOY, sin tope de 25. Calientes y «En cierre» siempre ignoran el tope de 25 tareas.

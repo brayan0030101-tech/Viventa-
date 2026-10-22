@@ -589,6 +589,13 @@ async function enviarPlantillas(env: Env, db: Db, modo: Modo, now: number, deps:
       await actualizar(db, f.id, { estado: "omitida", error: "antes de la plantilla: la tomó una persona, se descartó, agendó o ya tiene cotización" }, now);
       continue;
     }
+    // Mismas condiciones que para crear la cotización (member/REGLAS-COTIZACIONES.md): la plantilla promete una cotización y cuesta dinero.
+    const cal = evaluarCalificacion(lead.ficha.metadata);
+    if (cal.faltan.filter((k) => !["reportadoDatacredito", "compraSoloOAcompanado", "puedeQuitarReporte"].includes(k)).length) continue; // aún no terminó las preguntas base
+    if (lead.prioridad.nivel === "frio" || (cal.reportado && cal.puedeQuitarReporte !== true)) {
+      await actualizar(db, f.id, { estado: "omitida", error: "antes de la plantilla: no cumple las condiciones (frío o reportado sin ponerse al día)" }, now);
+      continue;
+    }
     if (!(await puedeEscribirAhora(db, conv, now))) continue;
     const nombre = primerNombre(lead.nombre) || "👋";
     // Se marca antes de enviar: si el envío falla no se reintenta solo (cuesta dinero); queda el hallazgo.

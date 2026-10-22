@@ -313,3 +313,4 @@
 
 ## 2026-10-22 — Coordinación con la sesión «Datos de ViveHome»
 - Las reglas de cotización compartidas entre las dos sesiones quedan en `member/REGLAS-COTIZACIONES.md`. Quien cambie la cola de cotizaciones, la propuesta de llamada o la calificación debe actualizarlo.
+- 2026-10-22 · Plantilla de cotización: antes de mandarla se aplican las mismas condiciones que para crear la cotización (preguntas base completas, no fríos ni reportados sin plan). Antes solo excluía colombianos, «dijo que no», pausados, descartados, con cita y con cotización de Maricela: se habría cobrado la plantilla a quien luego no recibe cotización. Sin efecto previo (Meta aún no la aprobaba). Anotado en `member/REGLAS-COTIZACIONES.md`. Tests: 40.

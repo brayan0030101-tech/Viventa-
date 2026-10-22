@@ -261,6 +261,28 @@ describe("cotizaciones del bot", () => {
       expect(notas?.notes).toContain("Ahora no");
     });
 
+    it("a un frío no se le manda la plantilla (no recibiría cotización) y queda omitido", async () => {
+      const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros", ingresosMensuales: "1000 euros" }, NOW - 30 * H);
+      await ajustar(AJUSTE_MODO, "activo");
+      await ajustar(AJUSTE_PLANTILLA, "activo");
+      const s = simular();
+      await runCotizacionesBot(env, NOW, s.deps);
+      await runCotizacionesBot(env, NOW + 15 * 60_000, s.deps);
+      expect(s.plantillas).toHaveLength(0);
+      expect((await filasDe(env, a))[0].estado).toBe("omitida");
+    });
+
+    it("si aún no terminó las preguntas base, la plantilla espera", async () => {
+      const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros", tipoEmpleo: "" }, NOW - 30 * H);
+      await ajustar(AJUSTE_MODO, "activo");
+      await ajustar(AJUSTE_PLANTILLA, "activo");
+      const s = simular();
+      await runCotizacionesBot(env, NOW, s.deps);
+      await runCotizacionesBot(env, NOW + 15 * 60_000, s.deps);
+      expect(s.plantillas).toHaveLength(0);
+      expect((await filasDe(env, a))[0].estado).toBe("propuesta"); // espera a que termine las preguntas; no se crea ni se manda nada
+    });
+
     it("sin aprobación de Meta no se manda", async () => {
       await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros" }, NOW - 30 * H);
       await ajustar(AJUSTE_MODO, "activo");
