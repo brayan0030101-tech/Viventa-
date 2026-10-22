@@ -220,7 +220,9 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
     await pasarAProspeccion(env, leadId, f, now).catch((e2) => console.error("[subidaZoho] prospección:", e2));
     const hoyStr = hoy(now);
     // Regla de Maricela: un cliente nuevo siempre queda con tarea para HOY (no se aplica el tope de 25 ni se corre por fin de semana).
-    const fechaTarea = hoyStr;
+    // Excepción temporal pedida por Maricela: con el ajuste `viventa_zoho_tarea_fecha` (AAAA-MM-DD, futura) las tareas nuevas quedan para esa fecha (p. ej. el sábado de esta semana).
+    const fechaFija = ((await new SettingsRepo(db).get("viventa_zoho_tarea_fecha")) ?? "").trim();
+    const fechaTarea = /^\d{4}-\d{2}-\d{2}$/.test(fechaFija) && fechaFija > hoyStr ? fechaFija : hoyStr;
     await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: fechaTarea, ownerId: dueno.id }, f, now);
     for (const hermana of await conversacionesHermanas(db, convId)) {
       await marcar(db, hermana, "viventa_registrado", new Date(now).toISOString());

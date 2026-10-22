@@ -4,6 +4,7 @@
 //  día hábil con espacio: sin sábados ni domingos y máximo 25 por día). Cada paso se hace una sola vez por cliente (no duplica al reintentar).
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
+import { SettingsRepo } from "../src/db/settings";
 import { armarLeads } from "../src/followup/resumenDia";
 import { esc } from "./crm.local";
 import { notaZoho } from "./crm-zohonota.local";
@@ -68,7 +69,8 @@ export async function crearNotaYTarea(env: Env, convId: string, opts: { f?: Fetc
       fecha = hoyMadrid(futura.inicio);
     } else {
       // Cliente nuevo en Zoho: tarea para hoy (regla de Maricela, sin tope de 25).
-      fecha = hoy;
+      const fijada = ((await new SettingsRepo(db).get("viventa_zoho_tarea_fecha")) ?? "").trim();
+      fecha = /^\d{4}-\d{2}-\d{2}$/.test(fijada) && fijada > hoy ? fijada : hoy;
     }
 
     let notaId = previo?.nota_id ?? "";
