@@ -326,3 +326,8 @@
 - Las consultas a Zoho (tarea, candidato, notas) van en paralelo usando el id del candidato que ya trae la fila (`lead`), y el candidato de los botones se pide a la vez que el borrador.
 - Aviso «⏳ Preparando…» mientras trabaja (antes parecía congelado y se pulsaba dos veces).
 - `prepararBorradoresPendientes`: en el ciclo de 15 min deja listos hasta 2 mensajes de los seguimientos de hoy (cierre y calientes primero), de 7:00 a 21:00 Madrid, para que «Ver mensaje» sea instantáneo. Apagar con `crm_seg_prebuild = apagado`.
+
+## 2026-10-22 — Notas de Zoho para todos los contactos (también a clientes «en futuro»)
+- `notaSeguimientoZoho` ya no exige que el cliente figure como «registrado»: busca al cliente en Zoho por teléfono/correo (una vez al día si no está) y deja la nota en cualquier contacto.
+- Reactivación (Revisar en el futuro): conserva su nota con la oferta; se evita la segunda nota genérica del mismo día.
+- Verificado en Zoho: los 4 últimos clientes reactivados ya tienen su nota «Seguimiento».

@@ -22,13 +22,18 @@ async function leadIdDe(env: Env, db: Db, convId: string, buscarSiempre = false)
   );
   if (!c) return "";
   if (c.z && /^\d{6,30}$/.test(c.z)) return c.z;
-  if (!buscarSiempre && !c.reg && !c.exi) return "";
+  const hoy = hoyMadrid(Date.now());
+  const noEnc = await db.first<{ d: string | null }>("SELECT json_extract(metadata,'$.zoho_no_encontrado') AS d FROM conversations WHERE id = ?", [convId]);
+  if (noEnc?.d === hoy && !buscarSiempre) return ""; // ya se buscó hoy y no está en Zoho
   const leads = await db.all<{ contact: string | null }>("SELECT contact FROM leads WHERE conversation_id = ?", [convId]).catch(() => []);
   const contactos = leads.map((l) => l.contact ?? "").join(" ");
   const correos = contactos.match(/[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+/g) ?? [];
   const tel = c.channel === "ycloud" ? c.channel_user_id : (contactos.match(/\+?\d[\d\s().-]{7,}\d/)?.[0] ?? "");
   const cand = await buscarCandidato(env, { correos, telefono: tel });
-  if (!cand?.id) return "";
+  if (!cand?.id) {
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_no_encontrado', ?) WHERE id = ?", [hoy, convId]);
+    return "";
+  }
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_lead_id', ?) WHERE id = ?", [cand.id, convId]);
   return cand.id;
 }
@@ -41,6 +46,7 @@ export async function notaSeguimientoZoho(env: Env, convId: string, canal: strin
     const hoy = hoyMadrid(now);
     const ya = await db.first<{ d: string | null }>("SELECT json_extract(metadata,'$.zoho_nota_seguimiento') AS d FROM conversations WHERE id = ?", [convId]);
     if (!ya || ya.d === hoy) return false;
+    // Cualquier cliente que ya esté en Zoho (aunque lo haya subido Maricela a mano) recibe la nota: se busca por teléfono/correo.
     const leadId = await leadIdDe(env, db, convId);
     if (!leadId) return false;
     await crearNota(env, leadId, textoNotaSeguimiento(canal, mensaje, hoy), undefined, now);

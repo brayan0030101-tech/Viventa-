@@ -300,6 +300,8 @@ export async function enviarReactivacion(
   const plantillaTexto = plantillaBase.replace(/\{\{1\}\}/g, nombre || "hola");
   const dentro = ult?.t != null && now - ult.t < 24 * 3600_000 - 300_000;
   let via: "libre" | "plantilla";
+  // La nota de Zoho de la reactivación se deja más abajo (con la oferta); esto evita una segunda nota genérica el mismo día.
+  await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_nota_seguimiento', ?) WHERE id = ?", [hoyMadrid(now), conv.id]).catch(() => undefined);
   try {
     via = await enviarACliente(env, db, ref, dentro ? texto : plantillaTexto, { setting: TPL_REACTIVACION, params: usaNombre ? [nombre || "hola"] : [] }, ult?.t ?? null, now);
   } catch (e) {
