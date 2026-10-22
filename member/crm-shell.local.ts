@@ -199,7 +199,7 @@ ${ESTILO_BASE}
 /** Reemplaza el marcador por el bloque del usuario (nombre, rol y «Cerrar sesión») y oculta lo de administrador a quien no lo es. */
 export function conUsuario(html: string, u: { nombre: string; correo: string; rol: "admin" | "equipo" } | null): string {
   let out = html;
-  if (!u || u.rol !== "admin") out = out.replace(/<a class="nav[^"]*" href="[^"]*" data-solo-admin="1">.*?<\/a>/s, "");
+  if (!u || u.rol !== "admin") out = out.replace(/<a class="nav[^"]*" href="[^"]*" data-solo-admin="1">.*?<\/a>/gs, "");
   out = out.replace(/ data-solo-admin="[01]"/g, "");
   const bloque = u
     ? `<div style="padding:14px;border-top:1px solid var(--line)"><div style="font-size:12.5px;font-weight:600;color:var(--cream)">${esc(u.nombre || u.correo)}</div>
