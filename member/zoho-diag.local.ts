@@ -43,6 +43,19 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido.startsWith("notas:")) {
+    // Últimas notas de cada candidato: «notas:<leadId>,<leadId>»
+    await st.set("zoho_diag_pedir", "");
+    const out: unknown[] = [];
+    try {
+      const { notasDe } = await import("./crm-zohoapi.local");
+      for (const id of pedido.slice(6).split(",").map((x) => x.trim()).filter((x) => /^\d{6,30}$/.test(x)).slice(0, 10)) {
+        out.push({ id, notas: (await notasDe(env, id, 4)).map((n) => JSON.stringify(n).slice(0, 220)) });
+      }
+    } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
+    await st.set("zoho_diag_resultado", JSON.stringify({ notas: out }));
+    return;
+  }
   if (pedido.startsWith("tareas_bot:")) {
     // Deja las tareas de los candidatos creados por el bot con el título fijo y fecha de hoy. «tareas_bot:[AAAA-MM-DD:]<conv>,<conv>»
     await st.set("zoho_diag_pedir", "");
