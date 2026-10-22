@@ -60,6 +60,7 @@ const fila = (h: Hallazgo, now: number, resuelto: boolean, c: ContactoAud | unde
     : `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         ${wa ? `<a class="crm-in" href="${esc(wa)}" target="_blank" rel="noopener" style="font-size:11px;padding:5px 9px;text-decoration:none" title="Abre su WhatsApp directamente">💬 WhatsApp</a>` : ""}
         <a class="crm-in" href="/crm/c/${esc(encodeURIComponent(h.conv_id))}" target="_blank" style="font-size:11px;padding:5px 9px;text-decoration:none" title="Ficha del cliente con su teléfono, datos y conversación">🗂 Ficha</a>
+        <a class="crm-in" href="/crm/zoho/abrir?conv=${esc(encodeURIComponent(h.conv_id))}" target="_blank" rel="noopener" style="font-size:11px;padding:5px 9px;text-decoration:none" title="Abre la ficha de este cliente en Zoho CRM">🔗 Zoho</a>
         <a href="/admin/conversations?c=${esc(encodeURIComponent(h.conv_id))}" target="_blank" style="font-size:11px;padding:5px 6px;color:var(--dim)" title="La conversación tal como la ve el bot (panel de Forja)">🤖</a>
         <form method="POST" action="/crm/auditoria/resolver" style="margin:0"><input type="hidden" name="id" value="${h.id}"><input type="hidden" name="volver" value="${esc(volver)}"><button class="crm-in" style="font-size:11px;padding:5px 9px;cursor:pointer;color:var(--ok)" title="Ya lo vimos o ya está resuelto">✔ Resuelto</button></form></div>`;
   return `<tr style="border-top:1px solid var(--line);vertical-align:top">

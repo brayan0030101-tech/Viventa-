@@ -13,7 +13,7 @@ import { clavePhone } from "./crm-poragendar.local";
 import { MAX_TAREAS_DIA, fechaDisponibleZoho, nombreDia } from "./crm-agenda.local";
 import { SettingsRepo } from "../src/db/settings";
 import {
-  ZohoError, ESTADOS_HECHOS, cambiarFechaTarea, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
+  ZohoError, ESTADOS_HECHOS, urlFichaZoho, cambiarFechaTarea, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
   tareaPorId, tareasPendientes, transicionesDe, ejecutarTransicion, zohoListo,
   type CandidatoZoho, type FetchFn, type NotaZoho, type TareaZoho,
 } from "./crm-zohoapi.local";
@@ -661,7 +661,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
               <form hx-post="/crm/seguimientos/fecha" hx-target="#fec-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="find button" style="margin:6px 0 0;display:flex;gap:4px;flex-wrap:wrap" title="Cambiar la fecha de esta tarea (sin fines de semana, máximo ${MAX_TAREAS_DIA} por día)">
                 <input type="hidden" name="tarea" value="${esc(x.tarea.id)}"><input type="date" name="fecha" min="${esc(hoy)}" value="${esc(masDias(hoy, 1))}" required class="crm-in" style="font-size:11px;padding:3px 4px;width:118px">
                 <button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar</button></form><span id="fec-${esc(x.tarea.id)}" style="display:block;margin-top:3px"></span></span>
-            <span>${x.enCierre ? `<span style="color:var(--accent);font-size:11px;font-weight:700">🎯 EN CIERRE</span><br>` : x.nivel === "caliente" ? `<span style="color:var(--bad);font-size:11px;font-weight:700">🔥 CALIENTE</span><br>` : ""}<b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span></span>
+            <span>${x.enCierre ? `<span style="color:var(--accent);font-size:11px;font-weight:700">🎯 EN CIERRE</span><br>` : x.nivel === "caliente" ? `<span style="color:var(--bad);font-size:11px;font-weight:700">🔥 CALIENTE</span><br>` : ""}<b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span><br><a href="${esc(urlFichaZoho(env, x.tarea.leadId))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="Abre la ficha de este cliente en Zoho CRM">🔗 Abrir en Zoho</a></span>
             <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Seguimiento")}<br><span class="text-dim" style="font-size:10.5px">${esc(canal)}</span></span>
             <span class="text-dim" style="font-size:11.5px">${x.borrador ? `${ETIQ_TEMP[x.borrador.temperatura].txt}<br>${ETIQ_ACC[x.borrador.accion]}` : "Sin preparar"}</span>
             <span style="text-align:right"><button class="bigbtn" style="cursor:pointer;padding:6px 12px;font-size:12px" hx-post="/crm/seguimientos/preparar" hx-vals='{"tarea":"${esc(x.tarea.id)}"}' hx-target="#bor-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="this">${x.borrador ? "Ver mensaje" : "Preparar mensaje"}</button></span>

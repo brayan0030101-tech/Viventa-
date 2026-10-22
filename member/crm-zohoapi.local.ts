@@ -18,6 +18,11 @@ export function zohoListo(env: Env): boolean {
   return !!(env.ZOHO_CLIENT_ID && env.ZOHO_CLIENT_SECRET && env.ZOHO_REFRESH_TOKEN);
 }
 const cuentas = (env: Env): string => (env.ZOHO_ACCOUNTS_URL || "https://accounts.zoho.com").replace(/\/+$/, "");
+/** Enlace a la ficha de un candidato en el Zoho CRM web (misma región que la API configurada). */
+export function urlFichaZoho(env: Env, leadId: string): string {
+  const reg = /zohoapis\.([a-z.]+)/i.exec(env.ZOHO_API_URL || "")?.[1] ?? "com";
+  return `https://crm.zoho.${reg}/crm/tab/Leads/${encodeURIComponent(leadId)}`;
+}
 const api = (env: Env): string => (env.ZOHO_API_URL || "https://www.zohoapis.com").replace(/\/+$/, "");
 
 export class ZohoError extends Error {

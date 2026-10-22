@@ -314,3 +314,7 @@
 ## 2026-10-22 — Coordinación con la sesión «Datos de ViveHome»
 - Las reglas de cotización compartidas entre las dos sesiones quedan en `member/REGLAS-COTIZACIONES.md`. Quien cambie la cola de cotizaciones, la propuesta de llamada o la calificación debe actualizarlo.
 - 2026-10-22 · Plantilla de cotización: antes de mandarla se aplican las mismas condiciones que para crear la cotización (preguntas base completas, no fríos ni reportados sin plan). Antes solo excluía colombianos, «dijo que no», pausados, descartados, con cita y con cotización de Maricela: se habría cobrado la plantilla a quien luego no recibe cotización. Sin efecto previo (Meta aún no la aprobaba). Anotado en `member/REGLAS-COTIZACIONES.md`. Tests: 40.
+
+## 2026-10-22 — Botón «Abrir en Zoho»
+- Seguimientos: cada cliente lleva el enlace «🔗 Abrir en Zoho» a su ficha de candidato (`urlFichaZoho`, región según `ZOHO_API_URL`).
+- Auditoría: botón «🔗 Zoho» en cada hallazgo; abre `/crm/zoho/abrir?conv=…`, que busca al cliente en Zoho por correo/teléfono (la primera vez, y guarda `zoho_lead_id`) y redirige a su ficha. Si no está en Zoho, muestra un aviso.

@@ -15,14 +15,14 @@ export function textoNotaSeguimiento(canal: string, mensaje: string, hoy: string
 }
 
 /** Id del candidato en Zoho de esta conversación: el guardado, o (si ya figura como registrado) se busca por correo/teléfono y se guarda. */
-async function leadIdDe(env: Env, db: Db, convId: string): Promise<string> {
+async function leadIdDe(env: Env, db: Db, convId: string, buscarSiempre = false): Promise<string> {
   const c = await db.first<{ channel: string; channel_user_id: string; z: string | null; reg: string | null; exi: string | null }>(
     "SELECT channel, channel_user_id, json_extract(metadata,'$.zoho_lead_id') AS z, json_extract(metadata,'$.viventa_registrado') AS reg, json_extract(metadata,'$.viventa_existente') AS exi FROM conversations WHERE id = ?",
     [convId],
   );
   if (!c) return "";
   if (c.z && /^\d{6,30}$/.test(c.z)) return c.z;
-  if (!c.reg && !c.exi) return "";
+  if (!buscarSiempre && !c.reg && !c.exi) return "";
   const leads = await db.all<{ contact: string | null }>("SELECT contact FROM leads WHERE conversation_id = ?", [convId]).catch(() => []);
   const contactos = leads.map((l) => l.contact ?? "").join(" ");
   const correos = contactos.match(/[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+/g) ?? [];
@@ -49,5 +49,16 @@ export async function notaSeguimientoZoho(env: Env, convId: string, canal: strin
   } catch (e) {
     console.error("[notaSeguimientoZoho]", e instanceof Error ? e.message : e);
     return false;
+  }
+}
+
+/** Para el botón «Abrir en Zoho»: id del candidato de esa conversación (busca por correo/teléfono si aún no se conoce). */
+export async function leadZohoDeConversacion(env: Env, convId: string): Promise<string> {
+  try {
+    if (!zohoListo(env)) return "";
+    return await leadIdDe(env, new Db(env.DB), convId, true);
+  } catch (e) {
+    console.error("[leadZohoDeConversacion]", e instanceof Error ? e.message : e);
+    return "";
   }
 }

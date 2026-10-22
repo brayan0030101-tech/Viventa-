@@ -630,6 +630,16 @@ export function crmApp(): Hono<Vars> {
     return pagina(c, await renderCrmRecomendaciones(c.env, r.ok ? { id: r.analisis?.id, mensaje: "✔ Análisis generado." } : { error: r.error }));
   });
 
+  // Botón «Abrir en Zoho»: lleva a la ficha del candidato en el Zoho CRM (lo busca por teléfono/correo la primera vez).
+  app.get("/zoho/abrir", async (c) => {
+    const conv = c.req.query("conv") ?? "";
+    const { leadZohoDeConversacion } = await import("./crm-zohoseguimiento.local");
+    const { urlFichaZoho } = await import("./crm-zohoapi.local");
+    const id = /^[\w:.+-]{3,120}$/.test(conv) ? await leadZohoDeConversacion(c.env, conv) : "";
+    if (id) return c.redirect(urlFichaZoho(c.env, id), 302);
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:sans-serif;max-width:480px;margin:40px auto;padding:0 16px"><h3>No encontré a este cliente en Zoho</h3><p>Todavía no está subido, o su teléfono y correo no coinciden con ninguna ficha. Puedes buscarlo a mano en Zoho.</p><p><a href="javascript:history.back()">← Volver</a></p></body>`, 404);
+  });
+
   // Subir a Zoho
   app.get("/zoho", async (c) => {
     const { renderCrmZoho, pestanaValida } = await import("./crm-zoho.local");

@@ -24,3 +24,11 @@ describe("notaSeguimientoZoho", () => {
     expect(await notaSeguimientoZoho({ DB: {} } as never, "ycloud:34600000001", "ycloud", "hola")).toBe(false);
   });
 });
+
+import { urlFichaZoho } from "../../member/crm-zohoapi.local";
+describe("urlFichaZoho", () => {
+  it("arma el enlace a la ficha según la región de Zoho", () => {
+    expect(urlFichaZoho({} as never, "2259602002412507")).toBe("https://crm.zoho.com/crm/tab/Leads/2259602002412507");
+    expect(urlFichaZoho({ ZOHO_API_URL: "https://www.zohoapis.eu" } as never, "123")).toBe("https://crm.zoho.eu/crm/tab/Leads/123");
+  });
+});
