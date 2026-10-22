@@ -310,3 +310,6 @@
 - Regla de Maricela: cada vez que se vuelve a contactar a un cliente que ya está en Zoho (seguimientos, retomar, recordatorios, cotización) se deja una nota en su ficha. La nota no menciona al bot. Una por cliente y día (`zoho_nota_seguimiento`).
 - Módulo `member/crm-zohoseguimiento.local.ts` (`notaSeguimientoZoho`); se llama desde `sendOutbound`, la rama de plantilla de `enviarACliente` y `crm-retomar`. Requiere `zoho_escritura = activo`. Si falta el id de Zoho, lo busca por correo/teléfono y lo guarda.
 - Las notas de la subida ya no dicen «bot» («Cliente registrado en Viventa…», «Notas de la conversación»).
+
+## 2026-10-22 — Coordinación con la sesión «Datos de ViveHome»
+- Las reglas de cotización compartidas entre las dos sesiones quedan en `member/REGLAS-COTIZACIONES.md`. Quien cambie la cola de cotizaciones, la propuesta de llamada o la calificación debe actualizarlo.
