@@ -25,7 +25,7 @@ import { enlaceWhatsAppTool } from "./puente-whatsapp.local";
 // de Cal.com ya construido en src/integrations/calcom.ts — sin tocar src/.
 export function memberTools(ctx: MemberToolCtx): Record<string, unknown> {
   // Instagram → WhatsApp: el enlace con el mensaje ya escrito (no depende de Cal.com).
-  const base: Record<string, unknown> = { enlaceWhatsApp: enlaceWhatsAppTool(ctx.env, ctx.getConversationId) };
+  const base: Record<string, unknown> = ctx.env.YCLOUD_WA_FROM ? { enlaceWhatsApp: enlaceWhatsAppTool(ctx.env, ctx.getConversationId) } : {};
   if (!calcomConfigured(ctx.env)) return base;
   return {
     ...base,
