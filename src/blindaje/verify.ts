@@ -23,6 +23,13 @@ import { Db } from "../db/client";
 import { SettingsRepo, SETTING_KEYS } from "../db/settings";
 import { createHandoffTicket } from "../tools/handoffHuman";
 
+/**
+ * Cuánto del system prompt ve el verificador. Era 24.000: las instrucciones de Viventa llegaron a 45.000 y las reglas del final
+ * (cuota mínima de 1.300.000 / 400 €, CDT, prima…) quedaban fuera, así que el verificador las marcaba «sin respaldo» y el bot contestaba
+ * «Esa me la confirma el equipo» en vez de explicar el mínimo (22 oct 2026, cliente Elizabeth). Ahora cabe todo con margen.
+ */
+export const MAX_SYSTEM_PROMPT_CHARS = 80_000;
+
 /** Tope duro del verificador: si el modelo no contesta a tiempo, fail-open. */
 export const VERIFY_TIMEOUT_MS = 4000;
 
@@ -230,7 +237,7 @@ FUENTES (información oficial del negocio — TODAS cuentan igual como respaldo)
 ${businessContext || "(vacío)"}
 </contexto_negocio>
 <instrucciones_oficiales_del_bot>
-${(opts.systemPrompt ?? "").slice(0, 24000) || "(sin instrucciones)"}
+${(opts.systemPrompt ?? "").slice(0, MAX_SYSTEM_PROMPT_CHARS) || "(sin instrucciones)"}
 </instrucciones_oficiales_del_bot>
 <pasajes_kb>
 ${passagesBlock}

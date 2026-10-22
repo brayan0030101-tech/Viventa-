@@ -244,6 +244,20 @@ describe("guardReply — veredictos", () => {
     expect(await settings.get(SETTING_KEYS.blindajeBlocked)).toBeNull();
   });
 
+  it("un system prompt largo (45.000 caracteres) llega ENTERO al verificador: las reglas del final también son fuente oficial", async () => {
+    generateTextMock.mockResolvedValue(verdict(true));
+    await guardReply(env, {
+      replyText: "Lo mínimo que se necesita es una cuota de 1.300.000 pesos al mes.",
+      turnUsedKb: false,
+      kbPassages: [],
+      businessContext: "",
+      systemPrompt: `${"x".repeat(45_000)}\nREGLA FINAL: el mínimo es 1.300.000 pesos al mes (unos 400 euros).`,
+      conversationId: convId,
+    });
+    const prompt = (generateTextMock.mock.calls[0][0] as { prompt: string }).prompt;
+    expect(prompt).toContain("REGLA FINAL: el mínimo es 1.300.000 pesos al mes");
+  });
+
   it("unsupported → respuesta segura + ticket con el claim + aviso al dueño", async () => {
     generateTextMock.mockResolvedValue(verdict(false, "el corte cuesta $80"));
 
