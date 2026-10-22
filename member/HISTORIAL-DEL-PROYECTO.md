@@ -305,3 +305,8 @@
 - Las tareas del bot llevan siempre el mismo título (`ASUNTO_TAREA_BOT`) para que Camila las distinga.
 - Al marcar «subido» (por el bot o a mano) se marcan también las conversaciones de la misma persona (puente IG↔WA o mismo teléfono) con `conversacionesHermanas`, para que no aparezca otra vez en «Subir clientes».
 - Diag `zoho_diag_pedir = tareas_bot:<conv>,<conv>` corrige las tareas ya creadas (título y fecha de hoy).
+
+## 2026-10-22 — Nota en Zoho en cada seguimiento
+- Regla de Maricela: cada vez que se vuelve a contactar a un cliente que ya está en Zoho (seguimientos, retomar, recordatorios, cotización) se deja una nota en su ficha. La nota no menciona al bot. Una por cliente y día (`zoho_nota_seguimiento`).
+- Módulo `member/crm-zohoseguimiento.local.ts` (`notaSeguimientoZoho`); se llama desde `sendOutbound`, la rama de plantilla de `enviarACliente` y `crm-retomar`. Requiere `zoho_escritura = activo`. Si falta el id de Zoho, lo busca por correo/teléfono y lo guarda.
+- Las notas de la subida ya no dicen «bot» («Cliente registrado en Viventa…», «Notas de la conversación»).

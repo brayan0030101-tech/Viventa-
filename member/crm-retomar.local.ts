@@ -3,6 +3,7 @@
 // Arranca solo cuando Meta aprueba la plantilla, de a pocos por pasada y en el horario de cada cliente. Salta a quien ya tiene cita, a quien atendió una persona
 // (también desde la app de WhatsApp Business: se compara con lo que YCloud registró) y a quien ya se le mandó.
 import type { Env } from "../src/env";
+import { notaSeguimientoZoho } from "./crm-zohoseguimiento.local";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
 import { MessagesRepo } from "../src/db/messages";
@@ -116,6 +117,7 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
     try {
       await sendYCloudTemplate(env, c.channel_user_id, TPL_RETOMAR, "es_ES", []);
       await new MessagesRepo(db).append(c.id, "assistant", TEXTO_RETOMAR, { createdAt: now });
+      await notaSeguimientoZoho(env, c.id, "ycloud", TEXTO_RETOMAR, now);
       await marca(c.id, new Date(now).toISOString());
       out.sent++;
       seguidosFallidos = 0;
@@ -154,6 +156,7 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
       try {
         await sendYCloudTemplate(env, c.channel_user_id, TPL_RETOMAR, "es_ES", []);
         await new MessagesRepo(db).append(c.id, "assistant", TEXTO_RETOMAR, { createdAt: now });
+        await notaSeguimientoZoho(env, c.id, "ycloud", TEXTO_RETOMAR, now);
         await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.viventa_retomar2', ?) WHERE id = ?", [new Date(now).toISOString(), c.id]);
         out.sent++;
         seguidosFallidos = 0;

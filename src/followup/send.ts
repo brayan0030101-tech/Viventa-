@@ -35,4 +35,7 @@ export async function sendOutbound(
     },
     env,
   );
+  // Regla de Maricela: todo seguimiento a un cliente que ya está en Zoho deja nota en su ficha.
+  const { notaSeguimientoZoho } = await import("../../member/crm-zohoseguimiento.local");
+  await notaSeguimientoZoho(env, target.conversationId, target.channel, target.text, now);
 }

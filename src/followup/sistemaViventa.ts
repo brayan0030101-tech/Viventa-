@@ -121,6 +121,8 @@ export async function enviarACliente(
   await sendYCloudTemplate(env, conv.channel_user_id, nombre, lang, plantilla.params);
   await new MessagesRepo(db).append(conv.id, "assistant", text);
   await new ConversationsRepo(db).touchLastMessage(conv.id, now);
+  const { notaSeguimientoZoho } = await import("../../member/crm-zohoseguimiento.local");
+  await notaSeguimientoZoho(env, conv.id, conv.channel, text, now);
   return "plantilla";
 }
 

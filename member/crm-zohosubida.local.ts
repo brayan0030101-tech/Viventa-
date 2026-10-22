@@ -88,12 +88,12 @@ export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: stri
   const m = l.ficha.metadata;
   const linea = (k: string, v?: string) => (v ? `${k}: ${v}` : "");
   return [
-    `Cliente registrado por el bot de Viventa el ${hoy(now)} (llegó por ${canal}).`,
+    `Cliente registrado en Viventa el ${hoy(now)} (llegó por ${canal}).`,
     linea("Quiere comprar en", m.ciudadCompra), linea("Vive en", m.ciudadResidencia), linea("Para", m.motivoCompra), linea("Entrega", m.entregaInmediataOFutura),
     linea("Ahorro", m.ahorroDisponible), linea("Puede destinar al mes", m.capacidadMensual), linea("Trabajo", m.tipoEmpleo), linea("Ingresos", m.ingresosMensuales),
     linea("Reportado en Datacrédito", m.reportadoDatacredito), linea("¿Puede quitar el reporte?", m.puedeQuitarReporte),
     linea("Compra", m.compraSoloOAcompanado), linea("Datos de quien compra con él/ella", m.datosCoComprador), linea("Ingresos de la otra persona", m.ingresosCoComprador),
-    linea("Notas del bot", resumirNotas(l.ficha.notas)),
+    linea("Notas de la conversación", resumirNotas(l.ficha.notas)),
     cotizada ? "Ya se le envió una cotización." : "Todavía no se le ha enviado cotización.",
     ultimoMensaje ? `Su último mensaje: «${ultimoMensaje.replace(/\s+/g, " ").slice(0, 160)}»` : "",
     "Siguiente paso: escribirle por WhatsApp y, si le interesa, agendar la videollamada.",
@@ -165,7 +165,7 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
 export async function pasarAProspeccion(env: Env, leadId: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
   const trans = (await transicionesDe(env, leadId, f, now).catch(() => [])).find((t) => /prospect/i.test(t.nombre));
   if (trans) {
-    await ejecutarTransicion(env, leadId, trans.id, trans.pideNota ? { Notes: "El bot completó la prospección y dejó nota y tarea." } : {}, f, now);
+    await ejecutarTransicion(env, leadId, trans.id, trans.pideNota ? { Notes: "Prospección completada: se dejó nota y tarea." } : {}, f, now);
     return `transición «${trans.nombre}»`;
   }
   await cambiarEstadoCandidato(env, leadId, ESTADO_PROSPECCION, f, now);
