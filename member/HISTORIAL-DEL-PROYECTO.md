@@ -321,3 +321,8 @@
 
 ## 2026-10-22 — Seguimientos: botones WhatsApp y panel
 - Bajo «Abrir en Zoho» ahora hay «💬 Abrir en WhatsApp» (wa.me con su teléfono) y «🤖 Abrir en el panel» (conversación en el panel de Forja, solo si el cliente tiene conversación con el bot; `FilaSeguimiento.convId`).
+
+## 2026-10-22 — Seguimientos: «Preparar mensaje» más rápido
+- Las consultas a Zoho (tarea, candidato, notas) van en paralelo usando el id del candidato que ya trae la fila (`lead`), y el candidato de los botones se pide a la vez que el borrador.
+- Aviso «⏳ Preparando…» mientras trabaja (antes parecía congelado y se pulsaba dos veces).
+- `prepararBorradoresPendientes`: en el ciclo de 15 min deja listos hasta 2 mensajes de los seguimientos de hoy (cierre y calientes primero), de 7:00 a 21:00 Madrid, para que «Ver mensaje» sea instantáneo. Apagar con `crm_seg_prebuild = apagado`.

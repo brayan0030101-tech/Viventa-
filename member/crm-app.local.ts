@@ -487,7 +487,7 @@ export function crmApp(): Hono<Vars> {
   app.post("/seguimientos/preparar", async (c) => {
     const { fragmentoBorrador } = await import("./crm-seguimientos.local");
     const f = await c.req.parseBody();
-    return c.html(await fragmentoBorrador(c.env, String(f["tarea"] ?? ""), f["r"] === "1"));
+    return c.html(await fragmentoBorrador(c.env, String(f["tarea"] ?? ""), f["r"] === "1", Date.now(), undefined, String(f["lead"] ?? "")));
   });
 
   // Instrucciones del bot (historial y restaurar) y pruebas del bot: solo administrador

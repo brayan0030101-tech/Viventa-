@@ -414,7 +414,7 @@ export async function localDe(env: Env, telefonos: string[], nombre: string): Pr
 export async function prepararBorrador(
   env: Env,
   tareaId: string,
-  opts: { forzar?: boolean; f?: FetchFn } = {},
+  opts: { forzar?: boolean; f?: FetchFn; leadId?: string } = {},
   now = Date.now(),
 ): Promise<{ ok: true; borrador: Borrador; reutilizado: boolean } | { ok: false; error: string }> {
   const db = new Db(env.DB);
@@ -435,11 +435,23 @@ export async function prepararBorrador(
   let cand: CandidatoZoho | undefined;
   let notas: NotaZoho[];
   try {
-    tarea = await tareaPorId(env, tareaId, opts.f, now);
+    // Si la pantalla ya sabe de qué candidato es la tarea, las tres consultas a Zoho van en paralelo (antes eran en fila).
+    const pista = /^\d{6,30}$/.test(opts.leadId ?? "") ? opts.leadId! : "";
+    const [t, cands, ns] = await Promise.all([
+      tareaPorId(env, tareaId, opts.f, now),
+      pista ? candidatosPorIds(env, [pista], opts.f, now) : Promise.resolve(null),
+      pista ? notasDe(env, pista, 8, opts.f, now) : Promise.resolve(null),
+    ]);
+    tarea = t;
     if (!tarea || !tarea.leadId) return { ok: false, error: "No encontré esa tarea en Zoho (¿ya se completó?)." };
-    cand = (await candidatosPorIds(env, [tarea.leadId], opts.f, now)).get(tarea.leadId);
+    if (pista && tarea.leadId === pista && cands && ns) {
+      cand = cands.get(pista);
+      notas = ns;
+    } else {
+      cand = (await candidatosPorIds(env, [tarea.leadId], opts.f, now)).get(tarea.leadId);
+      notas = cand ? await notasDe(env, tarea.leadId, 8, opts.f, now) : [];
+    }
     if (!cand) return { ok: false, error: "Esa tarea no es de un candidato." };
-    notas = await notasDe(env, tarea.leadId, 8, opts.f, now);
   } catch (e) {
     console.error("[crm-seguimientos] zoho:", e);
     return { ok: false, error: e instanceof ZohoError ? e.message : "No pude consultar Zoho ahora. Inténtalo en unos minutos." };
@@ -619,18 +631,22 @@ export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota:
   return tarjetaHechoZoho(await aplicarEnZoho(env, tareaId, entrada, { f }, now), tareaId);
 }
 
-export async function fragmentoBorrador(env: Env, tareaId: string, forzar: boolean, now = Date.now(), f?: FetchFn): Promise<string> {
+export async function fragmentoBorrador(env: Env, tareaId: string, forzar: boolean, now = Date.now(), f?: FetchFn, leadId?: string): Promise<string> {
   const db0 = new Db(env.DB);
   await asegurarTablaHecho(db0);
   const hecho = await db0.first<{ pasos: string }>("SELECT pasos FROM crm_seg_hecho WHERE tarea_id = ? AND completo = 1", [tareaId]);
   if (hecho) return tarjetaHechoZoho({ ok: true, pasos: JSON.parse(hecho.pasos) as PasosHechos, yaHecho: true, siguiente: null }, tareaId);
-  const r = await prepararBorrador(env, tareaId, { forzar, f }, now);
+  const pista = /^\d{6,30}$/.test(leadId ?? "") ? leadId! : "";
+  // El candidato (para los botones de WhatsApp/panel) se pide al mismo tiempo que el borrador, no después.
+  const candPronto = pista ? candidatosPorIds(env, [pista], f, now).catch(() => null) : null;
+  const r = await prepararBorrador(env, tareaId, { forzar, f, leadId: pista }, now);
   if (!r.ok) {
     return `<div style="color:var(--bad);font-size:12.5px;margin-top:8px">${esc(r.error)}</div>`;
   }
   let cand: { movil: string; telefono: string; convId?: string } = { movil: "", telefono: "" };
   try {
-    const c = (await candidatosPorIds(env, [r.borrador.leadId], f, now)).get(r.borrador.leadId);
+    const mapa = candPronto && pista === r.borrador.leadId ? await candPronto : null;
+    const c = (mapa ?? (await candidatosPorIds(env, [r.borrador.leadId], f, now))).get(r.borrador.leadId);
     if (c) {
       cand = { movil: c.movil, telefono: c.telefono };
       const local = await localDe(env, [c.movil, c.telefono], c.nombre);
@@ -673,7 +689,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
             })()}</span>
             <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Seguimiento")}<br><span class="text-dim" style="font-size:10.5px">${esc(canal)}</span></span>
             <span class="text-dim" style="font-size:11.5px">${x.borrador ? `${ETIQ_TEMP[x.borrador.temperatura].txt}<br>${ETIQ_ACC[x.borrador.accion]}` : "Sin preparar"}</span>
-            <span style="text-align:right"><button class="bigbtn" style="cursor:pointer;padding:6px 12px;font-size:12px" hx-post="/crm/seguimientos/preparar" hx-vals='{"tarea":"${esc(x.tarea.id)}"}' hx-target="#bor-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="this">${x.borrador ? "Ver mensaje" : "Preparar mensaje"}</button></span>
+            <span style="text-align:right"><button class="bigbtn" style="cursor:pointer;padding:6px 12px;font-size:12px" hx-post="/crm/seguimientos/preparar" hx-vals='{"tarea":"${esc(x.tarea.id)}","lead":"${esc(x.tarea.leadId)}"}' hx-target="#bor-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#ind-${esc(x.tarea.id)}">${x.borrador ? "Ver mensaje" : "Preparar mensaje"}</button><span id="ind-${esc(x.tarea.id)}" class="htmx-indicator" style="display:block;font-size:10.5px;color:var(--accent);margin-top:4px">⏳ Preparando… espera unos segundos, no hace falta volver a pulsar</span></span>
             <div id="bor-${esc(x.tarea.id)}" style="grid-column:1/-1"></div>
           </div>`;
         })
@@ -711,4 +727,22 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
     <div class="text-dim" style="font-size:12.5px;margin-bottom:14px">Las tareas de seguimiento de Zoho que toca hacer hoy o que ya se pasaron. Pulsa <b style="color:var(--cream)">Preparar mensaje</b> y la IA lee la nota del candidato y te propone qué escribirle (o si hay que pasarlo a «Cliente perdido», «Descartado» o «Revisar en el futuro»).</div>
     ${cuerpo}${seccionOps}`;
   return crmLayout({ title: "Seguimientos", activa: "seguimientos", body, env });
+}
+
+/**
+ * Deja listos los mensajes de los seguimientos de hoy para que «Ver mensaje» sea instantáneo. Cada pasada prepara hasta 2 (los de
+ * clientes en cierre y calientes primero), de 7:00 a 21:00 hora de Madrid. Se apaga con el ajuste `crm_seg_prebuild = apagado`.
+ */
+export async function prepararBorradoresPendientes(env: Env, now = Date.now(), f?: FetchFn): Promise<number> {
+  if (!zohoListo(env)) return 0;
+  const hora = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Madrid", hour: "2-digit", hourCycle: "h23" }).format(new Date(now)));
+  if (hora < 7 || hora >= 21) return 0;
+  const db = new Db(env.DB);
+  if ((((await new SettingsRepo(db).get("crm_seg_prebuild")) ?? "").trim().toLowerCase()) === "apagado") return 0;
+  await asegurarTablaHecho(db);
+  const { filas } = await cargarSeguimientos(env, now, f);
+  const hechas = new Set((await db.all<{ tarea_id: string }>("SELECT tarea_id FROM crm_seg_hecho WHERE completo = 1")).map((r) => r.tarea_id));
+  const faltan = filas.filter((x) => !x.borrador && !hechas.has(x.tarea.id)).slice(0, 2);
+  const res = await Promise.all(faltan.map((x) => prepararBorrador(env, x.tarea.id, { f, leadId: x.tarea.leadId }, now).catch(() => ({ ok: false as const }))));
+  return res.filter((r) => r.ok).length;
 }
