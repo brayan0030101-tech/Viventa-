@@ -115,10 +115,10 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         error: t.status >= 400 ? t.json : undefined,
       };
     } else if (pedido.startsWith("cal:slots:")) {
-      const dia = pedido.slice(10);
-      const r = await fetch(`https://api.cal.com/v2/slots?eventTypeId=${Number(env.CALCOM_EVENT_TYPE_ID || 0)}&start=${dia}&end=${dia}&timeZone=Europe%2FMadrid`, { headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": "2024-09-04" } });
+      const [dia, fin = dia] = pedido.slice(10).split("/");
+      const r = await fetch(`https://api.cal.com/v2/slots?eventTypeId=${Number(env.CALCOM_EVENT_TYPE_ID || 0)}&start=${dia}&end=${fin}&timeZone=Europe%2FMadrid`, { headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": "2024-09-04" } });
       const j: any = await r.json().catch(() => ({}));
-      out = { http: r.status, dia, slots: Object.values(j?.data ?? {}).flat().map((x: any) => String(x?.start ?? x).slice(11, 16)) };
+      out = { http: r.status, dia, fin, porDia: Object.fromEntries(Object.entries(j?.data ?? {}).map(([d, v]) => [d, (v as any[]).map((x: any) => String(x?.start ?? x).slice(11, 16))])) };
     } else if (pedido === "cal:leer" || pedido.startsWith("cal:ajustar:")) {
       // Duración del evento de Cal.com (pedido de Maricela 21 oct: 45 min con una hora entre inicios). «cal:ajustar:45:60» = duración:intervalo.
       const id = Number(env.CALCOM_EVENT_TYPE_ID || 0);
@@ -336,6 +336,20 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         }
       }
       out = { postsStatus: posts.status, posts: lista.length, conComentarios: lista.filter((x) => (x.commentCount ?? 0) > 0).length, leidos, clases, filas: filas.slice(0, 45), error: posts.status >= 400 ? posts.j : undefined };
+    } else if (pedido.startsWith("reanudar_y_escribir:")) {
+      // «reanudar_y_escribir:<conv>|<texto>»: quita la pausa del bot y le escribe al cliente (dentro de la ventana de 24 h).
+      const db = new Db(env.DB);
+      const [conv, ...resto] = pedido.slice(20).split("|");
+      const texto = resto.join("|").trim();
+      const c = await db.first<{ id: string; channel: string; channel_user_id: string }>("SELECT id, channel, channel_user_id FROM conversations WHERE id = ?", [conv]);
+      if (!c || !texto) out = { error: "conversación o texto no válidos" };
+      else {
+        const { ConversationsRepo } = await import("../src/db/conversations");
+        await new ConversationsRepo(db).setPausedUntil(c.id, null);
+        const { sendOutbound } = await import("../src/followup/send");
+        await sendOutbound(env, { conversationId: c.id, channel: c.channel, channelUserId: c.channel_user_id, text: texto });
+        out = { ok: true, conv: c.id };
+      }
     } else if (pedido.startsWith("responder:")) {
       // Responde comentarios pendientes de Instagram (mensaje privado y/o respuesta pública) con los textos aprobados por el dueño.
       const base = (env.ZERNIO_API_BASE || "https://zernio.com/api/v1").replace(/\/$/, "");
