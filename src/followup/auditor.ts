@@ -291,8 +291,25 @@ export async function runAuditor(env: Env, now = Date.now()): Promise<{ nuevos: 
     }
   }
   let nuevos = 0;
+  let reintentos = 0;
   for (const c of candidatos) {
-    if (await registrarHallazgo(env, { tipo: c.tipo, convId: c.convId, clave: c.clave, detalle: c.detalle }, now)) nuevos++;
+    if (await registrarHallazgo(env, { tipo: c.tipo, convId: c.convId, clave: c.clave, detalle: c.detalle }, now)) {
+      nuevos++;
+      // Un cliente sin respuesta no puede esperar a que alguien lo vea (caso zolanyi24, 23 oct 2026: el turno del bot se cortó y estuvo 1 h callado).
+      // Se le hace UN reintento automático por mensaje (el hallazgo solo es «nuevo» una vez): el bot vuelve a contestar su último mensaje.
+      if (c.tipo === "sin_respuesta" && reintentos < 3) {
+        reintentos++;
+        try {
+          const conv = await db.first<{ channel: string; channel_user_id: string }>("SELECT channel, channel_user_id FROM conversations WHERE id = ?", [c.convId]);
+          if (conv) {
+            const { agentStub } = await import("../agent-stub");
+            await agentStub(env, conv.channel as never, conv.channel_user_id).retryFailedTurn({ id: c.convId, channel: conv.channel, channelUserId: conv.channel_user_id });
+          }
+        } catch (e) {
+          console.error(`[auditor] reintento de ${c.convId}:`, e);
+        }
+      }
+    }
   }
   const cerrados = await cerrarResueltos(db, now);
   // Un cliente olvidado sigue esperando: se vuelve a avisar cada 12 h mientras nadie conteste.

@@ -340,3 +340,8 @@
 ## 2026-10-23 — Subida a Zoho: 60 días y prospección incompleta
 - La subida automática revisa conversaciones de los últimos 60 días (antes 20; hasta 400 por pasada).
 - Se suben también los de prospección incompleta (decisión de Brayan/Maricela, para intentar activarlos): solo si llevan ≥2 días sin hablar, no son fríos por datos reales (ingresos/cuota bajos, reportado sin plan) y tienen ficha con teléfono o correo. La nota de Zoho dice qué preguntas faltan. Siguen sin subirse los que no tienen ficha, colombianos, los que dijeron que no, perdidos y descartados.
+
+## 2026-10-23 — Cliente sin respuesta: reintento automático (caso zolanyi24)
+- Un cliente reactivado escribió «Hola pero nunca me llamaron» y el turno del bot se cortó sin responder (sin error registrado; solo quedó el ticket de entrega y el aviso del auditor a los 10 min). Estuvo ~1 h sin respuesta.
+- Se reintentó a mano con el diag `reintentar:<conv>` y el bot contestó bien.
+- Ahora el auditor, al detectar por primera vez un «cliente sin respuesta» (10 min), le hace UN reintento automático al bot (`retryFailedTurn`, máx. 3 por pasada). Si vuelve a fallar, queda el aviso a Camila como siempre.

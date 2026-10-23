@@ -9,6 +9,9 @@ vi.mock("../../src/lib/camila", async (importOriginal) => {
   return { ...actual, notifyCamila: (...a: unknown[]) => notifyMock(...a) };
 });
 
+const reintentoMock = vi.fn();
+vi.mock("../../src/agent-stub", () => ({ agentStub: () => ({ retryFailedTurn: (...a: unknown[]) => reintentoMock(...a) }) }));
+
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
@@ -32,6 +35,7 @@ beforeEach(async () => {
   convs = new ConversationsRepo(db);
   msgs = new MessagesRepo(db);
   notifyMock.mockReset().mockResolvedValue(true);
+  reintentoMock.mockReset().mockResolvedValue(undefined);
 });
 
 async function conv(tel: string, nombre: string) {
@@ -54,6 +58,16 @@ describe("auditor", () => {
     const r = await runAuditor(env, NOW + 10 * MIN);
     expect(r.cerrados).toBe(1);
     expect((await abiertos())[0].resuelto_en).not.toBeNull();
+  });
+
+  it("a un cliente sin respuesta el bot lo reintenta una sola vez, automáticamente", async () => {
+    const id = await conv("34600000021", "Zola");
+    await msgs.append(id, "user", "Hola pero nunca me llamaron, ¿qué pasó?", { createdAt: NOW - 15 * MIN });
+    await runAuditor(env, NOW);
+    expect(reintentoMock).toHaveBeenCalledTimes(1);
+    expect(reintentoMock.mock.calls[0][0]).toMatchObject({ id });
+    await runAuditor(env, NOW + 5 * MIN);
+    expect(reintentoMock).toHaveBeenCalledTimes(1);
   });
 
   it("no avisa por cortesías, por mensajes recientes ni por conversaciones pausadas", async () => {
