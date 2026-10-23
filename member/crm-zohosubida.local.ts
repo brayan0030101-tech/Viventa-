@@ -84,11 +84,14 @@ export function resumirNotas(notas: string): string {
   return out.join(" ").slice(0, 600);
 }
 
-export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: string, canal: string, now: number): string {
+const ETIQUETA_PREGUNTA: Record<string, string> = { ciudadResidencia: "dónde vive", ciudadCompra: "dónde quiere comprar", entregaInmediataOFutura: "entrega inmediata o futura", ahorroDisponible: "ahorro", capacidadMensual: "cuánto puede pagar al mes", tipoEmpleo: "tipo de trabajo", ingresosMensuales: "ingresos" };
+
+export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: string, canal: string, now: number, faltan: string[] = []): string {
   const m = l.ficha.metadata;
   const linea = (k: string, v?: string) => (v ? `${k}: ${v}` : "");
   return [
     `Cliente registrado en Viventa el ${hoy(now)} (llegó por ${canal}).`,
+    faltan.length ? `Prospección incompleta: faltan ${faltan.map((k) => ETIQUETA_PREGUNTA[k] ?? k).join(", ")}. Se sube para intentar activarlo: escribirle o llamarlo para completar los datos.` : "",
     linea("Quiere comprar en", m.ciudadCompra), linea("Vive en", m.ciudadResidencia), linea("Para", m.motivoCompra), linea("Entrega", m.entregaInmediataOFutura),
     linea("Ahorro", m.ahorroDisponible), linea("Puede destinar al mes", m.capacidadMensual), linea("Trabajo", m.tipoEmpleo), linea("Ingresos", m.ingresosMensuales),
     linea("Reportado en Datacrédito", m.reportadoDatacredito), linea("¿Puede quitar el reporte?", m.puedeQuitarReporte),
@@ -118,8 +121,10 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
   if (!lead) return { motivoNo: "todavía no hay ficha del cliente" };
   const cal = evaluarCalificacion(lead.ficha.metadata);
   const faltan = cal.faltan.filter((k) => BASE_PREGUNTAS.includes(k));
-  if (faltan.length) return { motivoNo: `faltan preguntas (${faltan.join(", ")}): primero se completa la prospección` };
-  if (lead.prioridad.nivel === "frio") return { motivoNo: "cliente frío: no se sube" };
+  // Prospección incompleta (decisión del 23 oct): se sube para que Maricela intente activarlo, pero solo si lleva ≥2 días sin hablar
+  // (si no, el bot sigue en el guion) y si no es frío por datos reales (ingresos/cuota bajos, reportado sin plan).
+  if (faltan.length && now - conv.last_message_at < 2 * 86_400_000) return { motivoNo: `faltan preguntas (${faltan.join(", ")}): el bot sigue con el guion (habló hace menos de 2 días)` };
+  if (lead.prioridad.nivel === "frio" && (cal.motivo || !faltan.length)) return { motivoNo: "cliente frío: no se sube" };
   if (cal.reportado && cal.puedeQuitarReporte !== true) return { motivoNo: "reportado sin plan de ponerse al día" };
   if (!lead.telefono && !lead.correo) return { motivoNo: "no hay teléfono ni correo" };
 
@@ -153,7 +158,7 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
   return {
     plan: {
       convId, nombre: lead.nombre, telefono: lead.telefono, correo: lead.correo, nivel: lead.prioridad.nivel, datos,
-      nota: armarNota(lead, (cot?.n ?? 0) > 0, ult?.content ?? "", canal, now),
+      nota: armarNota(lead, (cot?.n ?? 0) > 0, ult?.content ?? "", canal, now, faltan),
       tarea: { asunto: ASUNTO_TAREA_BOT, deseada: hoy(now) },
     },
   };
@@ -244,7 +249,7 @@ export async function runSubidaZoho(env: Env, now = Date.now(), f: FetchFn = fet
   const db = new Db(env.DB);
   let ids: string[];
   if (modo === "piloto") ids = ((await st.get(AJUSTE_SUBIDA_IDS)) ?? "").split(/[,;\s]+/).filter(Boolean).slice(0, 10);
-  else ids = (await db.all<{ id: string }>("SELECT id FROM conversations WHERE channel IN ('ycloud','zernio') AND last_message_at > ? AND COALESCE(json_extract(metadata,'$.viventa_registrado'),'') = '' AND COALESCE(json_extract(metadata,'$.viventa_existente'),'') = '' ORDER BY last_message_at DESC LIMIT 200", [now - 20 * 86_400_000])).map((r) => r.id);
+  else ids = (await db.all<{ id: string }>("SELECT id FROM conversations WHERE channel IN ('ycloud','zernio') AND last_message_at > ? AND COALESCE(json_extract(metadata,'$.viventa_registrado'),'') = '' AND COALESCE(json_extract(metadata,'$.viventa_existente'),'') = '' ORDER BY last_message_at DESC LIMIT 400", [now - 60 * 86_400_000])).map((r) => r.id);
   let intentos = 0;
   const resumen: string[] = [];
   for (const id of ids) {

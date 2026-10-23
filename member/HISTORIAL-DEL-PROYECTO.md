@@ -336,3 +336,7 @@
 - Causa: Diana pidió cambiar la llamada; el bot canceló la cita y `proponerLlamada` le contestó `no_cumple_condiciones` (cuota ~1 M COP → fría), así que no pudo ofrecer horarios y pasó el caso al equipo.
 - `proponerLlamada` acepta `reprogramar: true` y, si la conversación ya tuvo una cita «Videollamada», salta las condiciones (frío, preguntas, cotización, reportado). El mensaje de la herramienta dice «REAGENDANDO… no canceles hasta que elija; nunca pases el caso al equipo».
 - Instrucciones del bot (D1): regla «REAGENDAR SIEMPRE LO HACES TU» (respaldo `custom_instructions_respaldo_20261023_reagendar`): no cancelar antes de que el cliente elija el nuevo horario, sin handoff/pauseBot por reagendar. Añadida a los marcadores del guardián.
+
+## 2026-10-23 — Subida a Zoho: 60 días y prospección incompleta
+- La subida automática revisa conversaciones de los últimos 60 días (antes 20; hasta 400 por pasada).
+- Se suben también los de prospección incompleta (decisión de Brayan/Maricela, para intentar activarlos): solo si llevan ≥2 días sin hablar, no son fríos por datos reales (ingresos/cuota bajos, reportado sin plan) y tienen ficha con teléfono o correo. La nota de Zoho dice qué preguntas faltan. Siguen sin subirse los que no tienen ficha, colombianos, los que dijeron que no, perdidos y descartados.
