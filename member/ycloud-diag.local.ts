@@ -339,7 +339,7 @@ export async function runYcloudDiag(env: Env): Promise<void> {
     } else if (pedido.startsWith("reintentar:")) {
       // «reintentar:<conv>»: el bot vuelve a contestar el último mensaje del cliente si quedó sin respuesta (mismo mecanismo de los reintentos de IA).
       const db = new Db(env.DB);
-      const c = await db.first<{ id: string; channel: string; channel_user_id: string }>("SELECT id, channel, channel_user_id FROM conversations WHERE id = ?", [pedido.slice(10)]);
+      const c = await db.first<{ id: string; channel: string; channel_user_id: string }>("SELECT id, channel, channel_user_id FROM conversations WHERE id = ?", [pedido.slice(11)]);
       if (!c) out = { error: "conversación no encontrada" };
       else {
         const { agentStub } = await import("../src/agent-stub");
