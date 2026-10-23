@@ -67,6 +67,19 @@ describe("proponerLlamada", () => {
   }
   const correr = (id: string) => (proponerLlamadaTool(env, () => id) as any).execute({});
 
+  it("reagendar siempre se puede: quien ya tuvo una cita agendada no pasa por «no cumple» aunque sea frío", async () => {
+    const id = await cliente({ ciudadCompra: "Cali", ingresosMensuales: "1500", capacidadMensual: "150 euros" });
+    await db.run("INSERT INTO leads (id, conversation_id, name, contact, intent, metadata, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)", ["c1", id, "Ana López", "ana@x.com", "Cita · Videollamada Viventa", "{}", "new", NOW, NOW]);
+    const r = await correr(id);
+    expect(r.ofrecerLlamada).toBe(true);
+    expect(r.message).toContain("REAGENDANDO");
+    expect(r.message).toContain("Nunca pases el caso al equipo");
+  });
+  it("con reprogramar: true ofrece horarios aunque ya tenga la llamada", async () => {
+    const id = await cliente({ ciudadCompra: "Cali", ingresosMensuales: "5000", capacidadMensual: "800 euros" });
+    const r = await (proponerLlamadaTool(env, () => id) as any).execute({ reprogramar: true });
+    expect(r.ofrecerLlamada).toBe(true);
+  });
   it("cliente frío (destina menos de 300 €): no se ofrece la llamada y se le da el mensaje de «no cumple»", async () => {
     const id = await cliente({ ciudadCompra: "Cali", ingresosMensuales: "1500", capacidadMensual: "150 euros" });
     const r = await correr(id);

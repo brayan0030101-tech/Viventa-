@@ -203,8 +203,12 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         .enum(["dia", "noche"])
         .optional()
         .describe("«dia» (por defecto) o «noche»: solo si el cliente dice que no puede de día (martes y jueves, 18:00 a 20:00)."),
+      reprogramar: z
+        .boolean()
+        .optional()
+        .describe("true cuando el cliente YA tiene (o tuvo) una videollamada agendada y pide cambiarla o reagendarla: devuelve los horarios libres sin aplicar las condiciones de calificación."),
     }),
-    execute: async ({ horario }) => {
+    execute: async ({ horario, reprogramar }) => {
       const ventana = horario === "noche" ? VENTANA_NOCHE : VENTANA_DIA;
       const convId = getConversationId();
       if (!convId) return { ofrecerLlamada: false as const, motivo: "sin_conversacion" };
@@ -232,18 +236,22 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         const llamadas = await llamadasAgendadas(db, now);
         const [lead] = armarLeads(convs, leads, llamadas);
         if (!lead) return { ofrecerLlamada: false as const, motivo: "sin_ficha" };
-        if (lead.llamada) {
+        // Reagendar SIEMPRE se puede: quien ya tuvo una videollamada agendada (aunque se haya cancelado) o la pide reprogramar no pasa por
+        // las condiciones de calificación (23 oct 2026: a Diana se le canceló la cita y la regla «no cumple» le impidió reagendar).
+        const tuvoCita = !!(await db.first<{ n: number }>("SELECT 1 AS n FROM leads WHERE conversation_id = ? AND intent LIKE 'Cita · Videollamada%' LIMIT 1", [convId]));
+        const reagendando = reprogramar === true || tuvoCita;
+        if (lead.llamada && !reprogramar) {
           return { ofrecerLlamada: false as const, motivo: "ya_tiene_llamada", llamada: lead.llamada };
         }
         const nivel = lead.prioridad.nivel;
         // Desde el 21 oct 2026 (reunión Maricela–Brayan): la videollamada es solo para quien cumple las condiciones y respondió TODAS las preguntas.
         const cal = evaluarCalificacion(lead.ficha.metadata);
-        if (nivel === "frio") return { ofrecerLlamada: false as const, motivo: "no_cumple_condiciones", prioridad: nivel, message: MENSAJE_NO_CUMPLE };
-        if (cal.faltan.length) return { ofrecerLlamada: false as const, motivo: "faltan_preguntas", faltan: cal.faltan, message: `Todavía faltan datos antes de ofrecer la videollamada (${cal.faltan.join(", ")}). Sigue con el guion y pregúntalos de a uno; luego vuelve a llamar esta herramienta.` };
+        if (!reagendando && nivel === "frio") return { ofrecerLlamada: false as const, motivo: "no_cumple_condiciones", prioridad: nivel, message: MENSAJE_NO_CUMPLE };
+        if (!reagendando && cal.faltan.length) return { ofrecerLlamada: false as const, motivo: "faltan_preguntas", faltan: cal.faltan, message: `Todavía faltan datos antes de ofrecer la videollamada (${cal.faltan.join(", ")}). Sigue con el guion y pregúntalos de a uno; luego vuelve a llamar esta herramienta.` };
         // Flujo (reunión del 21 oct): a todos se les envía primero la cotización para que sepan cuánto vale y dónde queda; si de verdad les interesa, se agenda.
         // Los muy calientes (buen ingreso, perfil caliente) pasan directo a la videollamada.
-        const conCotizacion = nivel === "caliente" && !cal.reportado ? true : await cotizacionEnviada(db, convId, lead.telefono);
-        if (cal.reportado && !(cal.puedeQuitarReporte === true && conCotizacion)) return { ofrecerLlamada: false as const, motivo: "reportado", message: "El cliente está reportado en Datacrédito: no se le ofrece videollamada todavía. Si dijo que se pone al día pronto, el sistema le envía una cotización y, si le interesa y la ve viable, ahí sí se agenda. Cierra con amabilidad." };
+        const conCotizacion = reagendando || (nivel === "caliente" && !cal.reportado) ? true : await cotizacionEnviada(db, convId, lead.telefono);
+        if (!reagendando && cal.reportado && !(cal.puedeQuitarReporte === true && conCotizacion)) return { ofrecerLlamada: false as const, motivo: "reportado", message: "El cliente está reportado en Datacrédito: no se le ofrece videollamada todavía. Si dijo que se pone al día pronto, el sistema le envía una cotización y, si le interesa y la ve viable, ahí sí se agenda. Cierra con amabilidad." };
         if (!conCotizacion) return { ofrecerLlamada: false as const, motivo: "primero_cotizacion", message: "Todavía no se le ha enviado la cotización. No ofrezcas videollamada: dile que en unos minutos le llega una cotización con el valor y la ubicación de los proyectos, y que después, si le interesa, agendan la videollamada con Maricela. El sistema se la envía solo." };
         if (!calcomConfigured(env)) return { ofrecerLlamada: false as const, motivo: "agenda_no_configurada" };
         const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");
@@ -282,11 +290,11 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
           // Días 4 y 5 (solo si el cliente pide «otro día» y ya vio los primeros).
           ...(dias.length > 3 ? { marcadorMasDias: `[[botones: ${dias.slice(3, 6).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]` } : {}),
           opciones,
-          message: opciones.length
+          message: (reagendando ? "REAGENDANDO: ofrece estos horarios para cambiar la llamada (el cliente ya la tenía). NO canceles la cita actual todavía: cancélala solo cuando el cliente ya eligió el nuevo horario y lo agendaste. Nunca pases el caso al equipo para reagendar: reagendar lo haces tú. " : "") + (opciones.length
             ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día; si no dice cuál y existe `marcadorMasDias`, envíalo (son más días con horarios). Siempre 'hora de España'. Si trae `zonaCliente`, cada `linea` YA incluye la hora local del cliente entre paréntesis: cópiala tal cual y no repitas «hora de España»."
             : horario === "noche"
               ? "No hay horarios nocturnos libres: usa el comodín para que Maricela coordine la llamada."
-              : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada.",
+              : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada."),
         };
       } catch (e) {
         console.error("[proponerLlamada]", e);

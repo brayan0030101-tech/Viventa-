@@ -16,6 +16,7 @@ export const MARCADORES: Array<{ clave: string; texto: string }> = [
   { clave: "cancelacion", texto: "VIDEOLLAMADA CANCELADA O PEDIDA DE NUEVO" },
   { clave: "calificacion", texto: "REGLAS DE CALIFICACION" },
   { clave: "flujo", texto: "FLUJO DESPUES DEL GUION" },
+  { clave: "reagendar", texto: "REAGENDAR SIEMPRE LO HACES TU" },
 ];
 
 export async function asegurarTablaInstrucciones(db: Db): Promise<void> {

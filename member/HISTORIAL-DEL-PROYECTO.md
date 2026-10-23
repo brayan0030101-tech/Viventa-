@@ -331,3 +331,8 @@
 - `notaSeguimientoZoho` ya no exige que el cliente figure como «registrado»: busca al cliente en Zoho por teléfono/correo (una vez al día si no está) y deja la nota en cualquier contacto.
 - Reactivación (Revisar en el futuro): conserva su nota con la oferta; se evita la segunda nota genérica del mismo día.
 - Verificado en Zoho: los 4 últimos clientes reactivados ya tienen su nota «Seguimiento».
+
+## 2026-10-23 — El bot siempre reagenda (caso Diana)
+- Causa: Diana pidió cambiar la llamada; el bot canceló la cita y `proponerLlamada` le contestó `no_cumple_condiciones` (cuota ~1 M COP → fría), así que no pudo ofrecer horarios y pasó el caso al equipo.
+- `proponerLlamada` acepta `reprogramar: true` y, si la conversación ya tuvo una cita «Videollamada», salta las condiciones (frío, preguntas, cotización, reportado). El mensaje de la herramienta dice «REAGENDANDO… no canceles hasta que elija; nunca pases el caso al equipo».
+- Instrucciones del bot (D1): regla «REAGENDAR SIEMPRE LO HACES TU» (respaldo `custom_instructions_respaldo_20261023_reagendar`): no cancelar antes de que el cliente elija el nuevo horario, sin handoff/pauseBot por reagendar. Añadida a los marcadores del guardián.
