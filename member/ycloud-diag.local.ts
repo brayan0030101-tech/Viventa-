@@ -336,6 +336,19 @@ export async function runYcloudDiag(env: Env): Promise<void> {
         }
       }
       out = { postsStatus: posts.status, posts: lista.length, conComentarios: lista.filter((x) => (x.commentCount ?? 0) > 0).length, leidos, clases, filas: filas.slice(0, 45), error: posts.status >= 400 ? posts.j : undefined };
+    } else if (pedido.startsWith("reintentar:")) {
+      // «reintentar:<conv>»: el bot vuelve a contestar el último mensaje del cliente si quedó sin respuesta (mismo mecanismo de los reintentos de IA).
+      const db = new Db(env.DB);
+      const c = await db.first<{ id: string; channel: string; channel_user_id: string }>("SELECT id, channel, channel_user_id FROM conversations WHERE id = ?", [pedido.slice(10)]);
+      if (!c) out = { error: "conversación no encontrada" };
+      else {
+        const { agentStub } = await import("../src/agent-stub");
+        let error = "";
+        try { await agentStub(env, c.channel as never, c.channel_user_id).retryFailedTurn({ id: c.id, channel: c.channel, channelUserId: c.channel_user_id }); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+        const ult = await db.all<{ role: string; c: string }>("SELECT role, substr(content,1,300) AS c FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 2", [c.id]);
+        const fallos = await db.all<{ message: string }>("SELECT substr(message,1,300) AS message FROM ai_fallos WHERE conversation_id = ? ORDER BY at DESC LIMIT 2", [c.id]).catch(() => []);
+        out = { error, ult, fallos };
+      }
     } else if (pedido.startsWith("reanudar_y_escribir:")) {
       // «reanudar_y_escribir:<conv>|<texto>»: quita la pausa del bot y le escribe al cliente (dentro de la ventana de 24 h).
       const db = new Db(env.DB);
