@@ -194,7 +194,30 @@ export async function notasDe(env: Env, leadId: string, n = 8, f: FetchFn = fetc
 // ─── Escritura (fase 2) ──────────────────────────────────────────────────────
 // Solo se completan tareas, se agregan notas/tareas y se cambia el estado de UN candidato. Nunca se borra nada.
 
+/**
+ * Regla de Maricela (24 oct 2026): nada de lo que llega a Zoho puede mencionar al bot (notas, tareas, motivos). Se limpia aquí, en el único
+ * punto por donde pasa toda escritura, por si algún texto (una nota guardada, lo que escribe la IA) trae la palabra.
+ */
+export function sinBot(t: string): string {
+  return t
+    .replace(/registrado por el bot de Viventa/gi, "registrado en Viventa")
+    .replace(/Notas del bot/g, "Notas de la conversación")
+    .replace(/\bdel bot\b/gi, "del asistente")
+    .replace(/\bal bot\b/gi, "al asistente")
+    .replace(/\b(el|un) bot\b/gi, (_m, a: string) => `${a} asistente`)
+    .replace(/\bbot\b/gi, "asistente");
+}
+const limpiarBot = (v: unknown): unknown =>
+  typeof v === "string" ? sinBot(v) : Array.isArray(v) ? v.map(limpiarBot) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, limpiarBot(x)])) : v;
+
+/** Reescribe una nota o tarea ya existente (solo para quitar la palabra «bot» de lo que se subió antes de esta regla). */
+export async function actualizarRegistro(env: Env, ruta: string, dato: Record<string, unknown>, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!/^\/(Notes|Tasks)\/\d{6,30}$/.test(ruta)) throw new ZohoError("Ruta no permitida.");
+  await escribir(env, ruta, "PUT", dato, f, now);
+}
+
 async function escribir(env: Env, ruta: string, metodo: "POST" | "PUT", dato: Record<string, unknown>, f: FetchFn, now: number): Promise<string> {
+  dato = limpiarBot(dato) as Record<string, unknown>;
   const j = (await llamar(env, ruta, { method: metodo, body: JSON.stringify({ data: [dato] }) }, f, now)) as { data?: Array<{ status?: string; message?: string; details?: { id?: string } }> };
   const r = j.data?.[0];
   if (!r || r.status !== "success") throw new ZohoError(`Zoho no guardó el cambio: ${r?.message ?? "sin respuesta"}`);

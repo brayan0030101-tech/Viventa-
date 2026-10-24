@@ -184,7 +184,7 @@ export type ResultadoSubida =
   | { estado: "error"; motivo: string };
 
 /** Título fijo de la tarea que crea el bot (así Camila las distingue de las demás). */
-export const ASUNTO_TAREA_BOT = "Cliente nuevo del bot: contactar y proponer videollamada";
+export const ASUNTO_TAREA_BOT = "Cliente nuevo: contactar y proponer videollamada";
 
 async function marcar(db: Db, convId: string, clave: string, valor: string): Promise<void> {
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), ?, ?) WHERE id = ?", [`$.${clave}`, valor, convId]);

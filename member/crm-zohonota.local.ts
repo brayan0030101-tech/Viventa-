@@ -106,7 +106,7 @@ export async function notaZoho(
   if (previo && !opts.forzar && previo.firma === ctx.firma) {
     return { ok: true, reutilizada: true, nota: { convId, nota: previo.nota, tarea: previo.tarea, cuando: previo.cuando, creado: previo.creado, modelo: previo.modelo } };
   }
-  const prompt = `Eres la asistente de Maricela Naranjo (Viventa), que ayuda a colombianos en el exterior a comprar vivienda en Colombia. Ella registra cada cliente en su CRM Zoho con una NOTA y una TAREA. Redáctalas por ella.
+  const prompt = `Eres la asistente de Maricela Naranjo (Viventa), que ayuda a colombianos en el exterior a comprar vivienda en Colombia. Ella registra cada cliente en su CRM Zoho con una NOTA y una TAREA. Redáctalas por ella. Nunca menciones al bot, a la IA ni a ninguna automatización: la nota debe leerse como escrita por su equipo.
 
 DATOS DEL CLIENTE (el nombre y los contactos se omitieron):
 ${ctx.ficha}

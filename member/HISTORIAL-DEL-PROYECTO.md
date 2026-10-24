@@ -348,3 +348,7 @@
 
 ## 2026-10-24 — Enlaces sin letras pegadas
 - Maricela: «…?id=2585por favor» se leía como parte del enlace y daba error. `separarEnlaces` (src/lib/enlaces.ts) deja un espacio antes del enlace y entre un enlace de cotización (termina en dígitos) y la palabra que le sigue. Se aplica en `sendReply` de YCloud (WhatsApp) y Zernio (Instagram), y a los borradores de Seguimientos.
+
+## 2026-10-24 — Nada en Zoho dice «bot»
+- Maricela: ni clientes, ni notas, ni tareas de Zoho pueden mencionar al bot. `sinBot` en `escribir` (crm-zohoapi) limpia todo texto que se escribe en Zoho. El título de la tarea de clientes nuevos ahora es «Cliente nuevo: contactar y proponer videollamada». El prompt de la nota IA prohíbe mencionar bot/IA.
+- Diag `zoho_diag_pedir = limpiar_bot` reescribe las notas y tareas ya subidas que decían «bot».

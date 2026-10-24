@@ -32,3 +32,13 @@ describe("urlFichaZoho", () => {
     expect(urlFichaZoho({ ZOHO_API_URL: "https://www.zohoapis.eu" } as never, "123")).toBe("https://crm.zoho.eu/crm/tab/Leads/123");
   });
 });
+
+import { sinBot } from "../../member/crm-zohoapi.local";
+describe("sinBot", () => {
+  it("quita la palabra «bot» de lo que va a Zoho", () => {
+    expect(sinBot("Cliente registrado por el bot de Viventa el 2026-10-22 (llegó por Instagram).")).toBe("Cliente registrado en Viventa el 2026-10-22 (llegó por Instagram).");
+    expect(sinBot("Notas del bot: Origen Instagram")).toBe("Notas de la conversación: Origen Instagram");
+    expect(sinBot("El bot completó la prospección")).not.toMatch(/\bbot\b/i);
+    expect(sinBot("Seguimiento: se le escribió por WhatsApp")).toBe("Seguimiento: se le escribió por WhatsApp");
+  });
+});

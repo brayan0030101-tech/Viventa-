@@ -43,6 +43,36 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "limpiar_bot") {
+    // Quita la palabra «bot» de las notas y tareas que se subieron a Zoho antes de la regla (clientes subidos por el sistema o con «Nota y tarea»).
+    await st.set("zoho_diag_pedir", "");
+    const out: unknown[] = [];
+    try {
+      const { zohoGet, coql, sinBot, actualizarRegistro } = await import("./crm-zohoapi.local");
+      const { ASUNTO_TAREA_BOT } = await import("./crm-zohosubida.local");
+      const db = new Db(env.DB);
+      const ids = new Set<string>();
+      for (const r of await db.all<{ z: string | null }>("SELECT DISTINCT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE json_extract(metadata,'$.zoho_lead_id') IS NOT NULL")) if (r.z) ids.add(r.z);
+      for (const r of await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_zoho_nuevo WHERE lead_id IS NOT NULL").catch(() => [])) ids.add(r.lead_id);
+      let notas = 0, tareas = 0, revisados = 0;
+      for (const id of [...ids].filter((x) => /^\d{6,30}$/.test(x))) {
+        revisados++;
+        const j = (await zohoGet(env, `/Leads/${id}/Notes?fields=id,Note_Title,Note_Content&per_page=50`).catch(() => null)) as { data?: Array<Record<string, unknown>> } | null;
+        for (const n of j?.data ?? []) {
+          const c = String(n["Note_Content"] ?? ""), t = String(n["Note_Title"] ?? "");
+          if (/\bbot\b/i.test(c) || /\bbot\b/i.test(t)) { await actualizarRegistro(env, `/Notes/${String(n["id"])}`, { Note_Content: sinBot(c), Note_Title: sinBot(t) }); notas++; }
+        }
+        const ts = await coql(env, `select id, Subject from Tasks where What_Id = '${id}' limit 50`).catch(() => []);
+        for (const t of ts) {
+          const sub = String(t["Subject"] ?? "");
+          if (/\bbot\b/i.test(sub)) { await actualizarRegistro(env, `/Tasks/${String(t["id"])}`, { Subject: /cliente nuevo del bot/i.test(sub) ? ASUNTO_TAREA_BOT : sinBot(sub) }); tareas++; }
+        }
+      }
+      out.push({ revisados, notas, tareas });
+    } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
+    await st.set("zoho_diag_resultado", JSON.stringify({ limpiar_bot: out }));
+    return;
+  }
   if (pedido.startsWith("notas:")) {
     // Últimas notas de cada candidato: «notas:<leadId>,<leadId>»
     await st.set("zoho_diag_pedir", "");
