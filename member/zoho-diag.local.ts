@@ -55,20 +55,27 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       for (const r of await db.all<{ z: string | null }>("SELECT DISTINCT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE json_extract(metadata,'$.zoho_lead_id') IS NOT NULL")) if (r.z) ids.add(r.z);
       for (const r of await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_zoho_nuevo WHERE lead_id IS NOT NULL").catch(() => [])) ids.add(r.lead_id);
       let notas = 0, tareas = 0, revisados = 0;
+      const errores: string[] = [];
       for (const id of [...ids].filter((x) => /^\d{6,30}$/.test(x))) {
         revisados++;
         const j = (await zohoGet(env, `/Leads/${id}/Notes?fields=id,Note_Title,Note_Content&per_page=50`).catch(() => null)) as { data?: Array<Record<string, unknown>> } | null;
         for (const n of j?.data ?? []) {
           const c = String(n["Note_Content"] ?? ""), t = String(n["Note_Title"] ?? "");
-          if (/\bbot\b/i.test(c) || /\bbot\b/i.test(t)) { await actualizarRegistro(env, `/Notes/${String(n["id"])}`, { Note_Content: sinBot(c), Note_Title: sinBot(t) }); notas++; }
+          if (/\bbot\b/i.test(c) || /\bbot\b/i.test(t)) {
+            try { await actualizarRegistro(env, `/Leads/${id}/Notes/${String(n["id"])}`, { Note_Content: sinBot(c), Note_Title: sinBot(t) }); notas++; }
+            catch (e) { errores.push(`nota ${String(n["id"])}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160)); }
+          }
         }
         const ts = await coql(env, `select id, Subject from Tasks where What_Id = '${id}' limit 50`).catch(() => []);
         for (const t of ts) {
           const sub = String(t["Subject"] ?? "");
-          if (/\bbot\b/i.test(sub)) { await actualizarRegistro(env, `/Tasks/${String(t["id"])}`, { Subject: /cliente nuevo del bot/i.test(sub) ? ASUNTO_TAREA_BOT : sinBot(sub) }); tareas++; }
+          if (/\bbot\b/i.test(sub)) {
+            try { await actualizarRegistro(env, `/Tasks/${String(t["id"])}`, { Subject: /cliente nuevo del bot/i.test(sub) ? ASUNTO_TAREA_BOT : sinBot(sub) }); tareas++; }
+            catch (e) { errores.push(`tarea ${String(t["id"])}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160)); }
+          }
         }
       }
-      out.push({ revisados, notas, tareas });
+      out.push({ revisados, notas, tareas, errores: errores.slice(0, 5), nErrores: errores.length });
     } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
     await st.set("zoho_diag_resultado", JSON.stringify({ limpiar_bot: out }));
     return;

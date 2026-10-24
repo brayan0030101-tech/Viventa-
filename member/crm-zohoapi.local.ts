@@ -212,7 +212,7 @@ const limpiarBot = (v: unknown): unknown =>
 
 /** Reescribe una nota o tarea ya existente (solo para quitar la palabra «bot» de lo que se subió antes de esta regla). */
 export async function actualizarRegistro(env: Env, ruta: string, dato: Record<string, unknown>, f: FetchFn = fetch, now = Date.now()): Promise<void> {
-  if (!/^\/(Notes|Tasks)\/\d{6,30}$/.test(ruta)) throw new ZohoError("Ruta no permitida.");
+  if (!/^\/(Notes|Tasks)\/\d{6,30}$/.test(ruta) && !/^\/Leads\/\d{6,30}\/Notes\/\d{6,30}$/.test(ruta)) throw new ZohoError("Ruta no permitida.");
   await escribir(env, ruta, "PUT", dato, f, now);
 }
 
