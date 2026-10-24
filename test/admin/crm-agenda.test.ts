@@ -13,6 +13,7 @@ import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { SettingsRepo } from "../../src/db/settings";
 import { elegirFecha, esFinDeSemana, MAX_TAREAS_DIA } from "../../member/crm-agenda.local";
+import { olvidarDuenos } from "../../member/crm-zohoapi.local";
 import { cambiarFecha } from "../../member/crm-seguimientos.local";
 import { crearNotaYTarea } from "../../member/crm-zohonuevo.local";
 import { clasificar, renderProspeccion, cargarProspeccion } from "../../member/crm-prospeccion.local";
@@ -29,11 +30,13 @@ const escrituras: Array<{ url: string; method: string; body: Record<string, any>
 let cargaPorDia: Record<string, number> = {};
 let candidatosProspeccion: Array<Record<string, unknown>> = [];
 let buscarDevuelve = true;
+let duenoLead = "555";
 
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   const metodo = init?.method ?? "GET";
   if (url.includes("/oauth/v2/token")) return json({ access_token: "tok", expires_in: 3600 });
   if (url.includes("/users?type=CurrentUser")) return json({ users: [{ id: "555", full_name: "Maricela Naranjo" }] });
+  if (/\/Leads\/\d+\?fields=Owner/.test(url)) return json({ data: [{ Owner: { id: duenoLead, name: duenoLead === "555" ? "Maricela Naranjo" : "Otra Asesora" } }] });
   if ((metodo === "POST" || metodo === "PUT") && url.includes("/crm/v6/") && !url.endsWith("/coql")) {
     escrituras.push({ url, method: metodo, body: (JSON.parse(String(init?.body)) as { data: Array<Record<string, any>> }).data[0]! });
     return json({ data: [{ status: "success", details: { id: "777" + escrituras.length } }] });
@@ -120,6 +123,18 @@ describe("nota y tarea del candidato nuevo", () => {
     const otra = await crearNotaYTarea(env, "ycloud:34600000001", { f: zoho }, NOW);
     expect(otra).toMatchObject({ ok: true, yaHecho: true });
     expect(escrituras).toHaveLength(n);
+  });
+  it("si el cliente no está a nombre de Maricela no deja nota ni tarea", async () => {
+    await sembrar();
+    duenoLead = "999";
+    olvidarDuenos();
+    const antes = escrituras.length;
+    const r = await crearNotaYTarea(env, "ycloud:34600000001", { f: zoho }, NOW);
+    duenoLead = "555";
+    olvidarDuenos();
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("no está a nombre de Maricela");
+    expect(escrituras.length).toBe(antes);
   });
   it("cliente nuevo: la tarea queda para hoy aunque el día ya tenga muchas", async () => {
     await sembrar();

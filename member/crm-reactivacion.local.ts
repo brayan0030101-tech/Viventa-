@@ -19,7 +19,7 @@ import { esc, ESTILO_CRM, fechaHora } from "./crm.local";
 import { anonimizar } from "./crm-ia.local";
 import { escrituraActiva, hoyMadrid, MOTIVOS_PERDIDO, localDe } from "./crm-seguimientos.local";
 import {
-  ZohoError, candidatosPorIds, coql, completarTarea, crearNota, duenoZoho, ejecutarTransicion, notasDe, transicionesDe, zohoListo,
+  OtraAsesoraError, ZohoError, candidatosPorIds, coql, completarTarea, crearNota, duenoZoho, ejecutarTransicion, notasDe, transicionesDe, zohoListo,
   type CandidatoZoho, type FetchFn,
 } from "./crm-zohoapi.local";
 
@@ -324,8 +324,11 @@ export async function enviarReactivacion(
       await crearNota(env, leadId, `Reactivación por WhatsApp (${hoyMadrid(now)}): se le escribió${reg!.oferta ? ` ofreciendo ${reg!.oferta}` : " con novedades de proyectos"}.`, opts.f, now);
       zoho = "nota guardada en Zoho";
     } catch (e) {
-      console.error("[crm-reactivacion] nota Zoho:", e);
-      zoho = "no pude guardar la nota en Zoho";
+      if (e instanceof OtraAsesoraError) zoho = "no se dejó nota: este cliente no está a nombre de Maricela";
+      else {
+        console.error("[crm-reactivacion] nota Zoho:", e);
+        zoho = "no pude guardar la nota en Zoho";
+      }
     }
   }
   return { ok: true, via, zoho };

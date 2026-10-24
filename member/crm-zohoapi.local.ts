@@ -247,15 +247,39 @@ export async function completarTarea(env: Env, tareaId: string, f: FetchFn = fet
   await escribir(env, `/Tasks/${tareaId}`, "PUT", { Status: "Completa" }, f, now);
 }
 
-/** Agrega una nota al candidato. */
+/** Error específico: el candidato es de otra asesora (regla de Maricela: si no está a su nombre, no se deja nota ni tarea). */
+export class OtraAsesoraError extends ZohoError {
+  constructor(public asesora: string) {
+    super(`Este cliente no está a nombre de Maricela${asesora ? ` (es de ${asesora})` : ""}: no se deja nota ni tarea.`);
+  }
+}
+const duenosCache = new Map<string, { ok: boolean; asesora: string; en: number }>();
+/** Solo para pruebas: olvida los dueños recordados. */
+export const olvidarDuenos = (): void => duenosCache.clear();
+/** Lanza OtraAsesoraError si el candidato no es de Maricela. Se recuerda 10 min por candidato. */
+export async function exigirDeMaricela(env: Env, leadId: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  const c = duenosCache.get(leadId);
+  if (c && now - c.en < 10 * 60_000) {
+    if (!c.ok) throw new OtraAsesoraError(c.asesora);
+    return;
+  }
+  const [duenoLead, yo] = await Promise.all([duenoDeCandidato(env, leadId, f, now), duenoZoho(env, f, now)]);
+  const ok = !duenoLead || duenoLead.id === yo.id;
+  duenosCache.set(leadId, { ok, asesora: duenoLead?.nombre ?? "", en: now });
+  if (!ok) throw new OtraAsesoraError(duenoLead?.nombre ?? "");
+}
+
+/** Agrega una nota al candidato (solo si está a nombre de Maricela). */
 export async function crearNota(env: Env, leadId: string, texto: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
   if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
+  await exigirDeMaricela(env, leadId, f, now);
   return escribir(env, `/Leads/${leadId}/Notes`, "POST", { Note_Title: "Seguimiento", Note_Content: texto.slice(0, 3000) }, f, now);
 }
 
 /** Crea la siguiente tarea del candidato, a nombre de Maricela y «En Proceso». */
 export async function crearTarea(env: Env, a: { leadId: string; asunto: string; fecha: string; ownerId: string }, f: FetchFn = fetch, now = Date.now()): Promise<string> {
   if (!idValido(a.leadId) || !/^\d{4}-\d{2}-\d{2}$/.test(a.fecha)) throw new ZohoError("Datos de la tarea no válidos.");
+  await exigirDeMaricela(env, a.leadId, f, now);
   return escribir(env, "/Tasks", "POST", { Subject: a.asunto.slice(0, 255), Due_Date: a.fecha, Status: "En Proceso", Owner: { id: a.ownerId }, What_Id: { id: a.leadId }, $se_module: "Leads" }, f, now);
 }
 

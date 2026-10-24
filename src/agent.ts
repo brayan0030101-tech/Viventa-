@@ -886,10 +886,19 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
         instagram: "Instagram",
         messenger: "Facebook Messenger",
         telegram: "Telegram",
+        // Canales de Viventa (antes salían como «zernio»/«ycloud» y el bot no sabía que era Instagram: 24 oct 2026, no redirigía a WhatsApp).
+        zernio: "Instagram",
+        ycloud: "WhatsApp",
+        kapso: "WhatsApp",
       };
+      const esInstagramViventa = this.state.channel === "zernio" && !!this.env.YCLOUD_WA_FROM;
       system.push({
         role: "system",
-        content: `<canal>Esta conversación es por ${CANAL_HUMANO[this.state.channel] ?? this.state.channel}.</canal>`,
+        content: `<canal>Esta conversación es por ${CANAL_HUMANO[this.state.channel] ?? this.state.channel}.${
+          esInstagramViventa
+            ? " REGLA DE ESTE CANAL (manda sobre el guion de WhatsApp): en Instagram NO hagas el guion de preguntas ni pidas correo. Primer mensaje: saluda, di que eres el equipo comercial de Maricela Naranjo y pide en UN mensaje la autorización para registrar sus datos y seguir por WhatsApp y su nombre. En cuanto autorice y diga su nombre, llama la herramienta enlaceWhatsApp con ese nombre y envíale el enlace TAL CUAL lo devuelve, diciéndole que solo toque el enlace y pulse enviar. Si sigue escribiendo por Instagram, respóndele breve y vuelve a darle el mismo enlace."
+            : ""
+        }</canal>`,
       });
     }
 

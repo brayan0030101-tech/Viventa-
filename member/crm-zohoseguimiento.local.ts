@@ -3,7 +3,7 @@
 // un seguimiento normal. Máximo una nota por cliente y día, y nunca interrumpe el envío (si algo falla, solo se registra).
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { buscarCandidato, crearNota, zohoListo } from "./crm-zohoapi.local";
+import { OtraAsesoraError, buscarCandidato, crearNota, zohoListo } from "./crm-zohoapi.local";
 import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
 
 const NOMBRE_CANAL: Record<string, string> = { ycloud: "WhatsApp", zernio: "Instagram", kapso: "WhatsApp" };
@@ -49,7 +49,16 @@ export async function notaSeguimientoZoho(env: Env, convId: string, canal: strin
     // Cualquier cliente que ya esté en Zoho (aunque lo haya subido Maricela a mano) recibe la nota: se busca por teléfono/correo.
     const leadId = await leadIdDe(env, db, convId);
     if (!leadId) return false;
-    await crearNota(env, leadId, textoNotaSeguimiento(canal, mensaje, hoy), undefined, now);
+    try {
+      await crearNota(env, leadId, textoNotaSeguimiento(canal, mensaje, hoy), undefined, now);
+    } catch (e) {
+      // Regla de Maricela: si el cliente no está a su nombre no se deja nota (y no se vuelve a intentar hoy).
+      if (e instanceof OtraAsesoraError) {
+        await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_nota_seguimiento', ?) WHERE id = ?", [hoy, convId]);
+        return false;
+      }
+      throw e;
+    }
     await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_nota_seguimiento', ?) WHERE id = ?", [hoy, convId]);
     return true;
   } catch (e) {

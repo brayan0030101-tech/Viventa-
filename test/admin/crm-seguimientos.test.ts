@@ -44,6 +44,7 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   }
   if (url.includes("/oauth/v2/token")) return json({ access_token: "tok-" + llamadas.length, expires_in: 3600 });
   if (url.includes("/users?type=CurrentUser")) return json({ users: [{ id: "555", full_name: "Maricela Naranjo" }] });
+  if (/\/Leads\/\d+\?fields=Owner/.test(url)) return json({ data: [{ Owner: { id: "555", name: "Maricela Naranjo" } }] });
   if (url.endsWith("/coql")) {
     const q = String(JSON.parse(String(init?.body)).select_query);
     const fila = { id: TAREA, Subject: "Seguimiento Diana", Due_Date: "2026-10-12", Status: estadoTarea, Who_Id: { id: LEAD, name: "Diana" }, What_Id: null, $se_module: "Leads", Description: "" };

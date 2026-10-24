@@ -47,6 +47,7 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   const metodo = init?.method ?? "GET";
   if (url.includes("/oauth/v2/token")) return json({ access_token: "tok", expires_in: 3600 });
   if (url.includes("/users?type=CurrentUser")) return json({ users: [{ id: "555", full_name: "Maricela Naranjo" }] });
+  if (/\/Leads\/\d+\?fields=Owner/.test(url)) return json({ data: [{ Owner: { id: "555", name: "Maricela Naranjo" } }] });
   if (metodo === "GET" && url.includes("/actions/blueprint")) return json({ blueprint: { transitions: transiciones } });
   if ((metodo === "POST" || metodo === "PUT") && url.includes("/crm/v6/") && !url.endsWith("/coql")) {
     const cuerpo = JSON.parse(String(init?.body)) as { data?: Array<Record<string, any>>; blueprint?: Array<Record<string, any>> };

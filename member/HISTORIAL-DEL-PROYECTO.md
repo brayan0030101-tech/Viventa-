@@ -352,3 +352,7 @@
 ## 2026-10-24 — Nada en Zoho dice «bot»
 - Maricela: ni clientes, ni notas, ni tareas de Zoho pueden mencionar al bot. `sinBot` en `escribir` (crm-zohoapi) limpia todo texto que se escribe en Zoho. El título de la tarea de clientes nuevos ahora es «Cliente nuevo: contactar y proponer videollamada». El prompt de la nota IA prohíbe mencionar bot/IA.
 - Diag `zoho_diag_pedir = limpiar_bot` reescribe las notas y tareas ya subidas que decían «bot».
+
+## 2026-10-24 — Solo clientes a nombre de Maricela + Instagram sí redirige
+- Regla de Maricela: si el candidato de Zoho no está a su nombre no se deja nota ni tarea. `crearNota` y `crearTarea` (crm-zohoapi) exigen que el dueño sea Maricela (`exigirDeMaricela`, recuerda 10 min por candidato) y lanzan `OtraAsesoraError`. Seguimiento automático: no deja nota y no reintenta ese día; botón «Nota y tarea»: muestra «no está a nombre de Maricela»; reactivación: lo avisa en pantalla.
+- Instagram no redirigía a WhatsApp: el bloque `<canal>` que se le da al modelo decía «zernio»/«ycloud» y el bot no sabía que estaba en Instagram, así que usaba el guion de WhatsApp (pedía nombre y correo). Ahora los canales se nombran bien (zernio = Instagram, ycloud = WhatsApp) y en Instagram el bloque repite la regla de pasar a WhatsApp con `enlaceWhatsApp`.
