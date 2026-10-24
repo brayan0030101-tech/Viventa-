@@ -15,6 +15,7 @@
 //    y accountId es OBLIGATORIO. Ambos (conversationId + accountId) llegan en el
 //    webhook y son POR CONVERSACIÓN, así que se guardan en `zernio_ctx` al recibir
 //    para poder responder después.
+import { separarEnlaces } from "../lib/enlaces";
 import type { ChannelAdapter, IncomingMessage, OutgoingReply, SendOptions } from "./shared";
 import { reportSendFailure } from "./shared";
 import type { Env } from "../env";
@@ -306,6 +307,7 @@ export const zernioAdapter: ChannelAdapter = {
   },
 
   async sendReply(reply: OutgoingReply, env: Env, opts?: SendOptions): Promise<void> {
+    reply = { ...reply, chunks: reply.chunks.map(separarEnlaces) };
     // Zernio es el único adapter que se rendía en silencio (return) cuando le
     // faltaba la llave o el contexto de la conversación. Para el bot eso está
     // bien (el turno sigue), pero un humano escribiendo desde la app vería su

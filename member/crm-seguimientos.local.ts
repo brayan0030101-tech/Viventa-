@@ -290,6 +290,8 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
   const mensaje = (accion === "descartado" ? "" : mensajeCrudo)
     .replace(/\[\[[^\]]*\]\]/g, "")
     .replace(/\[nombre\]/gi, primerNombre)
+    .replace(/([^\s(\[{«"'¿¡=/?&#%])(https?:\/\/)/g, "$1 $2")
+    .replace(/(https?:\/\/[^\s]*?[?&]id=\d+)(?=[A-Za-zÁÉÍÓÚáéíóúñÑ])/gi, "$1 ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim()

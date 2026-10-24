@@ -345,3 +345,6 @@
 - Un cliente reactivado escribió «Hola pero nunca me llamaron» y el turno del bot se cortó sin responder (sin error registrado; solo quedó el ticket de entrega y el aviso del auditor a los 10 min). Estuvo ~1 h sin respuesta.
 - Se reintentó a mano con el diag `reintentar:<conv>` y el bot contestó bien.
 - Ahora el auditor, al detectar por primera vez un «cliente sin respuesta» (10 min), le hace UN reintento automático al bot (`retryFailedTurn`, máx. 3 por pasada). Si vuelve a fallar, queda el aviso a Camila como siempre.
+
+## 2026-10-24 — Enlaces sin letras pegadas
+- Maricela: «…?id=2585por favor» se leía como parte del enlace y daba error. `separarEnlaces` (src/lib/enlaces.ts) deja un espacio antes del enlace y entre un enlace de cotización (termina en dígitos) y la palabra que le sigue. Se aplica en `sendReply` de YCloud (WhatsApp) y Zernio (Instagram), y a los borradores de Seguimientos.

@@ -16,6 +16,7 @@
 // business app — los mensajes que el bot manda por la API generan
 // `whatsapp.message.updated` de status, no echoes). El adapter pausa esa conversación
 // (takeover), igual que en Kapso.
+import { separarEnlaces } from "../lib/enlaces";
 import type { ChannelAdapter, IncomingMessage, OutgoingReply, SendOptions } from "./shared";
 import { reportSendFailure } from "./shared";
 import type { Env } from "../env";
@@ -417,6 +418,7 @@ export const ycloudAdapter: ChannelAdapter = {
 
   async sendReply(reply: OutgoingReply, env: Env, opts?: SendOptions): Promise<void> {
     if (esNumeroColombiano(reply.channelUserId)) return; // regla fija: nunca a números colombianos
+    reply = { ...reply, chunks: reply.chunks.map(separarEnlaces) };
     const from = env.YCLOUD_WA_FROM;
     const apiKey = env.YCLOUD_API_KEY;
     if (!from || !apiKey) {
