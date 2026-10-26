@@ -43,6 +43,30 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "duplicados_contactos") {
+    // De los candidatos que creó el sistema, ¿cuáles ya existían como CONTACTO en Zoho?
+    await st.set("zoho_diag_pedir", "");
+    const out: unknown[] = [];
+    try {
+      const { buscarContacto } = await import("./crm-zohoapi.local");
+      const db = new Db(env.DB);
+      const filas = await db.all<{ id: string; ch: string; z: string; nm: string | null; ct: string | null }>(
+        "SELECT c.id, c.channel AS ch, json_extract(c.metadata,'$.zoho_lead_id') AS z, group_concat(DISTINCT l.name) AS nm, group_concat(DISTINCT l.contact) AS ct FROM conversations c LEFT JOIN leads l ON l.conversation_id = c.id AND l.intent NOT LIKE 'Cita%' WHERE json_extract(c.metadata,'$.viventa_registrado_por') = 'bot' AND json_extract(c.metadata,'$.zoho_lead_id') IS NOT NULL GROUP BY c.id",
+      );
+      const vistos = new Set<string>();
+      for (const r of filas) {
+        if (vistos.has(r.z)) continue;
+        vistos.add(r.z);
+        const correos = String(r.ct ?? "").match(/[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+/g) ?? [];
+        const tel = r.ch === "ycloud" ? r.id.slice(7) : (String(r.ct ?? "").match(/\+?\d[\d\s().-]{7,}\d/)?.[0] ?? "");
+        const c = await buscarContacto(env, { correos, telefono: tel }).catch(() => null);
+        if (c) out.push({ cliente: r.nm, lead: r.z, contacto: c.id, nombreContacto: c.nombre, dueno: c.dueno });
+      }
+      out.push({ revisados: vistos.size });
+    } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
+    await st.set("zoho_diag_resultado", JSON.stringify({ duplicados: out }));
+    return;
+  }
   if (pedido === "limpiar_bot") {
     // Quita la palabra «bot» de las notas y tareas que se subieron a Zoho antes de la regla (clientes subidos por el sistema o con «Nota y tarea»).
     await st.set("zoho_diag_pedir", "");
