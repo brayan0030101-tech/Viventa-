@@ -74,6 +74,27 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ duenos: out }).slice(0, 12000));
     return;
   }
+  if (pedido === "reasignados") {
+    // Candidatos creados por el sistema cuyas notas muestran una asignación/reactivación hecha por Viventa Colombia (señal de que se reasignaron).
+    await st.set("zoho_diag_pedir", "");
+    const out: unknown[] = [];
+    try {
+      const { notasDe } = await import("./crm-zohoapi.local");
+      const db = new Db(env.DB);
+      const filas = await db.all<{ z: string; nm: string | null; por: string | null; t: string | null }>("SELECT DISTINCT json_extract(c.metadata,'$.zoho_lead_id') AS z, (SELECT name FROM leads l WHERE l.conversation_id = c.id AND l.intent NOT LIKE 'Cita%' LIMIT 1) AS nm, json_extract(c.metadata,'$.viventa_registrado_por') AS por, json_extract(c.metadata,'$.viventa_registrado') AS t FROM conversations c WHERE json_extract(c.metadata,'$.viventa_registrado_por') IN ('bot','CRM') AND json_extract(c.metadata,'$.zoho_lead_id') IS NOT NULL");
+      const vistos = new Set<string>();
+      for (const r of filas) {
+        if (vistos.has(r.z)) continue;
+        vistos.add(r.z);
+        const ns = await notasDe(env, r.z, 20).catch(() => []);
+        const raros = ns.filter((n) => /asignaci[oó]n|reactivaci[oó]n|reasign/i.test(`${n.titulo} ${n.texto}`));
+        if (raros.length) out.push({ cliente: r.nm, lead: r.z, subido: String(r.t ?? "").slice(0, 16), notas: raros.map((n) => `${n.creada.slice(0, 16)} ${n.titulo}: ${n.texto.replace(/<[^>]+>/g, " ").slice(0, 160)}`) });
+      }
+      out.push({ revisados: vistos.size });
+    } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
+    await st.set("zoho_diag_resultado", JSON.stringify({ reasignados: out }).slice(0, 12000));
+    return;
+  }
   if (pedido === "duplicados_contactos") {
     // De los candidatos que creó el sistema, ¿cuáles ya existían como CONTACTO en Zoho?
     await st.set("zoho_diag_pedir", "");
