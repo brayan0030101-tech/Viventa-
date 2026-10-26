@@ -80,3 +80,60 @@ export async function runVigilanteZoho(env: Env, now = Date.now(), f: FetchFn = 
   }
   return nuevos;
 }
+
+// ─── Todos los candidatos de Maricela ────────────────────────────────────────
+// Foto horaria de los candidatos que son de Maricela. Si uno desaparece de la foto, se mira de quién es ahora: si pasó a otra persona (no si se
+// convirtió en contacto), se reporta en Auditoría. La primera vez solo se guarda la foto (sin avisos).
+
+async function asegurarTablaMis(db: Db): Promise<void> {
+  await db.run("CREATE TABLE IF NOT EXISTS zoho_mis_candidatos (id TEXT PRIMARY KEY, nombre TEXT, estado TEXT, visto INTEGER NOT NULL)");
+}
+
+export async function runVigilanteMisCandidatos(env: Env, now = Date.now(), f: FetchFn = fetch): Promise<{ foto: number; reasignados: number }> {
+  const out = { foto: 0, reasignados: 0 };
+  if (!zohoListo(env)) return out;
+  const db = new Db(env.DB);
+  const st = new SettingsRepo(db);
+  const ult = Number((await st.get("zoho_mis_ult")) ?? 0);
+  if (now - ult < 55 * 60_000) return out;
+  await st.set("zoho_mis_ult", String(now));
+  await asegurarTablaMis(db);
+  const yo = await duenoZoho(env, f, now);
+
+  // Foto actual (hasta 2.000 candidatos; Zoho entrega 200 por consulta).
+  const actuales = new Map<string, { nombre: string; estado: string }>();
+  for (let off = 0; off < 2000; off += 200) {
+    const filas = await coql(env, `select id, Full_Name, Lead_Status from Leads where Owner = '${yo.id}' limit ${off}, 200`, f, now).catch(() => null);
+    if (!filas) return out; // Zoho falló: no se compara nada con una foto incompleta
+    for (const r of filas) actuales.set(String(r["id"]), { nombre: String(r["Full_Name"] ?? ""), estado: String(r["Lead_Status"] ?? "") });
+    if (filas.length < 200) break;
+  }
+  if (actuales.size === 0) return out;
+
+  const previos = await db.all<{ id: string; nombre: string | null; estado: string | null }>("SELECT id, nombre, estado FROM zoho_mis_candidatos");
+  const sembrar = previos.length === 0;
+  const desaparecidos = previos.filter((p) => !actuales.has(p.id));
+
+  // De los que desaparecieron: ¿pasaron a otra persona? (si se convirtieron en contacto, la consulta no los devuelve y se ignoran)
+  for (let i = 0; i < desaparecidos.length && !sembrar; i += 40) {
+    const lote = desaparecidos.slice(i, i + 40);
+    const filas = await coql(env, `select id, Owner, Lead_Status, Full_Name from Leads where id in (${lote.map((x) => `'${x.id}'`).join(",")})`, f, now).catch(() => []);
+    for (const fila of filas) {
+      const o = (fila["Owner"] ?? {}) as { id?: string; name?: string };
+      if (!o.id || o.id === yo.id) continue;
+      const id = String(fila["id"]);
+      const ns = await notasDe(env, id, 3, f, now).catch(() => []);
+      const regla = ns.find((n) => /asignaci[oó]n|reactivaci[oó]n|reasign/i.test(`${n.titulo} ${n.texto}`));
+      const nombre = String(fila["Full_Name"] ?? lote.find((x) => x.id === id)?.nombre ?? "Candidato");
+      const conv = await db.first<{ id: string }>("SELECT id FROM conversations WHERE json_extract(metadata,'$.zoho_lead_id') = ? LIMIT 1", [id]);
+      const detalle = `${nombre}: era de Maricela y ahora es de ${o.name ?? "otra persona"} (estado «${String(fila["Lead_Status"] ?? "")}»).${regla ? ` Nota de Zoho: ${regla.texto.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 150)}.` : ""} ${urlFichaZoho(env, id)}`;
+      if (await registrarHallazgo(env, { tipo: "zoho_reasignado", convId: conv?.id ?? `zoho:${id}`, clave: `${id}-${o.id}`, detalle }, now)) out.reasignados++;
+    }
+  }
+
+  // Foto nueva
+  await db.run("DELETE FROM zoho_mis_candidatos");
+  for (const [id, c] of actuales) await db.run("INSERT OR REPLACE INTO zoho_mis_candidatos (id, nombre, estado, visto) VALUES (?,?,?,?)", [id, c.nombre, c.estado, now]);
+  out.foto = actuales.size;
+  return out;
+}

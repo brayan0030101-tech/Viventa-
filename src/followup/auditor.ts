@@ -251,7 +251,7 @@ async function cerrarResueltos(db: Db, now: number): Promise<number> {
   const abiertos = await db.all<Hallazgo>("SELECT * FROM auditoria_hallazgos WHERE resuelto_en IS NULL");
   let cerrados = 0;
   for (const h of abiertos) {
-    let resuelto = now - h.creado > (h.tipo === "pausada_olvidada" ? 10 * 24 * H : 24 * H);
+    let resuelto = now - h.creado > (h.tipo === "pausada_olvidada" || h.tipo === "zoho_reasignado" ? 10 * 24 * H : 24 * H);
     if (!resuelto) {
       const conv = await db.first<{ paused_until: number | null; metadata: string | null }>("SELECT paused_until, metadata FROM conversations WHERE id = ?", [h.conv_id]);
       const pausada = !!conv?.paused_until && conv.paused_until > now;
