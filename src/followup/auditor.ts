@@ -20,7 +20,7 @@ import { esNumeroColombiano } from "../channels/ycloud";
 const MIN = 60_000;
 const H = 3_600_000;
 
-export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida" | "pausada_olvidada" | "instagram_sin_telefono";
+export type TipoHallazgo = "listo_sin_cita" | "sin_respuesta" | "handoff_silencioso" | "dato_sin_respaldo" | "entrega_fallida" | "fallo_ia" | "entrega_al_agente" | "mensaje_ilegible" | "revision_ia" | "mejora_sugerida" | "cotizacion_fallida" | "pausada_olvidada" | "instagram_sin_telefono" | "zoho_reasignado";
 
 export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string; grave: boolean }> = {
   listo_sin_cita: { icono: "🎯", texto: "Buen perfil sin videollamada agendada", grave: true },
@@ -35,6 +35,7 @@ export const ETIQUETA_TIPO: Record<TipoHallazgo, { icono: string; texto: string;
   instagram_sin_telefono: { icono: "📵", texto: "Cliente de Instagram que aún no pasó a WhatsApp (hay que empujarlo mientras la ventana está abierta)", grave: false },
   pausada_olvidada: { icono: "⏸️", texto: "Cliente esperando respuesta con el bot pausado (una persona intervino y no volvió a contestar)", grave: true },
   cotizacion_fallida: { icono: "🧾", texto: "Cotización del bot que falló (ViveHome)", grave: true },
+  zoho_reasignado: { icono: "🔀", texto: "Cliente que se reasignó a otra persona en Zoho (no debería pasar)", grave: true },
   mensaje_ilegible: { icono: "🙈", texto: "Mensaje de WhatsApp que el bot no pudo leer (el cliente no recibió respuesta)", grave: true },
 };
 

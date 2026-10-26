@@ -375,3 +375,7 @@
 
 ## 2026-10-27 — Botón «Subir a Zoho» en «Subir clientes a Zoho»
 - Maricela: en la pestaña de incompletos no había botón de subir y todo había que hacerlo a mano. Ahora cada cliente de «Por subir» e «Incompletos» tiene «⬆ Subir a Zoho» (`/crm/zoho/subir` → `fragmentoSubir`): crea el candidato con lo que tenga (nota con lo que falta, tarea, En Prospección) y ella completa el resto en Zoho. Sigue exigiendo teléfono, no duplica (candidato o contacto existente) y no sube a otra asesora. Queda marcado «por CRM».
+
+## 2026-10-27 — Reasignaciones en Zoho: causa y vigilante
+- Kevin Gómez y Bellaneda Cortés (el sistema los creó como candidatos aunque ya eran Contactos) fueron reasignados por una regla de Zoho de Viventa Colombia («Asignación por reactivación: regla por ausencia de gestión comercial en los últimos 60 días») a Maria Cendales, ~1 h después de crearse. De los 53 candidatos que creó el sistema, solo esos 2 lo sufrieron (ambos duplicados de contactos); hoy los 53 figuran de Maricela. La causa es el duplicado: ya corregido con `buscarContacto`.
+- `runVigilanteZoho` (crm-zohovigilante.local, cada hora desde el ciclo de 15 min): revisa los candidatos que creó el sistema (30 días) o a los que dejó nota (14 días); si el dueño ya no es Maricela, crea un hallazgo «zoho_reasignado» en Auditoría (y avisa a Camila) una vez por cambio, con la nota de Zoho que explica la regla.
