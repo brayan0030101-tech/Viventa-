@@ -240,9 +240,11 @@ export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mens
     const abrir = formUrl && f.estado === "pendiente" ? `<a class="zh-btn" href="${esc(urlFormulario(formUrl, l))}" target="_blank" rel="noopener">Abrir formulario</a>` : "";
     const unico = (accion: string, texto: string, clase = "") =>
       `<form method="POST" action="/crm/zoho/marcar" style="display:inline"><input type="hidden" name="ids" value="${esc(l.convId)}"><input type="hidden" name="accion" value="${accion}"><input type="hidden" name="tab" value="${pestana}"><button class="zh-btn ${clase}">${texto}</button></form>`;
+    const zid = `zs-${l.convId.replace(/\W/g, "_")}`;
+    const subir = `<button type="button" class="zh-btn zh-ok" hx-post="/crm/zoho/subir" hx-vals='{"conv":"${esc(l.convId)}"}' hx-target="#${zid}" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="¿Subir a ${esc(l.nombre)} a Zoho ahora? Se crea como candidato con lo que tiene; después completas lo que falte en Zoho.">⬆ Subir a Zoho</button><div id="${zid}"></div>`;
     const acciones =
-      f.estado === "pendiente" ? `${abrir} ${unico("registrado", "✔ Ya subido", "zh-ok")}`
-      : f.estado === "incompleto" ? `<a class="zh-btn" href="/crm/c/${cid}">Ver ficha</a>`
+      f.estado === "pendiente" ? `${subir} ${abrir} ${unico("registrado", "✔ Ya subido", "zh-ok")}`
+      : f.estado === "incompleto" ? `${subir} <a class="zh-btn" href="/crm/c/${cid}">Ver ficha</a>`
       : `${f.estado === "subido" ? `<button type="button" class="zh-btn" hx-post="/crm/zoho/nuevo" hx-vals='{"conv":"${esc(l.convId)}"}' hx-target="#zn-${l.convId.replace(/\W/g, "_")}" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="¿Buscar a este cliente en Zoho y crearle la nota y la tarea?">📝 Crear nota y tarea en Zoho</button> ` : ""}${unico("deshacer", "↩ Deshacer")}<div id="zn-${l.convId.replace(/\W/g, "_")}"></div>`;
     return `<div class="zh-row">
       <span>${f.estado === "pendiente" ? `<input type="checkbox" name="ids" value="${esc(l.convId)}" form="zh-lote" class="zh-chk">` : ""}</span>
@@ -272,7 +274,7 @@ export async function renderCrmZoho(env: Env, pestana: PestanaZoho, opts: { mens
 
   const ayuda: Record<PestanaZoho, string> = {
     pendientes: "Clientes con todos los datos del formulario que todavía no has subido. Van en orden de llegada: empieza por arriba. Abre el formulario (ya viene con los datos escritos), súbelo y marca «Ya subido».",
-    incompletos: "Todavía les falta algún dato que el formulario exige (apellido, teléfono o ciudades). El bot se los pide solo; cuando los completen pasan a «Por subir».",
+    incompletos: "Todavía les falta algún dato que el formulario exige (apellido, teléfono o ciudades). El bot se los pide solo; cuando los completen pasan a «Por subir». Si quieres adelantarte, pulsa «⬆ Subir a Zoho»: se crea el candidato con lo que tiene y tú completas lo que falte en Zoho.",
     subidos: "Los que ya marcaste como subidos. Si te equivocaste, usa «Deshacer» y vuelven a la cola.",
     existian: "Clientes que ya estaban en el sistema de Zoho (no hace falta subirlos).",
   };

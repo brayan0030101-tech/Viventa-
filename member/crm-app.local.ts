@@ -645,6 +645,11 @@ export function crmApp(): Hono<Vars> {
     const { renderCrmZoho, pestanaValida } = await import("./crm-zoho.local");
     return pagina(c, await renderCrmZoho(c.env, pestanaValida(c.req.query("tab")), { orden: c.req.query("orden") ?? undefined, nivel: c.req.query("nivel") ?? undefined, mensaje: c.req.query("ok") ? `✔ ${decodeURIComponent(c.req.query("ok")!)}` : undefined }));
   });
+  app.post("/zoho/subir", async (c) => {
+    const { fragmentoSubir } = await import("./crm-zohosubida.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoSubir(c.env, String(f["conv"] ?? "")));
+  });
   app.post("/zoho/nuevo", async (c) => {
     const { fragmentoNuevo } = await import("./crm-zohonuevo.local");
     const f = await c.req.parseBody();

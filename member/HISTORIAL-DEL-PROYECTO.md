@@ -372,3 +372,6 @@
 
 ## 2026-10-27 — No crear candidatos duplicados de quien ya es Contacto (caso Jose Lisandro Morales)
 - Un cliente que llena el estudio de viabilidad se convierte en CONTACTO y deja de salir en Candidatos; el sistema solo buscaba en Candidatos y lo creó de nuevo como candidato nuevo (se perdió a la vista su historial). `buscarContacto` (crm-zohoapi) busca por correo/teléfono en Contactos y la subida no crea nada si ya existe; avisa a Camila.
+
+## 2026-10-27 — Botón «Subir a Zoho» en «Subir clientes a Zoho»
+- Maricela: en la pestaña de incompletos no había botón de subir y todo había que hacerlo a mano. Ahora cada cliente de «Por subir» e «Incompletos» tiene «⬆ Subir a Zoho» (`/crm/zoho/subir` → `fragmentoSubir`): crea el candidato con lo que tenga (nota con lo que falta, tarea, En Prospección) y ella completa el resto en Zoho. Sigue exigiendo teléfono, no duplica (candidato o contacto existente) y no sube a otra asesora. Queda marcado «por CRM».

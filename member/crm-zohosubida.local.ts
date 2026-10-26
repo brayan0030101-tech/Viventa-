@@ -103,7 +103,7 @@ export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: stri
   ].filter(Boolean).join("\n");
 }
 
-export async function armarPlan(env: Env, convId: string, f: FetchFn, now: number): Promise<{ plan?: PlanSubida; motivoNo?: string }> {
+export async function armarPlan(env: Env, convId: string, f: FetchFn, now: number, manual = false): Promise<{ plan?: PlanSubida; motivoNo?: string }> {
   const db = new Db(env.DB);
   const conv = await db.first<{ id: string; channel: string; channel_user_id: string; display_name: string | null; last_message_at: number; metadata: string | null }>(
     "SELECT id, channel, channel_user_id, display_name, last_message_at, metadata FROM conversations WHERE id = ?", [convId]);
@@ -123,9 +123,9 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
   const faltan = cal.faltan.filter((k) => BASE_PREGUNTAS.includes(k));
   // Prospección incompleta (decisión del 23 oct): se sube para que Maricela intente activarlo, pero solo si lleva ≥2 días sin hablar
   // (si no, el bot sigue en el guion) y si no es frío por datos reales (ingresos/cuota bajos, reportado sin plan).
-  if (faltan.length && now - conv.last_message_at < 2 * 86_400_000) return { motivoNo: `faltan preguntas (${faltan.join(", ")}): el bot sigue con el guion (habló hace menos de 2 días)` };
-  if (lead.prioridad.nivel === "frio" && (cal.motivo || !faltan.length)) return { motivoNo: "cliente frío: no se sube" };
-  if (cal.reportado && cal.puedeQuitarReporte !== true) return { motivoNo: "reportado sin plan de ponerse al día" };
+  if (!manual && faltan.length && now - conv.last_message_at < 2 * 86_400_000) return { motivoNo: `faltan preguntas (${faltan.join(", ")}): el bot sigue con el guion (habló hace menos de 2 días)` };
+  if (!manual && lead.prioridad.nivel === "frio" && (cal.motivo || !faltan.length)) return { motivoNo: "cliente frío: no se sube" };
+  if (!manual && cal.reportado && cal.puedeQuitarReporte !== true) return { motivoNo: "reportado sin plan de ponerse al día" };
   // Regla de Maricela (27 oct 2026): sin teléfono no se sube (no se les puede hacer seguimiento), aunque tenga correo.
   if (!lead.telefono) return { motivoNo: "no hay teléfono: sin número no se puede hacer seguimiento" };
 
@@ -191,11 +191,11 @@ async function marcar(db: Db, convId: string, clave: string, valor: string): Pro
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), ?, ?) WHERE id = ?", [`$.${clave}`, valor, convId]);
 }
 
-export async function subirCliente(env: Env, convId: string, opts: { soloVer?: boolean; f?: FetchFn; now?: number } = {}): Promise<ResultadoSubida & { plan?: PlanSubida }> {
+export async function subirCliente(env: Env, convId: string, opts: { soloVer?: boolean; manual?: boolean; f?: FetchFn; now?: number } = {}): Promise<ResultadoSubida & { plan?: PlanSubida }> {
   const f = opts.f ?? fetch;
   const now = opts.now ?? Date.now();
   const db = new Db(env.DB);
-  const { plan, motivoNo } = await armarPlan(env, convId, f, now);
+  const { plan, motivoNo } = await armarPlan(env, convId, f, now, opts.manual === true);
   if (!plan) return { estado: "no_corresponde", motivo: motivoNo ?? "no corresponde" };
   if (opts.soloVer) return { estado: "no_corresponde", motivo: "vista previa: no se escribió nada", plan };
   try {
@@ -239,7 +239,7 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
     await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: fechaTarea, ownerId: dueno.id }, f, now);
     for (const hermana of await conversacionesHermanas(db, convId)) {
       await marcar(db, hermana, "viventa_registrado", new Date(now).toISOString());
-      await marcar(db, hermana, "viventa_registrado_por", "bot");
+      await marcar(db, hermana, "viventa_registrado_por", opts.manual ? "CRM" : "bot");
       await marcar(db, hermana, "zoho_lead_id", leadId);
     }
     return { estado: "creado", leadId, tarea: fechaTarea, plan };
@@ -301,4 +301,16 @@ export async function runSincronizarEstadosZoho(env: Env, now = Date.now(), f: F
     }
   }
   return n;
+}
+
+/** Botón «Subir a Zoho» del CRM: sube al cliente con lo que tenga (aunque le falten datos) y Maricela completa el resto en Zoho. Exige teléfono. */
+export async function fragmentoSubir(env: Env, convId: string, f?: FetchFn, now = Date.now()): Promise<string> {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const caja = (color: string, html: string) => `<div style="color:var(--${color});font-size:11.5px;margin-top:4px;max-width:260px">${html}</div>`;
+  if (!(await escrituraActiva(env))) return caja("bad", "Zoho está en modo solo lectura. Avísale a Brayan para activar la escritura.");
+  const r = await subirCliente(env, convId, { manual: true, f, now });
+  if (r.estado === "creado") return caja("ok", `✔ Subido a Zoho (En Prospección) con nota y tarea para el ${esc(r.tarea)}. Completa lo que falte en su ficha.`);
+  if (r.estado === "ya_existe") return caja("accent-2", `Ya existía en Zoho${r.dueno ? ` (de ${esc(r.dueno)})` : ""}: no se creó otro.`);
+  if (r.estado === "no_corresponde") return caja("bad", `No se subió: ${esc(r.motivo)}.`);
+  return caja("bad", `No se pudo subir: ${esc(r.motivo)}`);
 }
