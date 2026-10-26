@@ -58,6 +58,24 @@ describe("calificación (reunión Maricela–Brayan, 21 oct 2026)", () => {
     expect(puntuarLead(ficha({ ...caliente, reportadoDatacredito: "Sí", puedeQuitarReporte: "No, es una deuda grande" })).nivel).toBe("frio");
     expect(puntuarLead(ficha({ ...caliente, reportadoDatacredito: "Sí", puedeQuitarReporte: "Sí, lo pago pronto" })).nivel).toBe("tibio");
   });
+  it("quien tiene ahorros no queda frío por cuota baja (caso María José, 26 oct 2026)", () => {
+    const c = evaluarCalificacion({ ...caliente, ahorroDisponible: "3.000.000 COP", capacidadMensual: "800.000 COP" });
+    expect(c.nivel).toBe("tibio");
+    expect(c.motivo).toContain("ahorros");
+    expect(evaluarCalificacion({ ...caliente, ahorroDisponible: "no tengo", capacidadMensual: "800.000 COP" }).nivel).toBe("frio");
+  });
+  it("ingresos de 2.000 € o más = caliente aunque destine solo 800.000 COP al mes (caso María José)", () => {
+    const c = evaluarCalificacion({ ciudadResidencia: "España", ciudadCompra: "Ibagué", entregaInmediataOFutura: "Futuro", ahorroDisponible: "3.000.000 COP", capacidadMensual: "800.000 COP", tipoEmpleo: "Empleada", ingresosMensuales: "2.300€ a 2.500€", compraSoloOAcompanado: "Con su pareja" });
+    expect(c.nivel).toBe("caliente");
+    expect(c.motivo).toContain("2.000");
+  });
+  it("con 2.000 € de ingresos, reportado queda tibio y reportado sin plan sigue frío", () => {
+    expect(evaluarCalificacion({ ...caliente, ingresosMensuales: "2500 euros", capacidadMensual: "200 euros", reportadoDatacredito: "Sí", puedeQuitarReporte: "Sí, pronto" }).nivel).toBe("tibio");
+    expect(evaluarCalificacion({ ...caliente, ingresosMensuales: "2500 euros", reportadoDatacredito: "Sí", puedeQuitarReporte: "No" }).nivel).toBe("frio");
+  });
+  it("con ahorros, reportado sin plan de ponerse al día sigue siendo frío", () => {
+    expect(evaluarCalificacion({ ...caliente, ahorroDisponible: "5000 euros", reportadoDatacredito: "Sí", puedeQuitarReporte: "No" }).nivel).toBe("frio");
+  });
   it("evaluarCalificacion dice qué preguntas faltan", () => {
     const c = evaluarCalificacion({ ...caliente });
     expect(c.completo).toBe(false);

@@ -148,6 +148,8 @@ const esSi = (t: string | undefined) => !!t && !/^\s*no\b/i.test(t) && (/^\s*s[i
  *  · Caliente: empleado + ingresos ≥ 1.500 € + destina ≥ 400 €/mes + NO reportado en Datacrédito.
  *  · Tibio: ingresos ≥ 1.300 € y destina ≥ 300 €/mes (también quien está reportado pero dice que se pone al día pronto).
  *  · Frío: ingresos < 1.300 € o destina < 300 €/mes (≈ 1 millón de pesos), o reportado sin posibilidad de ponerse al día.
+ *    EXCEPCIÓN 1: ingresos ≥ 2.000 € (sumados con la pareja) = caliente aunque destine poco (26 oct 2026).
+ *    EXCEPCIÓN 2: quien declara ahorros (ahorroDisponible > 0) nunca queda frío por cuota o ingresos bajos: queda tibio (26 oct 2026).
  * Si faltan datos de ingresos o cuota, se usa el puntaje antiguo (tibio con 3 puntos o más, nunca caliente).
  */
 export function evaluarCalificacion(m: Record<string, string>, puntos = 0): Calificacion {
@@ -170,6 +172,12 @@ export function evaluarCalificacion(m: Record<string, string>, puntos = 0): Cali
     nivel = empleado && ingresos >= 1_500 && cuota >= 400 ? "caliente" : "tibio";
     if (nivel === "caliente") motivo = "Perfil caliente: empleado, ingresos de 1.500 € o más y cuota de 400 € o más";
   } else nivel = puntos >= 3 ? "tibio" : "frio";
+  // Regla de Maricela (26 oct 2026): ingresos de 2.000 € o más (sumando a la pareja si compran juntos) = CALIENTE aunque hoy diga que solo puede destinar poco:
+  // si le gusta una propiedad podrá destinar más.
+  if (ingresos >= 2_000) { nivel = "caliente"; motivo = "Ingresos de 2.000 € o más: caliente aunque hoy destine poco (podrá destinar más si le interesa una propiedad)"; }
+  // Regla de Maricela (26 oct 2026): quien tiene AHORROS no se descarta. Con ahorro declarado, la cuota o los ingresos bajos no lo dejan frío (queda tibio).
+  const tieneAhorro = parseEuros(m.ahorroDisponible) > 0;
+  if (nivel === "frio" && tieneAhorro) { nivel = "tibio"; motivo = "Tiene ahorros: no se descarta aunque su cuota o ingresos sean bajos"; }
   if (reportado) {
     if (puedeQuitarReporte === false) { nivel = "frio"; motivo = "Reportado en Datacrédito y no puede ponerse al día"; }
     else if (nivel === "caliente") { nivel = "tibio"; motivo = "Reportado en Datacrédito: no es caliente hasta ponerse al día"; }

@@ -356,3 +356,8 @@
 ## 2026-10-24 — Solo clientes a nombre de Maricela + Instagram sí redirige
 - Regla de Maricela: si el candidato de Zoho no está a su nombre no se deja nota ni tarea. `crearNota` y `crearTarea` (crm-zohoapi) exigen que el dueño sea Maricela (`exigirDeMaricela`, recuerda 10 min por candidato) y lanzan `OtraAsesoraError`. Seguimiento automático: no deja nota y no reintenta ese día; botón «Nota y tarea»: muestra «no está a nombre de Maricela»; reactivación: lo avisa en pantalla.
 - Instagram no redirigía a WhatsApp: el bloque `<canal>` que se le da al modelo decía «zernio»/«ycloud» y el bot no sabía que estaba en Instagram, así que usaba el guion de WhatsApp (pedía nombre y correo). Ahora los canales se nombran bien (zernio = Instagram, ycloud = WhatsApp) y en Instagram el bloque repite la regla de pasar a WhatsApp con `enlaceWhatsApp`.
+
+## 2026-10-26 — Nadie con ahorros o buen ingreso se descarta (caso María José)
+- Maricela: una clienta con ingresos de 2.300–2.500 € y ahorros salió «fría» solo porque dijo que destinaría 800.000 COP (≈216 €) al mes.
+- `evaluarCalificacion`: ingresos ≥ 2.000 € (con pareja si compran juntos) = CALIENTE aunque la cuota sea baja; quien declara ahorros (ahorroDisponible > 0) nunca queda frío por cuota/ingresos bajos (mínimo tibio). Reportado sin plan de ponerse al día sigue siendo frío; reportado con plan queda tibio.
+- Instrucciones del bot (D1, respaldo `custom_instructions_respaldo_20261026_ahorros`): regla «NADIE CON AHORROS O CON BUEN INGRESO SE DESCARTA» que manda sobre los cierres «no cumples las condiciones». Añadida a los marcadores del guardián.

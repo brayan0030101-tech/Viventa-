@@ -262,7 +262,7 @@ describe("cotizaciones del bot", () => {
     });
 
     it("a un frío no se le manda la plantilla (no recibiría cotización) y queda omitido", async () => {
-      const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros", ingresosMensuales: "1000 euros" }, NOW - 30 * H);
+      const a = await cliente("34600000001", "Laura Pérez", { ciudadCompra: "Cali", capacidadMensual: "500 euros", ingresosMensuales: "1000 euros", ahorroDisponible: "no tengo ahorros" }, NOW - 30 * H);
       await ajustar(AJUSTE_MODO, "activo");
       await ajustar(AJUSTE_PLANTILLA, "activo");
       const s = simular();
