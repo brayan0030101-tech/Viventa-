@@ -42,9 +42,9 @@ const preguntaIngresos: Turno[] = [...apertura, { role: "user", content: "Puedo 
 export const ESCENARIOS: Escenario[] = [
   { id: "cuota_baja", titulo: "Dice que puede destinar 150 € al mes", previo: preguntaCuota, cliente: "Unos 150 euros al mes",
     espera: [
-      { que: "explica el mínimo (1.300.000 pesos o 400 euros)", ok: (r) => /1\.?300\.?000|400/.test(r) },
-      { que: "ofrece alternativas (abono menor, CDT, prima o ingreso extra)", ok: (r) => /abono|cdt|prima|ingreso extra|pago adicional/.test(r) },
-      { que: "NO ofrece videollamada", ok: (r) => !/videollamada|agendar|agenda/.test(r) },
+      { que: "dice que los proyectos más económicos parten de unos 350 euros al mes", ok: (r) => /350/.test(r) },
+      { que: "pregunta si puede subir el presupuesto o prefiere dejarlo para el futuro", ok: (r) => /subir|aumentar|mas adelante|futuro/.test(r) },
+      { que: "NO cierra la puerta («no cumples», «lamentablemente»)", ok: (r) => !/no cumples|lamentablemente|no cumple con/.test(r) },
     ] },
   { id: "pide_datacredito", titulo: "Después de los ingresos pregunta por Datacrédito", previo: preguntaIngresos, cliente: "Soy empleada y gano 1800 euros al mes",
     espera: [{ que: "pregunta si está reportada en Datacrédito", ok: (r) => /datacredito|reportad/.test(r) }, { que: "no habla de precios ni de videollamada todavía", ok: (r) => !/videollamada/.test(r) }] },

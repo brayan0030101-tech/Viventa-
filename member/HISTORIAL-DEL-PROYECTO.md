@@ -361,3 +361,7 @@
 - Maricela: una clienta con ingresos de 2.300–2.500 € y ahorros salió «fría» solo porque dijo que destinaría 800.000 COP (≈216 €) al mes.
 - `evaluarCalificacion`: ingresos ≥ 2.000 € (con pareja si compran juntos) = CALIENTE aunque la cuota sea baja; quien declara ahorros (ahorroDisponible > 0) nunca queda frío por cuota/ingresos bajos (mínimo tibio). Reportado sin plan de ponerse al día sigue siendo frío; reportado con plan queda tibio.
 - Instrucciones del bot (D1, respaldo `custom_instructions_respaldo_20261026_ahorros`): regla «NADIE CON AHORROS O CON BUEN INGRESO SE DESCARTA» que manda sobre los cierres «no cumples las condiciones». Añadida a los marcadores del guardián.
+
+## 2026-10-26 — Nunca cerrar la puerta al cliente (Maricela y Camila)
+- El bot le decía a clientes con cuota baja «por ahora no cumples con las condiciones… lamentablemente» (cierre seco). Ahora: «los proyectos con la cuota más baja están a partir de unos 350 €/mes; ¿puedes subir un poco tu presupuesto o prefieres dejarlo para más adelante?», y si prefiere esperar se despide con calidez y deja nota («Prefiere dejar el proyecto para el futuro»). Igual con ingresos bajos (pregunta si alguien puede ayudarle a comprar).
+- Instrucciones del bot (D1, respaldo `custom_instructions_respaldo_20261026_puerta`): regla «NUNCA CIERRES LA PUERTA AL CLIENTE» sobre los puntos 2 y 3 de calificación; marcador del guardián. `MENSAJE_NO_CUMPLE` (llamada.local) reescrito con el mismo tono; escenario de prueba «cuota_baja» actualizado.

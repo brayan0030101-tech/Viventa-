@@ -18,6 +18,7 @@ export const MARCADORES: Array<{ clave: string; texto: string }> = [
   { clave: "flujo", texto: "FLUJO DESPUES DEL GUION" },
   { clave: "reagendar", texto: "REAGENDAR SIEMPRE LO HACES TU" },
   { clave: "ahorros", texto: "NADIE CON AHORROS O CON BUEN INGRESO SE DESCARTA" },
+  { clave: "puerta", texto: "NUNCA CIERRES LA PUERTA AL CLIENTE" },
 ];
 
 export async function asegurarTablaInstrucciones(db: Db): Promise<void> {

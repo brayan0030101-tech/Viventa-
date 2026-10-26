@@ -26,7 +26,7 @@ async function cotizacionEnviada(db: Db, convId: string, telefono: string): Prom
   return (b?.n ?? 0) > 0;
 }
 export const MENSAJE_NO_CUMPLE =
-  "Gracias por contarnos tu situación. Lamentablemente por ahora no cumples con las condiciones para adquirir una vivienda con crédito hipotecario: se requiere poder destinar al menos 400 euros al mes. Esperamos que en una próxima ocasión puedas tener esa disponibilidad para poder brindarte el servicio.";
+  "Gracias por contarnos tu situación. Actualmente los proyectos con la cuota más baja están a partir de unos 350 euros al mes. ¿Te sería posible subir un poco tu presupuesto, o prefieres dejar el proyecto para más adelante? Cuando quieras retomarlo, escríbenos y con gusto te ayudamos.";
 /** Primer inicio permitido y último inicio (la llamada dura 45 min y los inicios van de hora en hora: la última, 15:00, termina a las 15:45). */
 const DESDE = "10:00";
 const HASTA = "15:30";
