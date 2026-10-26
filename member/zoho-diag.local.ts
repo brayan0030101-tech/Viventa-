@@ -43,6 +43,36 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "duenos_leads") {
+    // ¿Quién es hoy el dueño de los candidatos que subió/tocó el sistema? Detecta los que se reasignaron a otra persona.
+    await st.set("zoho_diag_pedir", "");
+    const out: unknown[] = [];
+    try {
+      const { coql, duenoZoho, notasDe } = await import("./crm-zohoapi.local");
+      const yo = await duenoZoho(env);
+      const db = new Db(env.DB);
+      const ids = new Map<string, string>();
+      for (const r of await db.all<{ z: string; nm: string | null; por: string | null }>("SELECT json_extract(c.metadata,'$.zoho_lead_id') AS z, (SELECT name FROM leads l WHERE l.conversation_id = c.id AND l.intent NOT LIKE 'Cita%' LIMIT 1) AS nm, json_extract(c.metadata,'$.viventa_registrado_por') AS por FROM conversations c WHERE json_extract(c.metadata,'$.zoho_lead_id') IS NOT NULL")) if (r.z) ids.set(r.z, `${r.nm ?? ""} (${r.por ?? "?"})`);
+      for (const r of await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_zoho_nuevo WHERE lead_id IS NOT NULL").catch(() => [])) if (!ids.has(r.lead_id)) ids.set(r.lead_id, "(nota y tarea)");
+      const lista = [...ids.keys()].filter((x) => /^\d{6,30}$/.test(x));
+      let otros = 0;
+      for (let i = 0; i < lista.length; i += 40) {
+        const lote = lista.slice(i, i + 40);
+        const filas = await coql(env, `select id, Owner, Lead_Status, Created_Time, Modified_Time from Leads where id in (${lote.map((x) => `'${x}'`).join(",")})`).catch(() => []);
+        for (const f of filas) {
+          const o = (f["Owner"] ?? {}) as { id?: string; name?: string };
+          if (o.id && o.id !== yo.id) {
+            otros++;
+            const ns = await notasDe(env, String(f["id"]), 3).catch(() => []);
+            out.push({ lead: f["id"], cliente: ids.get(String(f["id"])), dueno: o.name, estado: f["Lead_Status"], creado: f["Created_Time"], modificado: f["Modified_Time"], notas: ns.map((n) => `${n.creada.slice(0, 16)} ${n.titulo}: ${n.texto.slice(0, 90)}`) });
+          }
+        }
+      }
+      out.push({ revisados: lista.length, deOtraPersona: otros });
+    } catch (e) { out.push({ error: e instanceof Error ? e.message : String(e) }); }
+    await st.set("zoho_diag_resultado", JSON.stringify({ duenos: out }));
+    return;
+  }
   if (pedido === "duplicados_contactos") {
     // De los candidatos que creó el sistema, ¿cuáles ya existían como CONTACTO en Zoho?
     await st.set("zoho_diag_pedir", "");
