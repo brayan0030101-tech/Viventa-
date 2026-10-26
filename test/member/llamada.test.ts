@@ -80,12 +80,14 @@ describe("proponerLlamada", () => {
     const r = await (proponerLlamadaTool(env, () => id) as any).execute({ reprogramar: true });
     expect(r.ofrecerLlamada).toBe(true);
   });
-  it("cliente frío (destina menos de 300 €): no se ofrece la llamada y se le da el mensaje de «no cumple»", async () => {
+  it("cliente frío (destina menos de 300 €, sin ingresos de 2.000 € ni ahorros): no se ofrece la llamada y se le da el mensaje amable (350 €, subir o dejarlo para el futuro)", async () => {
     const id = await cliente({ ciudadCompra: "Cali", ingresosMensuales: "1500", capacidadMensual: "150 euros" });
     const r = await correr(id);
     expect(r.ofrecerLlamada).toBe(false);
     expect(r.motivo).toBe("no_cumple_condiciones");
-    expect(r.message).toContain("400 euros");
+    expect(r.message).toContain("350 euros");
+    expect(r.message).toContain("subir un poco tu presupuesto");
+    expect(r.message).not.toMatch(/lamentablemente|no cumples/i);
   });
   it("si faltan preguntas (Datacrédito, compra sola o acompañada) no se ofrece todavía", async () => {
     const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora" });
