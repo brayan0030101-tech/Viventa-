@@ -365,3 +365,10 @@
 ## 2026-10-26 — Nunca cerrar la puerta al cliente (Maricela y Camila)
 - El bot le decía a clientes con cuota baja «por ahora no cumples con las condiciones… lamentablemente» (cierre seco). Ahora: «los proyectos con la cuota más baja están a partir de unos 350 €/mes; ¿puedes subir un poco tu presupuesto o prefieres dejarlo para más adelante?», y si prefiere esperar se despide con calidez y deja nota («Prefiere dejar el proyecto para el futuro»). Igual con ingresos bajos (pregunta si alguien puede ayudarle a comprar).
 - Instrucciones del bot (D1, respaldo `custom_instructions_respaldo_20261026_puerta`): regla «NUNCA CIERRES LA PUERTA AL CLIENTE» sobre los puntos 2 y 3 de calificación; marcador del guardián. `MENSAJE_NO_CUMPLE` (llamada.local) reescrito con el mismo tono; escenario de prueba «cuota_baja» actualizado.
+
+## 2026-10-27 — Sin teléfono no se sube a Zoho
+- Maricela/Camila: clientes sin número de teléfono no se pueden subir (no se les puede hacer seguimiento y las tareas quedan vencidas sin gestión). `armarPlan` ahora exige teléfono (antes bastaba el correo).
+- Ya subidos sin teléfono (Instagram): 10 al 27 oct; ver respuesta a Brayan para decidir su limpieza.
+
+## 2026-10-27 — No crear candidatos duplicados de quien ya es Contacto (caso Jose Lisandro Morales)
+- Un cliente que llena el estudio de viabilidad se convierte en CONTACTO y deja de salir en Candidatos; el sistema solo buscaba en Candidatos y lo creó de nuevo como candidato nuevo (se perdió a la vista su historial). `buscarContacto` (crm-zohoapi) busca por correo/teléfono en Contactos y la subida no crea nada si ya existe; avisa a Camila.

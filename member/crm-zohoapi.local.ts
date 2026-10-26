@@ -345,6 +345,47 @@ export async function cambiarAsuntoYFechaTarea(env: Env, tareaId: string, asunto
 
 // ─── Buscar y listar candidatos ──────────────────────────────────────────────
 
+export interface ContactoZoho {
+  id: string;
+  nombre: string;
+  duenoId: string;
+  dueno: string;
+}
+
+/**
+ * Busca a la persona en el módulo CONTACTOS (por correo o teléfono, igual que buscarCandidato). Un candidato que ya llenó el estudio de viabilidad se
+ * convierte en contacto y deja de salir en Candidatos: sin esta búsqueda el sistema lo creaba otra vez como candidato nuevo (27 oct 2026, Jose Lisandro Morales).
+ */
+export async function buscarContacto(env: Env, q: { correos: string[]; telefono: string }, f: FetchFn = fetch, now = Date.now()): Promise<ContactoZoho | null> {
+  const campos = "id, First_Name, Last_Name, Mobile, Phone, Email, Owner";
+  const de = (r: Record<string, unknown>): ContactoZoho => {
+    const o = (r["Owner"] ?? {}) as { id?: string; name?: string };
+    return { id: String(r["id"]), nombre: `${String(r["First_Name"] ?? "")} ${String(r["Last_Name"] ?? "")}`.trim(), duenoId: String(o.id ?? ""), dueno: String(o.name ?? "") };
+  };
+  const correos = [...new Set(q.correos.map((c) => c.trim().toLowerCase()).filter((c) => /^[^\s@']+@[^\s@']+\.[^\s@']+$/.test(c)))];
+  for (const c of correos) {
+    const filas = await coql(env, `select ${campos} from Contacts where Email = '${sinComilla(c)}' limit 5`, f, now).catch(() => []);
+    if (filas[0]) return de(filas[0]);
+  }
+  const dig = q.telefono.replace(/\D/g, "");
+  if (dig.length >= 8) {
+    const ult9 = dig.slice(-9);
+    const coincide = (r: Record<string, unknown>) => [r["Mobile"], r["Phone"]].some((t) => String(t ?? "").replace(/\D/g, "").endsWith(ult9));
+    const variantes = [...new Set([`+${dig}`, dig, ult9])].map((v) => `'${v}'`).join(",");
+    const exactas = await coql(env, `select ${campos} from Contacts where (Mobile in (${variantes}) or Phone in (${variantes})) limit 20`, f, now).catch(() => []);
+    const h1 = exactas.find(coincide);
+    if (h1) return de(h1);
+    const cola = ult9.slice(-3);
+    for (let off = 0; off < 1000; off += 200) {
+      const filas = await coql(env, `select ${campos} from Contacts where (Mobile like '%${cola}' or Phone like '%${cola}') limit ${off}, 200`, f, now).catch(() => []);
+      const h2 = filas.find(coincide);
+      if (h2) return de(h2);
+      if (filas.length < 200) break;
+    }
+  }
+  return null;
+}
+
 export interface CandidatoLista extends CandidatoZoho {
   creado: string; // ISO de Zoho
 }

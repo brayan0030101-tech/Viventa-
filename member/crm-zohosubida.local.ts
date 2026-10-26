@@ -12,7 +12,7 @@ import { armarLeads, evaluarCalificacion, type LeadResumen } from "../src/follow
 import { esNumeroColombiano } from "../src/channels/ycloud";
 import { dijoQueNo } from "../src/vivehome/cola";
 import { notifyCamila } from "../src/lib/camila";
-import { buscarCandidato, crearCandidato, crearNota, crearTarea, cambiarEstadoCandidato, duenoDeCandidato, duenoZoho, ejecutarTransicion, transicionesDe, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
+import { buscarCandidato, buscarContacto, crearCandidato, crearNota, crearTarea, cambiarEstadoCandidato, duenoDeCandidato, duenoZoho, ejecutarTransicion, transicionesDe, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
 import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
 import { conversacionesHermanas } from "./crm-zoho.local";
 
@@ -126,7 +126,8 @@ export async function armarPlan(env: Env, convId: string, f: FetchFn, now: numbe
   if (faltan.length && now - conv.last_message_at < 2 * 86_400_000) return { motivoNo: `faltan preguntas (${faltan.join(", ")}): el bot sigue con el guion (habló hace menos de 2 días)` };
   if (lead.prioridad.nivel === "frio" && (cal.motivo || !faltan.length)) return { motivoNo: "cliente frío: no se sube" };
   if (cal.reportado && cal.puedeQuitarReporte !== true) return { motivoNo: "reportado sin plan de ponerse al día" };
-  if (!lead.telefono && !lead.correo) return { motivoNo: "no hay teléfono ni correo" };
+  // Regla de Maricela (27 oct 2026): sin teléfono no se sube (no se les puede hacer seguimiento), aunque tenga correo.
+  if (!lead.telefono) return { motivoNo: "no hay teléfono: sin número no se puede hacer seguimiento" };
 
   const listas = await listasLeads(env, f, now);
   const m = lead.ficha.metadata;
@@ -209,6 +210,13 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
         await notifyCamila(env, { heading: "⚠️ Cliente ya está en Zoho con otra asesora", body: `${plan.nombre} (${plan.telefono || plan.correo}) ya existe en Zoho a nombre de ${de?.nombre || "otra persona"} (estado «${existente.estado}»). No se creó nada. Si es un cliente caliente, conviene pedir a Rafa que te lo reasigne.` }).catch(() => false);
       }
       return { estado: "ya_existe", leadId: existente.id, dueno: de?.nombre ?? dueno.nombre, propio, plan };
+    }
+    // Si ya es CONTACTO (llenó el estudio de viabilidad y se convirtió) no se vuelve a crear como candidato: se perdería su historial.
+    const contacto = await buscarContacto(env, { correos: plan.correo ? plan.correo.split(",") : [], telefono: plan.telefono }, f, now);
+    if (contacto) {
+      for (const hermana of await conversacionesHermanas(db, convId)) await marcar(db, hermana, "viventa_existente", `${hoy(now)}-bot-contacto`);
+      await notifyCamila(env, { heading: "ℹ️ Cliente ya es Contacto en Zoho", body: `${plan.nombre} (${plan.telefono || plan.correo}) ya existe como CONTACTO en Zoho (${contacto.nombre}${contacto.dueno ? `, de ${contacto.dueno}` : ""}). No se creó candidato nuevo.` }).catch(() => false);
+      return { estado: "ya_existe", leadId: contacto.id, dueno: contacto.dueno || dueno.nombre, propio: !contacto.duenoId || contacto.duenoId === dueno.id, plan };
     }
     const datos: Record<string, unknown> = { ...plan.datos, Owner: { id: dueno.id } };
     let leadId: string;
