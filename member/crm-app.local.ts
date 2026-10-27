@@ -573,6 +573,15 @@ export function crmApp(): Hono<Vars> {
     return ok ? c.text("ok") : c.text("Etapa no válida", 400);
   });
 
+  app.post("/observacion", async (c) => {
+    const { fijarObservacion } = await import("./crm-pipeline.local");
+    const f = await c.req.parseBody();
+    const conv = String(f["conv"] ?? "");
+    if (!/^[\w:.+-]{3,120}$/.test(conv)) return c.text("Cliente no válido", 400);
+    await fijarObservacion(c.env, conv, String(f["texto"] ?? ""));
+    return c.text("ok");
+  });
+
   // Calendario
   app.get("/calendario", async (c) => {
     const { renderCrmCalendario } = await import("./crm-calendario.local");

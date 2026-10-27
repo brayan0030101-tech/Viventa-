@@ -1,6 +1,7 @@
 // member/crm.local.ts — CRM de Viventa para Maricela (fase 1: leads, ficha y conversaciones).
 // Vive en member/ para que `forjabot update` no lo pise. Se monta dentro del panel del
 // bot (/crm), con su propio acceso y su propio diseño; comparte solo la base de datos.
+import { ETAPAS as ETAPAS_LISTA } from "./crm-pipeline.local"; // (ciclo con crm-pipeline: solo se usa dentro de funciones)
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
@@ -29,6 +30,10 @@ export interface FilaCrm {
   ticketAbierto: boolean;
   registro: "registrado" | "existente" | "";
   nota: string;
+  /** Situación del cliente (etapa que Maricela eligió o la automática) y su observación opcional. */
+  situacion?: string;
+  situacionManual?: boolean;
+  observacion?: string;
 }
 
 interface ConvRow {
@@ -80,12 +85,20 @@ export async function cargarCrm(env: Env, now = Date.now()): Promise<FilaCrm[]> 
       ticketAbierto: !!c.open_ticket_id,
       registro: m.viventa_registrado ? "registrado" : m.viventa_existente ? "existente" : "",
       nota: m.crm_nota ?? "",
+      observacion: m.crm_obs ?? "",
     };
   });
 }
 
+/** Lista de leads con la situación de cada cliente (la que eligió Maricela o la automática). */
+export async function cargarCrmConSituacion(env: Env, now = Date.now()): Promise<FilaCrm[]> {
+  const { cargarPipeline } = await import("./crm-pipeline.local");
+  return (await cargarPipeline(env, now)).map((t) => ({ ...t.fila, situacion: t.etapa, situacionManual: t.manual }));
+}
+
 // ─── Utilidades de presentación ──────────────────────────────────────────────
 
+/** Situaciones que Maricela puede elegir en la lista de Leads (las mismas etapas del antiguo Pipeline + «Descartado»). */
 export const NIVEL = {
   caliente: { icono: "🔥", nombre: "Caliente", color: "#E60D6F", orden: 0 },
   tibio: { icono: "🟡", nombre: "Tibio", color: "#E09A00", orden: 1 },
@@ -152,6 +165,7 @@ export interface FiltrosCrm {
   nivel?: string;
   canal?: string;
   estado?: string;
+  sit?: string;
   q?: string;
 }
 
@@ -167,6 +181,7 @@ export function filtrarCrm(filas: FilaCrm[], f: FiltrosCrm): FilaCrm[] {
     if (f.estado === "sin_llamada" && r.lead.llamada) return false;
     if (f.estado === "registrado" && !r.registro) return false;
     if (f.estado === "sin_registrar" && r.registro) return false;
+    if (f.sit && r.situacion !== f.sit) return false;
     if (q) {
       const hay = sinTildes([r.lead.nombre, r.lead.telefono, r.lead.correo, r.perfil, r.lead.ficha.metadata.ciudadCompra, r.lead.ficha.metadata.ciudadResidencia].join(" "));
       if (!hay.includes(q)) return false;
@@ -191,6 +206,7 @@ export const ESTILO_CRM = `<style>
   .crm-kpi:hover{border-color:var(--accent);transform:translateY(-1px)}
   .crm-kpi.on{border-color:var(--accent);background:var(--accent-soft)}
   .crm-row{display:grid;grid-template-columns:118px minmax(140px,1.2fr) minmax(150px,1fr) minmax(130px,1fr) 88px 112px 92px;gap:10px;padding:12px 14px;font-size:12.5px;align-items:center;border-top:1px solid var(--line);color:inherit}
+  .crm-row.leads{grid-template-columns:112px minmax(130px,1.1fr) minmax(140px,1fr) minmax(110px,.9fr) 80px 100px 84px minmax(200px,1.3fr)}
   .crm-row:hover{background:var(--panel2)}
   .crm-row>span,.zh-row>span{min-width:0;overflow-wrap:anywhere;word-break:break-word}
   .crm-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -204,7 +220,7 @@ export const ESTILO_CRM = `<style>
   .crm-dato span:last-child{color:var(--cream);text-align:right;word-break:break-word}
   .crm-grid{display:grid;grid-template-columns:minmax(300px,390px) minmax(0,1fr);gap:18px;align-items:start}
   .burbuja{max-width:78%;padding:9px 12px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
-  @media (max-width:1100px){.crm-grid{grid-template-columns:1fr}.crm-row{grid-template-columns:1fr 1fr}.crm-head{display:none}}
+  @media (max-width:1100px){.crm-grid{grid-template-columns:1fr}.crm-row,.crm-row.leads{grid-template-columns:1fr 1fr}.crm-head{display:none}}
 </style>`;
 
 function kpiLink(href: string, titulo: string, n: number, activo: boolean, color?: string): string {
@@ -221,7 +237,7 @@ function qs(f: FiltrosCrm, cambio: Partial<FiltrosCrm>): string {
 }
 
 export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.now()): Promise<string> {
-  const todas = await cargarCrm(env, now);
+  const todas = await cargarCrmConSituacion(env, now);
   const filtradas = ordenarCrm(filtrarCrm(todas, f));
   const cuenta = (n: string) => todas.filter((r) => r.lead.prioridad.nivel === n).length;
   const conLlamada = todas.filter((r) => r.lead.llamada).length;
@@ -242,6 +258,7 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
     <input class="crm-in" type="search" name="q" value="${esc(f.q)}" placeholder="Buscar por nombre, teléfono, correo o ciudad…" style="min-width:280px;flex:1">
     ${sel("nivel", f.nivel, [["", "Toda prioridad"], ["caliente", "🔥 Calientes"], ["tibio", "🟡 Tibios"], ["frio", "⚪ Fríos"]])}
     ${sel("canal", f.canal, [["", "Todos los canales"], ["whatsapp", "WhatsApp"], ["instagram", "Instagram"]])}
+    ${sel("sit", f.sit, [["", "Cualquier situación"], ...ETAPAS_LISTA.map((e): [string, string] => [e.id, `${e.icono} ${e.nombre}`])])}
     ${sel("estado", f.estado, [["", "Cualquier estado"], ["con_llamada", "Con llamada agendada"], ["sin_llamada", "Sin llamada"], ["registrado", "Ya registrado en Zoho"], ["sin_registrar", "Sin registrar en Zoho"]])}
     <button class="crm-in" style="cursor:pointer">Buscar</button>
     <a class="ghostbtn" href="${qs(f, {}).replace("/crm", "/crm/export.xlsx")}" style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);color:var(--muted);padding:8px 14px;font-size:12.5px">⬇ Excel (${filtradas.length})</a>
@@ -254,15 +271,23 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
       const contacto = [l.telefono, l.correo.split(",")[0]].filter(Boolean).map(esc).join("<br>") || `<span class="text-dim">—</span>`;
       const interes = [m.ciudadCompra, m.ahorroDisponible].filter(Boolean).map(esc).join(" · ") || "—";
       const reg = r.registro === "registrado" ? `<span style="color:var(--ok)">✔ Registrado</span>` : r.registro === "existente" ? `<span style="color:var(--info)">ya existía</span>` : `<span class="text-dim">sin registrar</span>`;
-      return `<a class="crm-row" href="/crm/c/${encodeURIComponent(l.convId)}">
+      const cid = encodeURIComponent(l.convId);
+      const sit = r.situacion ?? "nuevo";
+      const opcionesSit = ETAPAS_LISTA.map((e) => `<option value="${e.id}"${e.id === sit ? " selected" : ""}>${e.icono} ${e.nombre}</option>`).join("") + (r.situacionManual ? `<option value="auto">↺ Volver a automático</option>` : "");
+      const situacion = `<span>
+          <select name="etapa" class="crm-in" hx-post="/crm/etapa" hx-vals='{"conv":"${esc(l.convId)}"}' hx-trigger="change" hx-swap="none" hx-on::after-request="this.style.borderColor='var(--ok)'" title="${r.situacionManual ? "Elegida por ti" : "Automática (según lo que ya sabemos del cliente)"}" style="width:100%;font-size:11.5px;padding:5px 6px${r.situacionManual ? ";border-color:var(--accent)" : ""}">${opcionesSit}</select>
+          <input class="crm-in" type="text" name="texto" value="${esc(r.observacion ?? "")}" maxlength="500" placeholder="Observación (opcional)" hx-post="/crm/observacion" hx-vals='{"conv":"${esc(l.convId)}"}' hx-trigger="change" hx-swap="none" hx-on::after-request="this.style.borderColor='var(--ok)'" style="width:100%;margin-top:5px;font-size:11.5px;padding:5px 6px">
+        </span>`;
+      return `<div class="crm-row leads">
         <span>${badgeNivel(l.prioridad.nivel, l.prioridad.puntos)}</span>
-        <span><span style="color:var(--cream);font-weight:600">${esc(l.nombre)}</span><br><span class="text-dim" style="font-size:11px">${esc(l.canal)}${r.perfil ? ` · @${esc(r.perfil)}` : ""}${r.ticketAbierto ? " · 🔔 ticket" : ""}</span></span>
+        <span><a href="/crm/c/${cid}" style="color:var(--cream);font-weight:600">${esc(l.nombre)}</a><br><span class="text-dim" style="font-size:11px">${esc(l.canal)}${r.perfil ? ` · @${esc(r.perfil)}` : ""}${r.ticketAbierto ? " · 🔔 ticket" : ""}</span></span>
         <span class="text-muted">${contacto}</span>
         <span class="text-muted crm-clamp" title="${interes}">${interes}</span>
         <span class="text-dim" title="${esc(fechaHora(r.ultimo))}">${hace(r.ultimo, now)}</span>
         <span>${l.llamada ? `📞 ${esc(l.llamada)}` : `<span class="text-dim">—</span>`}</span>
         <span>${reg}</span>
-      </a>`;
+        ${situacion}
+      </div>`;
     })
     .join("");
 
@@ -277,8 +302,8 @@ export async function renderCrmLista(env: Env, f: FiltrosCrm = {}, now = Date.no
     ${kpis}
     ${filtros}
     <div class="crm-card" style="overflow-x:auto">
-      <div style="min-width:820px">
-        <div class="crm-row crm-head"><span>Prioridad</span><span>Cliente</span><span>Contacto</span><span>Interés</span><span>Último mensaje</span><span>Llamada</span><span>Zoho</span></div>
+      <div style="min-width:1040px">
+        <div class="crm-row leads crm-head"><span>Prioridad</span><span>Cliente</span><span>Contacto</span><span>Interés</span><span>Último mensaje</span><span>Llamada</span><span>Zoho</span><span>Situación</span></div>
         ${filtradas.length ? filas : vacio}
       </div>
     </div>
@@ -560,16 +585,16 @@ export async function guardarNota(env: Env, convId: string, nota: string): Promi
 // ─── Excel de la lista ───────────────────────────────────────────────────────
 
 export async function excelCrm(env: Env, f: FiltrosCrm, now = Date.now()): Promise<Uint8Array> {
-  const filas = ordenarCrm(filtrarCrm(await cargarCrm(env, now), f));
-  const head = ["#", "Prioridad", "Puntos", "Canal", "Nombre", "Perfil de Instagram", "Teléfono", "Correo", "Ciudad de interés", "Dónde vive", "Ahorro", "Cuota mensual", "Ingresos", "Empleo", "Entrega", "Llamada agendada", "Zoho", "Último mensaje", "Nota interna"];
+  const filas = ordenarCrm(filtrarCrm(await cargarCrmConSituacion(env, now), f));
+  const head = ["#", "Prioridad", "Puntos", "Canal", "Nombre", "Perfil de Instagram", "Teléfono", "Correo", "Ciudad de interés", "Dónde vive", "Ahorro", "Cuota mensual", "Ingresos", "Empleo", "Entrega", "Llamada agendada", "Zoho", "Último mensaje", "Nota interna", "Situación", "Observación"];
   const rows: Array<Array<string | number>> = [head];
   filas.forEach((r, i) => {
     const m = r.lead.ficha.metadata;
     rows.push([
       i + 1, NIVEL[r.lead.prioridad.nivel].nombre, r.lead.prioridad.puntos, r.lead.canal, r.lead.nombre, r.perfil, r.lead.telefono, r.lead.correo,
       m.ciudadCompra ?? "", m.ciudadResidencia ?? "", m.ahorroDisponible ?? "", m.capacidadMensual ?? "", m.ingresosMensuales ?? "", m.tipoEmpleo ?? "", m.entregaInmediataOFutura ?? "",
-      r.lead.llamada, r.registro || "sin registrar", fechaHora(r.ultimo), r.nota,
+      r.lead.llamada, r.registro || "sin registrar", fechaHora(r.ultimo), r.nota, ETAPAS_LISTA.find((e) => e.id === r.situacion)?.nombre ?? "", r.observacion ?? "",
     ]);
   });
-  return buildXlsx([{ name: "Leads", rows, widths: [4, 11, 8, 11, 26, 20, 17, 30, 18, 24, 20, 16, 16, 20, 18, 20, 14, 16, 30] }]);
+  return buildXlsx([{ name: "Leads", rows, widths: [4, 11, 8, 11, 26, 20, 17, 30, 18, 24, 20, 16, 16, 20, 18, 20, 14, 16, 30, 18, 40] }]);
 }

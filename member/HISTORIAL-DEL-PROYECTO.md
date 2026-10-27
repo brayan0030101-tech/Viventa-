@@ -384,3 +384,8 @@
 ## 2026-10-27 — Recordatorio de 24 h con el día (caso Lisandra)
 - La videollamada de Lisandra era el miércoles 28 a las 14:00; el recordatorio de 24 h salió por la plantilla de WhatsApp («te recordamos tu videollamada… a las 14:00 hora de España») sin decir el día, y ella escribió hoy a las 14:03 preguntando dónde entrar. La llamada sí estaba bien agendada (Cal.com, 28 oct 14:00): no aparecía en el calendario de hoy porque era de mañana.
 - El parámetro de hora de ese recordatorio ahora lleva el día: «14:00 del miércoles 28 de octubre» (o «14:00 de hoy»). El de 1 h antes sigue igual.
+
+## 2026-10-27 — Situación de cada cliente en «Leads» (se quita el Pipeline)
+- Maricela no usa el Pipeline: se quitó del menú y de las pestañas (la ruta /crm/pipeline sigue existiendo, oculta). En «Leads» cada cliente tiene una columna **Situación** (Nuevo, Calificado, Llamada agendada, Llamada hecha, Más probables, En cierre, Negociando, Cerrado, Perdido y la nueva **Descartado**) que ella elige con un selector (se guarda en `crm_etapa`; «↺ Volver a automático» devuelve el cálculo automático) y una **Observación opcional** (`crm_obs`, hasta 500 caracteres; vacía = se borra) para anotar, por ejemplo, por qué lo descartó.
+- Descartado también marca `crm_descarte` (por «leads»), que el bot, las cotizaciones, la subida a Zoho y el auditor ya respetan; al moverlo a otra situación la marca se quita.
+- Filtro «Cualquier situación» y columnas Situación/Observación en el Excel.

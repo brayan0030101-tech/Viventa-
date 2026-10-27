@@ -16,6 +16,7 @@ export const ETAPAS = [
   { id: "negociando", nombre: "Negociando", icono: "🤝", ayuda: "Hay avance concreto" },
   { id: "cerrado", nombre: "Cerrado", icono: "🏆", ayuda: "Compró / reservó" },
   { id: "perdido", nombre: "Perdido", icono: "✖️", ayuda: "Sin respuesta 21 días después de la llamada" },
+  { id: "descartado", nombre: "Descartado", icono: "🚫", ayuda: "Maricela lo descartó (puede dejar una observación con el motivo, sin ser obligatoria)" },
 ] as const;
 export type EtapaId = (typeof ETAPAS)[number]["id"];
 export const etapaValida = (v: unknown): v is EtapaId => ETAPAS.some((e) => e.id === v);
@@ -93,11 +94,19 @@ export async function cargarPipeline(env: Env, now = Date.now()): Promise<Tarjet
 /** Mueve un cliente a mano. «auto» devuelve el control al cálculo automático. */
 export async function fijarEtapa(env: Env, convId: string, etapa: string): Promise<boolean> {
   const db = new Db(env.DB);
+  // Lo descartado desde la lista de Leads también queda marcado `crm_descarte` (el bot, las cotizaciones y la subida a Zoho ya lo respetan); al moverlo a otra situación se quita.
+  const quitarDescarte = () => db.run("UPDATE conversations SET metadata = json_remove(COALESCE(metadata, '{}'), '$.crm_descarte') WHERE id = ? AND json_extract(COALESCE(metadata, '{}'), '$.crm_descarte.por') = 'leads'", [convId]);
   if (etapa === "auto") {
     await db.run("UPDATE conversations SET metadata = json_remove(COALESCE(metadata, '{}'), '$.crm_etapa', '$.crm_probable_en') WHERE id = ?", [convId]);
+    await quitarDescarte();
     return true;
   }
   if (!etapaValida(etapa)) return false;
+  if (etapa === "descartado") {
+    await db.run("UPDATE conversations SET metadata = json_remove(json_set(COALESCE(metadata, '{}'), '$.crm_etapa', 'descartado', '$.crm_descarte', json(?)), '$.crm_probable_en') WHERE id = ?", [JSON.stringify({ por: "leads", en: new Date().toISOString() }), convId]);
+    return true;
+  }
+  await quitarDescarte();
   if (etapa === "probable") {
     // Conserva la fecha original si ya estaba en la lista (no se reordena al volver a pulsar).
     await db.run(
@@ -216,4 +225,12 @@ export async function renderCrmPipeline(env: Env, now = Date.now()): Promise<str
       fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString(),credentials:'same-origin'}).then(function(r){if(r.ok)location.reload();else{b.textContent='No se pudo agregar'}}).catch(function(){b.textContent='No se pudo agregar'})})
   })();</script>`;
   return crmLayout({ title: "Pipeline", activa: "pipeline", body, env });
+}
+
+/** Observación libre y OPCIONAL sobre un cliente (por qué se descartó, en qué va la negociación…). Vacía = se borra. */
+export async function fijarObservacion(env: Env, convId: string, texto: string): Promise<void> {
+  const db = new Db(env.DB);
+  const t = texto.replace(/\s+/g, " ").trim().slice(0, 500);
+  if (!t) await db.run("UPDATE conversations SET metadata = json_remove(COALESCE(metadata, '{}'), '$.crm_obs') WHERE id = ?", [convId]);
+  else await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), '$.crm_obs', ?) WHERE id = ?", [t, convId]);
 }

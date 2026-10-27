@@ -10,7 +10,8 @@ vi.mock("../../src/llm/work-model", () => ({
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { cargarPipeline, fijarEtapa, avanzarPorResultado, renderCrmPipeline } from "../../member/crm-pipeline.local";
+import { fijarObservacion, cargarPipeline, fijarEtapa, avanzarPorResultado, renderCrmPipeline } from "../../member/crm-pipeline.local";
+import { renderCrmLista } from "../../member/crm.local";
 import { analizarLlamada } from "../../member/crm-resultados.local";
 import type { Env } from "../../src/env";
 
@@ -144,5 +145,26 @@ describe("«Más probables de comprar»", () => {
     expect(buscar("beto")).toContain("No encuentro"); // ya está en la lista
     expect(buscar("zzzzzz")).toContain("No encuentro");
     expect(buscar("a")).toBe(""); // menos de 2 letras no busca
+  });
+
+  it("Leads: Maricela elige la situación (descartado marca crm_descarte) y deja una observación opcional", async () => {
+    await cliente("ycloud:34600000071", "Ana");
+    expect(await fijarEtapa(env, "ycloud:34600000071", "descartado")).toBe(true);
+    const m = JSON.parse((await db.first<{ metadata: string }>("SELECT metadata FROM conversations WHERE id = ?", ["ycloud:34600000071"]))!.metadata);
+    expect(m.crm_etapa).toBe("descartado");
+    expect(m.crm_descarte.por).toBe("leads");
+    await fijarObservacion(env, "ycloud:34600000071", "  Compró con otra empresa  ");
+    let html = await renderCrmLista(env, { sit: "descartado" }, NOW);
+    expect(html).toContain("Compró con otra empresa");
+    expect(html).toContain("Observación (opcional)");
+    expect(html).toContain("Situación");
+    // volver a negociar quita la marca de descartado; la observación se puede borrar
+    await fijarEtapa(env, "ycloud:34600000071", "negociando");
+    const m2 = JSON.parse((await db.first<{ metadata: string }>("SELECT metadata FROM conversations WHERE id = ?", ["ycloud:34600000071"]))!.metadata);
+    expect(m2.crm_descarte).toBeUndefined();
+    await fijarObservacion(env, "ycloud:34600000071", "");
+    html = await renderCrmLista(env, { sit: "negociando" }, NOW);
+    expect(html).toContain("Ana");
+    expect(html).not.toContain("Compró con otra empresa");
   });
 });
