@@ -377,7 +377,9 @@ export async function runRecordatoriosLlamada(
         `¿Sigue en pie, o prefieres reprogramarla?` +
         (meta.calMeetingUrl ? `\n\nEste es tu enlace para entrar: ${meta.calMeetingUrl}` : "");
       try {
-        await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", hora] }, lastUser, now, [
+        // La plantilla dice «a las {{2}} hora de España»: sin el día, la clienta creyó que la llamada era hoy (Lisandra, 27 oct 2026, era el 28).
+        const diaTxt = fechaEs(inicio, tz) === fechaEs(now, tz) ? "de hoy" : `del ${fechaEs(inicio, tz).replace(",", "")}`;
+        await enviarACliente(env, db, ref, text, { setting: TPL_RECORDATORIO, params: [nombre || "hola", `${hora} ${diaTxt}`] }, lastUser, now, [
           { title: "Confirmo", payload: "btn:Confirmo" },
           { title: "Reprogramar", payload: "btn:Reprogramar" },
         ]);
