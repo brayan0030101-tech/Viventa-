@@ -301,7 +301,7 @@ describe("videollamada: recordatorios y resumen", () => {
     await db.run("UPDATE messages SET created_at = ? WHERE conversation_id = ?", [NOW - 3 * 24 * H, c2]);
     const r = await runRecordatoriosLlamada(env, NOW + 10 * 60_000);
     expect(r.r24).toBe(1);
-    expect(sendTemplateMock).toHaveBeenCalledWith(expect.anything(), "34600000025", "viventa_recordatorio", "es", ["Ana", expect.stringMatching(/^\d\d:\d\d$/)]);
+    expect(sendTemplateMock).toHaveBeenCalledWith(expect.anything(), "34600000025", "viventa_recordatorio", "es", ["Ana", expect.stringMatching(/^\d\d:\d\d (de hoy|del [a-záéíóú]+ \d+ de [a-z]+)$/)]);
   });
 });
 
