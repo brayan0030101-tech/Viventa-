@@ -389,3 +389,7 @@
 - Maricela no usa el Pipeline: se quitó del menú y de las pestañas (la ruta /crm/pipeline sigue existiendo, oculta). En «Leads» cada cliente tiene una columna **Situación** (Nuevo, Calificado, Llamada agendada, Llamada hecha, Más probables, En cierre, Negociando, Cerrado, Perdido y la nueva **Descartado**) que ella elige con un selector (se guarda en `crm_etapa`; «↺ Volver a automático» devuelve el cálculo automático) y una **Observación opcional** (`crm_obs`, hasta 500 caracteres; vacía = se borra) para anotar, por ejemplo, por qué lo descartó.
 - Descartado también marca `crm_descarte` (por «leads»), que el bot, las cotizaciones, la subida a Zoho y el auditor ya respetan; al moverlo a otra situación la marca se quita.
 - Filtro «Cualquier situación» y columnas Situación/Observación en el Excel.
+
+## 2026-10-28 — Reactivación: solo a quien lleva ≥ 20 días en «Revisar en el futuro»; no retomar a quien dijo que no (caso Wendy Ávila)
+- Wendy escribió «por el momento no, muchas gracias» (17:33) y a las 18:01 el envío masivo de reactivación le mandó el mensaje de Bogotá/playa. El masivo escribía a TODOS los de «Revisar en el futuro» sin mirar cuánto llevaban. Ahora (`runReactivacionMasiva`, `DIAS_MIN_MASIVO = 20`) solo a quienes llevan al menos 20 días (desde que se creó su tarea «Retomar cliente a futuro»).
+- El rechazo («por el momento no», «de momento no», «por ahora no», «no gracias») ahora lo detecta `dijoQueNo`; el retomar masivo (plantilla de retomar interés) también salta y marca a quien dijo que no.

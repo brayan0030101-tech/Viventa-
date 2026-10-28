@@ -8,6 +8,7 @@ import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
 import { MessagesRepo } from "../src/db/messages";
 import { puedeEscribirAhora } from "../src/lib/horarioCliente";
+import { dijoQueNo } from "../src/vivehome/cola";
 
 export const AJUSTE_RETOMAR = "viventa_retomar_masivo";
 export const TPL_RETOMAR = "viventa_retomar_interes";
@@ -100,6 +101,12 @@ export async function runRetomarMasivo(env: Env, now = Date.now(), f: FetchFn = 
     if (out.sent >= MAX_POR_PASADA || seguidosFallidos >= 2) break;
     if (reactivados.has(c.id)) {
       await marca(c.id, "reactivacion");
+      continue;
+    }
+    // Quien ya dijo que no (o «por el momento no») no recibe el mensaje de retomar (Maricela, 28 oct 2026).
+    if (await dijoQueNo(db, c.id)) {
+      await marca(c.id, "dijo-que-no");
+      out.omitidos++;
       continue;
     }
     if (!(await puedeEscribirAhora(db, { id: c.id, channel: "ycloud", channel_user_id: c.channel_user_id }, now))) {

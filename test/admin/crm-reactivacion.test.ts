@@ -43,6 +43,7 @@ let transiciones: Array<{ id: string; name: string; fields: unknown[] }> = [];
 let leadsEnEstado: Array<Record<string, unknown>> = [];
 let kbMatches: Array<{ score: number; metadata: Record<string, string> }> = [];
 
+let tareasExtra = false;
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   const metodo = init?.method ?? "GET";
   if (url.includes("/oauth/v2/token")) return json({ access_token: "tok", expires_in: 3600 });
@@ -59,17 +60,21 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   }
   if (url.endsWith("/coql")) {
     const t = (id: string, lead: string, diasAtras: number, vence: string) => ({ id, Due_Date: vence, Created_Time: iso(NOW - diasAtras * DIA), What_Id: { id: lead }, Who_Id: null, $se_module: "Leads" });
-    return json({ data: [t("2259602000044440001", LEAD_A, 50, "2026-12-09"), t("2259602000044440002", LEAD_B, 10, "2027-01-18"), t("2259602000044440003", LEAD_C, 70, "2026-11-18")] });
+    const base = [t("2259602000044440001", LEAD_A, 50, "2026-12-09"), t("2259602000044440002", LEAD_B, 10, "2027-01-18"), t("2259602000044440003", LEAD_C, 70, "2026-11-18")];
+    // El resto de los que están en «Revisar en el futuro» (según el mock) llevan 30 días: el envío masivo exige al menos 20.
+    const extra = !tareasExtra ? [] : (leadsEnEstado as Array<{ id: string }>).filter((l) => !base.some((b) => b.What_Id.id === l.id)).map((l, i) => t(`22596020000444${String(i).padStart(5, "0")}`, l.id, 30, "2026-12-30"));
+    return json({ data: [...base, ...extra] });
   }
   if (url.includes("/crm/v6/Leads?ids=")) {
     const ids = new URL(url).searchParams.get("ids")!.split(",");
-    return json({ data: ids.map((i) => cands[i]).filter(Boolean) });
+    return json({ data: ids.map((i) => cands[i] ?? (leadsEnEstado as Array<{ id: string }>).find((l) => l.id === i)).filter(Boolean) });
   }
   if (url.includes("/Notes")) return json({ data: [{ Note_Title: "Llamada", Note_Content: "Quiere comprar en Pereira, ahorro 20 mil euros. Tel 600000001", Created_Time: "2026-08-30T10:00:00+02:00" }] });
   return json({ message: "no existe" }, 404);
 });
 
 beforeEach(async () => {
+  tareasExtra = false;
   const mf = await createTestMiniflare();
   const d1 = (await mf.getD1Database("DB")) as any;
   db = new Db(d1);
@@ -236,6 +241,7 @@ describe("envío masivo con el mensaje de Maricela", () => {
   const HORA = Date.UTC(2026, 9, 20, 16, 0); // 18:00 en Madrid, 11:00 en Bogotá
   const TEXTO = "Hola 😊 ¿Cómo estás?\n\nSé que habíamos dejado tu proyecto...\n\n🔗 https://vivehome.viventa.co/quota-information?id=2387";
   async function configurar(activo = true) {
+    tareasExtra = true;
     const st = new SettingsRepo(db);
     await st.set("viventa_tpl_reactivacion", "viventa_reactivacion_futuro");
     await st.set("viventa_tpl_reactivacion_texto", TEXTO);
@@ -251,12 +257,13 @@ describe("envío masivo con el mensaje de Maricela", () => {
     expect((await runReactivacionMasiva(env, HORA, zoho)).sent).toBe(0);
     expect(sendTemplateMock).not.toHaveBeenCalled();
   });
-  it("envía a todos los que están en «Revisar en el futuro» por la plantilla SIN variables, una sola vez, y omite el teléfono corto", async () => {
+  it("envía a los que llevan ≥ 20 días en «Revisar en el futuro» por la plantilla SIN variables, una sola vez, y omite el teléfono corto y al que lleva solo 10 días", async () => {
     await configurar();
     const r = await runReactivacionMasiva(env, HORA, zoho);
-    expect(r.sent).toBe(3);
+    expect(r.sent).toBe(2);
     expect(r.omitidos).toBe(1);
-    expect(sendTemplateMock).toHaveBeenCalledTimes(3);
+    expect(sendTemplateMock).toHaveBeenCalledTimes(2);
+    expect(sendTemplateMock.mock.calls.map((c) => c[1])).not.toContain("34600000002"); // Beto: 10 días, todavía no
     const llamadas = sendTemplateMock.mock.calls.map((c) => [c[1], c[2], c[4]]);
     expect(llamadas).toContainEqual(["34600000001", "viventa_reactivacion_futuro", []]);
     expect(llamadas).toContainEqual(["573001234567", "viventa_reactivacion_futuro", []]);
@@ -267,10 +274,10 @@ describe("envío masivo con el mensaje de Maricela", () => {
     // segunda pasada: no repite
     const otra = await runReactivacionMasiva(env, HORA + 15 * 60_000, zoho);
     expect(otra.sent).toBe(0);
-    expect(sendTemplateMock).toHaveBeenCalledTimes(3);
+    expect(sendTemplateMock).toHaveBeenCalledTimes(2);
     // y los ya escritos aparecen en la lista de reactivación aunque no tengan tarea
     const lista = await cargarReactivacion(env, HORA + 60_000, zoho);
-    expect(lista.filter((x) => x.envio === "escrito").length).toBe(3);
+    expect(lista.filter((x) => x.envio === "escrito").length).toBe(2);
   });
   it("respeta el horario del cliente y el tope por pasada", async () => {
     await configurar();
@@ -289,7 +296,7 @@ describe("envío masivo con el mensaje de Maricela", () => {
     expect(r.sent).toBe(0);
     expect(r.fallos).toBe(2);
     sendTemplateMock.mockReset().mockResolvedValue(undefined);
-    expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(3); // reintenta cuando ya se puede
+    expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(2); // reintenta cuando ya se puede
   });
 
   it("con la llave de YCloud, espera a que Meta apruebe la plantilla y arranca sola al aprobarse", async () => {
@@ -305,7 +312,7 @@ describe("envío masivo con el mensaje de Maricela", () => {
       expect((await runReactivacionMasiva(env, HORA, zoho)).sent).toBe(0);
       expect(sendTemplateMock).not.toHaveBeenCalled();
       estado = "APPROVED";
-      expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(3);
+      expect((await runReactivacionMasiva(env, HORA + 900_000, zoho)).sent).toBe(2);
     } finally {
       vi.unstubAllGlobals();
     }

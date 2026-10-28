@@ -171,7 +171,7 @@ const descartada = (c: ConvFila): boolean => {
 
 const ultimos9 = (s: string) => s.replace(/\D/g, "").slice(-9);
 
-const RECHAZO = /ya no (estoy|me) interesad|no (estoy|me) interesad|no me interesa|no quiero (m[aá]s )?(informaci|que me escrib)|dejen de escribir|no (me )?escrib[ai]n m[aá]s/i;
+const RECHAZO = /ya no (estoy|me) interesad|no (estoy|me) interesad|no me interesa|no quiero (m[aá]s )?(informaci|que me escrib)|dejen de escribir|no (me )?escrib[ai]n m[aá]s|por (el )?momento no|de momento no|por ahora no|no,? por ahora|^\s*no,? (muchas )?gracias/i;
 
 /**
  * ¿El cliente dijo que NO le interesa (último mensaje suyo, aquí o en la conversación enlazada de Instagram↔WhatsApp) o el bot anotó «No quiere continuar»?

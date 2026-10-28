@@ -29,6 +29,8 @@ export const ASUNTO_FUTURO = "Retomar cliente a futuro";
 /** Ventana en la que se le escribe: días desde que quedó «para después» (3 meses = 90). */
 export const VENTANA_DESDE = 45;
 export const VENTANA_HASTA = 60;
+/** El envío masivo solo le escribe a quien lleva al menos estos días en «Revisar en el futuro» (Maricela, 28 oct 2026: se les escribía de inmediato y quedaba mal). */
+export const DIAS_MIN_MASIVO = 20;
 /** Días sin respuesta tras escribirle para darlo por no reactivado. */
 export const DIAS_SIN_RESPUESTA = 10;
 export const MOTIVO_NO_REACTIVO = "Nunca me respondió";
@@ -547,8 +549,10 @@ export async function runReactivacionMasiva(env: Env, now = Date.now(), f?: Fetc
   const db = new Db(env.DB);
   await asegurar(db);
   const hechos = new Set((await db.all<{ lead_id: string }>("SELECT lead_id FROM crm_reactiva WHERE enviado_en IS NOT NULL OR resultado <> ''")).map((r) => r.lead_id));
-  const { candidatosEnEstado } = await import("./crm-zohoapi.local");
-  const todos = (await candidatosEnEstado(env, ESTADO_FUTURO_ZOHO, f, now)).filter((c) => !hechos.has(c.id));
+  // Solo quienes llevan ≥ 20 días en «Revisar en el futuro» (días desde que se creó su tarea «Retomar cliente a futuro»).
+  const todos = (await cargarReactivacion(env, now, f))
+    .filter((r) => r.envio === "sin_escribir" && r.dias >= DIAS_MIN_MASIVO && !hechos.has(r.leadId))
+    .map((r) => r.cand);
   if (todos.length === 0) return out;
   const vistos = new Set<string>();
   let seguidosFallidos = 0;

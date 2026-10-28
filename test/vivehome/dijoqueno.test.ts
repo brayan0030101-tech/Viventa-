@@ -19,6 +19,12 @@ describe("dijoQueNo", () => {
     expect(await dijoQueNo(db, c.id)).toBe(true);
   });
 
+  it("detecta «por el momento no, muchas gracias» (caso Wendy, 27 oct 2026)", async () => {
+    const c = await new ConversationsRepo(db).getOrCreate("ycloud", "34600000093", "Wendy");
+    await new MessagesRepo(db).append(c.id, "user", "Hola ,por el momento no,muchas gracias", { createdAt: 1000 });
+    expect(await dijoQueNo(db, c.id)).toBe(true);
+  });
+
   it("no se activa con una conversación normal", async () => {
     const c = await new ConversationsRepo(db).getOrCreate("ycloud", "34600000091", "Ana");
     await new MessagesRepo(db).append(c.id, "user", "Sí, quiero continuar", { createdAt: 1000 });
