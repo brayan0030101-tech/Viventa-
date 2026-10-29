@@ -191,7 +191,7 @@ async function marcar(db: Db, convId: string, clave: string, valor: string): Pro
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata, '{}'), ?, ?) WHERE id = ?", [`$.${clave}`, valor, convId]);
 }
 
-export async function subirCliente(env: Env, convId: string, opts: { soloVer?: boolean; manual?: boolean; f?: FetchFn; now?: number } = {}): Promise<ResultadoSubida & { plan?: PlanSubida }> {
+export async function subirCliente(env: Env, convId: string, opts: { soloVer?: boolean; manual?: boolean; /** Subida en bloque pedida por Maricela: queda en «Nuevo» (no «En Prospección») y sin tarea. */ comoNuevo?: boolean; f?: FetchFn; now?: number } = {}): Promise<ResultadoSubida & { plan?: PlanSubida }> {
   const f = opts.f ?? fetch;
   const now = opts.now ?? Date.now();
   const db = new Db(env.DB);
@@ -218,7 +218,8 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
       await notifyCamila(env, { heading: "ℹ️ Cliente ya es Contacto en Zoho", body: `${plan.nombre} (${plan.telefono || plan.correo}) ya existe como CONTACTO en Zoho (${contacto.nombre}${contacto.dueno ? `, de ${contacto.dueno}` : ""}). No se creó candidato nuevo.` }).catch(() => false);
       return { estado: "ya_existe", leadId: contacto.id, dueno: contacto.dueno || dueno.nombre, propio: !contacto.duenoId || contacto.duenoId === dueno.id, plan };
     }
-    const datos: Record<string, unknown> = { ...plan.datos, Owner: { id: dueno.id } };
+    const estadoInicial = opts.comoNuevo ? "Nuevo" : ESTADO_PROSPECCION;
+    const datos: Record<string, unknown> = { ...plan.datos, Lead_Status: estadoInicial, Owner: { id: dueno.id } };
     let leadId: string;
     try {
       leadId = await crearCandidato(env, datos, f, now);
@@ -227,22 +228,22 @@ export async function subirCliente(env: Env, convId: string, opts: { soloVer?: b
       const { Lead_Status: _omitido, ...sinEstado } = datos;
       if (!/status|estado/i.test(e instanceof Error ? e.message : "")) throw e;
       leadId = await crearCandidato(env, sinEstado, f, now);
-      await cambiarEstadoCandidato(env, leadId, ESTADO_PROSPECCION, f, now).catch((e2) => console.error("[subidaZoho] estado:", e2));
+      await cambiarEstadoCandidato(env, leadId, estadoInicial, f, now).catch((e2) => console.error("[subidaZoho] estado:", e2));
     }
     await crearNota(env, leadId, plan.nota, f, now);
-    await pasarAProspeccion(env, leadId, f, now).catch((e2) => console.error("[subidaZoho] prospección:", e2));
+    if (!opts.comoNuevo) await pasarAProspeccion(env, leadId, f, now).catch((e2) => console.error("[subidaZoho] prospección:", e2));
     const hoyStr = hoy(now);
     // Regla de Maricela: un cliente nuevo siempre queda con tarea para HOY (no se aplica el tope de 25 ni se corre por fin de semana).
     // Excepción temporal pedida por Maricela: con el ajuste `viventa_zoho_tarea_fecha` (AAAA-MM-DD, futura) las tareas nuevas quedan para esa fecha (p. ej. el sábado de esta semana).
     const fechaFija = ((await new SettingsRepo(db).get("viventa_zoho_tarea_fecha")) ?? "").trim();
     const fechaTarea = /^\d{4}-\d{2}-\d{2}$/.test(fechaFija) && fechaFija > hoyStr ? fechaFija : hoyStr;
-    await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: fechaTarea, ownerId: dueno.id }, f, now);
+    if (!opts.comoNuevo) await crearTarea(env, { leadId, asunto: plan.tarea.asunto, fecha: fechaTarea, ownerId: dueno.id }, f, now);
     for (const hermana of await conversacionesHermanas(db, convId)) {
       await marcar(db, hermana, "viventa_registrado", new Date(now).toISOString());
       await marcar(db, hermana, "viventa_registrado_por", opts.manual ? "CRM" : "bot");
       await marcar(db, hermana, "zoho_lead_id", leadId);
     }
-    return { estado: "creado", leadId, tarea: fechaTarea, plan };
+    return { estado: "creado", leadId, tarea: opts.comoNuevo ? "" : fechaTarea, plan };
   } catch (e) {
     return { estado: "error", motivo: e instanceof Error ? e.message.slice(0, 200) : String(e) };
   }

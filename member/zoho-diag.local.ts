@@ -43,6 +43,35 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "subir_nuevos") {
+    // Sube a Zoho, en tandas de 8 por pasada, a todos los de la cola «Por subir» e «Incompletos» que tengan teléfono (no colombiano), en estado «Nuevo» y sin tarea.
+    // Mientras queden, el pedido se mantiene y la siguiente pasada (5 min) sigue; el resultado va acumulando.
+    const prev = ((await st.get("zoho_diag_resultado")) ?? "");
+    let acumulado: { creados: string[]; yaExistian: string[]; noSubidos: string[] } = { creados: [], yaExistian: [], noSubidos: [] };
+    try { const j = JSON.parse(prev) as { subir_nuevos?: typeof acumulado }; if (j.subir_nuevos?.creados) acumulado = j.subir_nuevos; } catch { /* primera tanda */ }
+    const probados = new Set<string>(((await st.get("zoho_subir_nuevos_probados")) ?? "").split(",").filter(Boolean));
+    let quedan = false;
+    try {
+      const { cargarZoho } = await import("./crm-zoho.local");
+      const { subirCliente } = await import("./crm-zohosubida.local");
+      const { esNumeroColombiano } = await import("../src/channels/ycloud");
+      const cola = (await cargarZoho(env)).filter((f) => (f.estado === "pendiente" || f.estado === "incompleto") && f.lead.telefono.replace(/\D/g, "").length >= 9 && !esNumeroColombiano(f.lead.telefono.replace(/\D/g, "")) && !probados.has(f.lead.convId));
+      let hechos = 0;
+      for (const f of cola) {
+        if (hechos >= 8) { quedan = true; break; }
+        hechos++;
+        probados.add(f.lead.convId);
+        const r = await subirCliente(env, f.lead.convId, { manual: true, comoNuevo: true });
+        if (r.estado === "creado") acumulado.creados.push(f.lead.nombre);
+        else if (r.estado === "ya_existe") acumulado.yaExistian.push(f.lead.nombre);
+        else acumulado.noSubidos.push(`${f.lead.nombre}: ${r.estado === "no_corresponde" ? r.motivo : r.motivo}`);
+      }
+    } catch (e) { acumulado.noSubidos.push(`ERROR ${e instanceof Error ? e.message : String(e)}`.slice(0, 200)); }
+    await st.set("zoho_subir_nuevos_probados", [...probados].join(","));
+    await st.set("zoho_diag_resultado", JSON.stringify({ subir_nuevos: acumulado, terminado: !quedan }));
+    if (!quedan) await st.set("zoho_diag_pedir", ""); // si quedan, se conserva el pedido y la próxima pasada continúa
+    return;
+  }
   if (pedido === "zoho_cola") {
     // Cuántos clientes hay por subir (pendientes e incompletos), con teléfono y con correo.
     await st.set("zoho_diag_pedir", "");
