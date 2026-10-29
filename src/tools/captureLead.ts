@@ -29,7 +29,7 @@ export function captureLeadTool(env: Env, getConversationId: () => string | null
       plazoCompra: z.string().optional().describe("Cuándo quiere comprar (ya, en 1-2 años, etc.)"),
       entregaInmediataOFutura: z.string().optional().describe("Prefiere entrega inmediata o sobre planos/a futuro"),
       compraSoloOAcompanado: z.string().optional().describe("Si compra solo o acompañado (pareja, familia)"),
-      reportadoDatacredito: z.string().optional().describe("Si está reportado en Datacrédito (centrales de riesgo): «Sí» o «No», tal como lo dijo"),
+      reportadoDatacredito: z.string().optional().describe("Si está reportado en Datacrédito (centrales de riesgo): «Sí», «No» o «No está seguro/a», tal como lo dijo"),
       puedeQuitarReporte: z.string().optional().describe("Solo si está reportado: si puede ponerse al día / quitar el reporte pronto (lo que respondió)"),
       ingresosCoComprador: z.string().optional().describe("Si compra con otra persona: sus ingresos mensuales aproximados, tal como los dijo"),
       datosCoComprador: z.string().optional().describe("Si compra con otra persona: su nombre, correo y teléfono"),

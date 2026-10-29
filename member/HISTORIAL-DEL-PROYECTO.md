@@ -393,3 +393,6 @@
 ## 2026-10-28 — Reactivación: solo a quien lleva ≥ 20 días en «Revisar en el futuro»; no retomar a quien dijo que no (caso Wendy Ávila)
 - Wendy escribió «por el momento no, muchas gracias» (17:33) y a las 18:01 el envío masivo de reactivación le mandó el mensaje de Bogotá/playa. El masivo escribía a TODOS los de «Revisar en el futuro» sin mirar cuánto llevaban. Ahora (`runReactivacionMasiva`, `DIAS_MIN_MASIVO = 20`) solo a quienes llevan al menos 20 días (desde que se creó su tarea «Retomar cliente a futuro»).
 - El rechazo («por el momento no», «de momento no», «por ahora no», «no gracias») ahora lo detecta `dijoQueNo`; el retomar masivo (plantilla de retomar interés) también salta y marca a quien dijo que no.
+
+## 2026-10-29 — Nueva pregunta de Datacrédito
+- Pedido de Maricela: la pregunta ahora es «Entiendo 😊 ¿Crees que podrías tener algún reporte en Datacrédito o no estás segura? Te pregunto para revisar qué opciones de financiación tenemos para ti.» (antes: «¿Estás reportada en Datacrédito (centrales de riesgo)? Te lo preguntamos solo para saber si podemos gestionar un crédito.»). Instrucciones del bot actualizadas (respaldo `custom_instructions_respaldo_20261029_datacredito`); quien no está seguro/a se guarda como «No está seguro/a» y no se trata como reportado.
