@@ -43,6 +43,28 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify(res));
     return;
   }
+  if (pedido === "zoho_cola") {
+    // Cuántos clientes hay por subir (pendientes e incompletos), con teléfono y con correo.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { cargarZoho } = await import("./crm-zoho.local");
+      const { esNumeroColombiano } = await import("../src/channels/ycloud");
+      const filas = (await cargarZoho(env)).filter((f) => f.estado === "pendiente" || f.estado === "incompleto");
+      const cuenta = (pred: (f: (typeof filas)[number]) => boolean) => filas.filter(pred).length;
+      const tel = (f: (typeof filas)[number]) => f.lead.telefono.replace(/\D/g, "").length >= 9 && !esNumeroColombiano(f.lead.telefono.replace(/\D/g, ""));
+      const mail = (f: (typeof filas)[number]) => /@/.test(f.lead.correo);
+      const resumen = (lista: typeof filas) => ({ total: lista.length, conTelefono: lista.filter(tel).length, conTelefonoYCorreo: lista.filter((f) => tel(f) && mail(f)).length, sinTelefono: lista.filter((f) => !tel(f)).length });
+      res = {
+        pendientes: resumen(filas.filter((f) => f.estado === "pendiente")),
+        incompletos: resumen(filas.filter((f) => f.estado === "incompleto")),
+        todos: resumen(filas),
+        conTelefonoPorNivel: { caliente: cuenta((f) => tel(f) && f.lead.prioridad.nivel === "caliente"), tibio: cuenta((f) => tel(f) && f.lead.prioridad.nivel === "tibio"), frio: cuenta((f) => tel(f) && f.lead.prioridad.nivel === "frio") },
+      };
+    } catch (e) { res = { error: e instanceof Error ? e.message : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ zoho_cola: res }));
+    return;
+  }
   if (pedido === "duenos_leads" || pedido === "duenos_creados") {
     // ¿Quién es hoy el dueño de los candidatos que subió/tocó el sistema? Detecta los que se reasignaron a otra persona.
     await st.set("zoho_diag_pedir", "");
