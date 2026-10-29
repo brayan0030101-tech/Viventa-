@@ -19,7 +19,7 @@ import { esc, ESTILO_CRM, fechaHora } from "./crm.local";
 import { anonimizar } from "./crm-ia.local";
 import { escrituraActiva, hoyMadrid, MOTIVOS_PERDIDO, localDe } from "./crm-seguimientos.local";
 import {
-  OtraAsesoraError, ZohoError, candidatosPorIds, coql, completarTarea, crearNota, duenoZoho, ejecutarTransicion, notasDe, transicionesDe, zohoListo,
+  OtraAsesoraError, ZohoError, urlFichaZoho, candidatosPorIds, coql, completarTarea, crearNota, duenoZoho, ejecutarTransicion, notasDe, transicionesDe, zohoListo,
   type CandidatoZoho, type FetchFn,
 } from "./crm-zohoapi.local";
 
@@ -592,4 +592,44 @@ export async function runReactivacionMasiva(env: Env, now = Date.now(), f?: Fetc
     }
   }
   return out;
+}
+
+/**
+ * Avisa (una sola vez por cliente) cuando alguien responde al mensaje de reactivación: es una persona que había dejado el proyecto «para después» y
+ * volvió a escribir, así que Maricela quiere enterarse enseguida (28 oct 2026). La respuesta la sigue atendiendo el bot con la oferta enviada.
+ */
+export async function runAvisoRespuestasReactivacion(env: Env, now = Date.now()): Promise<number> {
+  const db = new Db(env.DB);
+  await asegurar(db);
+  const cols = await db.all<{ name: string }>("SELECT name FROM pragma_table_info('crm_reactiva')");
+  if (!cols.some((c) => c.name === "aviso_respuesta")) {
+    await db.run("ALTER TABLE crm_reactiva ADD COLUMN aviso_respuesta INTEGER");
+    // Primera vez: las respuestas que ya llegaron antes de existir este aviso se marcan como vistas (no se avisa de golpe de todas).
+    await db.run("UPDATE crm_reactiva SET aviso_respuesta = ? WHERE enviado_en IS NOT NULL AND conv_id <> '' AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = crm_reactiva.conv_id AND m.role = 'user' AND m.created_at > crm_reactiva.enviado_en)", [now]);
+  }
+  const filas = await db.all<{ lead_id: string; conv_id: string; enviado_en: number }>(
+    "SELECT lead_id, conv_id, enviado_en FROM crm_reactiva WHERE enviado_en IS NOT NULL AND enviado_en > ? AND resultado = '' AND conv_id <> '' AND aviso_respuesta IS NULL",
+    [now - 30 * DIA],
+  );
+  let n = 0;
+  for (const r of filas) {
+    const resp = await db.first<{ content: string; created_at: number }>("SELECT content, created_at FROM messages WHERE conversation_id = ? AND role = 'user' AND created_at > ? ORDER BY created_at ASC LIMIT 1", [r.conv_id, r.enviado_en]);
+    if (!resp) continue;
+    const gana = await db.run("UPDATE crm_reactiva SET aviso_respuesta = ? WHERE lead_id = ? AND aviso_respuesta IS NULL", [now, r.lead_id]);
+    if (((gana as { meta?: { changes?: number } }).meta?.changes ?? 0) === 0) continue;
+    try {
+      const c = await db.first<{ display_name: string | null; channel_user_id: string }>("SELECT display_name, channel_user_id FROM conversations WHERE id = ?", [r.conv_id]);
+      const { notifyCamila } = await import("../src/lib/camila");
+      const { selfOrigin } = await import("../src/lib/self-origin");
+      await notifyCamila(env, {
+        heading: "♻️ Un cliente respondió a la reactivación",
+        body: `${c?.display_name || "Cliente"} (+${c?.channel_user_id ?? ""}) respondió: «${resp.content.replace(/\s+/g, " ").slice(0, 200)}»\nEstaba en «Revisar en el futuro». Zoho: ${urlFichaZoho(env, r.lead_id)}`,
+        url: `${await selfOrigin(env)}/crm/reactivacion`,
+      }).catch(() => false);
+      n++;
+    } catch (e) {
+      console.error("[reactivacion] aviso de respuesta:", e);
+    }
+  }
+  return n;
 }

@@ -396,3 +396,6 @@
 
 ## 2026-10-29 — Nueva pregunta de Datacrédito
 - Pedido de Maricela: la pregunta ahora es «Entiendo 😊 ¿Crees que podrías tener algún reporte en Datacrédito o no estás segura? Te pregunto para revisar qué opciones de financiación tenemos para ti.» (antes: «¿Estás reportada en Datacrédito (centrales de riesgo)? Te lo preguntamos solo para saber si podemos gestionar un crédito.»). Instrucciones del bot actualizadas (respaldo `custom_instructions_respaldo_20261029_datacredito`); quien no está seguro/a se guarda como «No está seguro/a» y no se trata como reportado.
+
+## 2026-10-29 — Reactivación: aviso cuando un cliente responde
+- `runAvisoRespuestasReactivacion` (crm-reactivacion, cada 15 min desde el ciclo del sistema): cuando alguien que recibió el mensaje de reactivación responde, avisa una sola vez a Camila/Maricela con su nombre, teléfono, lo que escribió y el enlace de Zoho (tabla `crm_reactiva.aviso_respuesta`; las respuestas anteriores a este cambio se marcaron como vistas sin avisar).
