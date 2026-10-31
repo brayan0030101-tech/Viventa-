@@ -76,6 +76,11 @@ describe("calificación (reunión Maricela–Brayan, 21 oct 2026)", () => {
   it("con ahorros, reportado sin plan de ponerse al día sigue siendo frío", () => {
     expect(evaluarCalificacion({ ...caliente, ahorroDisponible: "5000 euros", reportadoDatacredito: "Sí", puedeQuitarReporte: "No" }).nivel).toBe("frio");
   });
+  it("compra de contado o ahorros de 30.000 € o más = caliente (caso Luz Adriana, 250 millones COP)", () => {
+    expect(evaluarCalificacion({ ciudadCompra: "Cali", ahorroDisponible: "250.000.000 COP, de contado" }).nivel).toBe("caliente");
+    expect(evaluarCalificacion({ ciudadCompra: "Cali", ahorroDisponible: "40.000 euros" }).nivel).toBe("caliente");
+    expect(evaluarCalificacion({ ciudadCompra: "Cali", ahorroDisponible: "40.000 euros", reportadoDatacredito: "Sí", puedeQuitarReporte: "No" }).nivel).toBe("frio");
+  });
   it("evaluarCalificacion dice qué preguntas faltan", () => {
     const c = evaluarCalificacion({ ...caliente });
     expect(c.completo).toBe(false);

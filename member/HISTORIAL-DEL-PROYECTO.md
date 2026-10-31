@@ -399,3 +399,7 @@
 
 ## 2026-10-29 — Reactivación: aviso cuando un cliente responde
 - `runAvisoRespuestasReactivacion` (crm-reactivacion, cada 15 min desde el ciclo del sistema): cuando alguien que recibió el mensaje de reactivación responde, avisa una sola vez a Camila/Maricela con su nombre, teléfono, lo que escribió y el enlace de Zoho (tabla `crm_reactiva.aviso_respuesta`; las respuestas anteriores a este cambio se marcaron como vistas sin avisar).
+
+## 2026-10-31 — Respuestas desordenadas y compra de contado (caso Luz Adriana)
+- Maricela: el bot contestaba con retraso y repetía preguntas. Causa: si el cliente escribe 2–3 mensajes seguidos y la alarma del buffer dispara mientras el primer turno aún genera, el segundo turno corría EN PARALELO con el historial viejo. Ahora `processBuffer` (agent.ts) corre un solo turno por conversación: si hay uno en curso, vuelve a armar la alarma 3 s después y el segundo turno ya ve la respuesta del primero.
+- La clienta quería pagar de contado (250 millones COP) y el bot le preguntó cuota, ingresos, pensión… y ella dijo «no parece serio». Instrucciones del bot (respaldo `custom_instructions_respaldo_20261031_contado`): «COMPRA DE CONTADO Y NO REPETIR PREGUNTAS» (sin preguntas de financiación, ir a videollamada/cotización, no repetir lo ya respondido, juntar varios mensajes seguidos). `evaluarCalificacion`: de contado o ahorros ≥ 30.000 € = caliente.

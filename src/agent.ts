@@ -593,11 +593,31 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
    * mismo camino ya conocido: silencio hacia el cliente + ticket real para
    * el dueño (notifyOwnerTurnFailed), nunca en un swallow sin rastro.
    */
+  /** true mientras un turno de ESTA conversación está generando su respuesta (en memoria: si el DO se reinicia, vuelve a false). */
+  private turnoEnCurso = false;
+
   async processBuffer(): Promise<void> {
+    // Un solo turno a la vez por conversación (31 oct 2026, Luz Adriana): si el cliente escribe 2-3 mensajes seguidos y la alarma dispara mientras el
+    // primer turno aún genera, el segundo turno corría EN PARALELO con el historial viejo, repetía preguntas y contestaba desordenado. Ahora el segundo
+    // espera: se vuelve a armar la alarma unos segundos más tarde y, cuando corre, ya ve la respuesta del primero.
+    if (this.turnoEnCurso) {
+      const at = Date.now() + 3_000;
+      this.sql`
+        INSERT OR REPLACE INTO cf_agents_schedules
+          (id, callback, payload, type, time, created_at)
+        VALUES
+          ('msg-buffer', 'processBuffer', '{}', 'delayed', ${Math.floor(at / 1000)}, unixepoch())
+      `;
+      await this.ctx.storage.setAlarm(at);
+      return;
+    }
+    this.turnoEnCurso = true;
     try {
       await this.processBufferTurn();
     } catch (e) {
       await this.notifyOwnerTurnFailed("el turno falló de forma inesperada", e);
+    } finally {
+      this.turnoEnCurso = false;
     }
   }
 

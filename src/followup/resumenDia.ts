@@ -175,6 +175,9 @@ export function evaluarCalificacion(m: Record<string, string>, puntos = 0): Cali
   // Regla de Maricela (26 oct 2026): ingresos de 2.000 € o más (sumando a la pareja si compran juntos) = CALIENTE aunque hoy diga que solo puede destinar poco:
   // si le gusta una propiedad podrá destinar más.
   if (ingresos >= 2_000) { nivel = "caliente"; motivo = "Ingresos de 2.000 € o más: caliente aunque hoy destine poco (podrá destinar más si le interesa una propiedad)"; }
+  // Regla de Maricela (31 oct 2026): quien paga de contado (o tiene ahorros de 30.000 € o más) es CALIENTE: no necesita financiación, se le habla de la videollamada.
+  const ahorro = parseEuros(m.ahorroDisponible);
+  if (ahorro >= 30_000 || /de contado|contado/i.test(`${m.ahorroDisponible ?? ""} ${m.motivoCompra ?? ""} ${m.entregaInmediataOFutura ?? ""}`)) { nivel = "caliente"; motivo = "Compra de contado o ahorros de 30.000 € o más: caliente (no depende de la financiación)"; }
   // Regla de Maricela (26 oct 2026): quien tiene AHORROS no se descarta. Con ahorro declarado, la cuota o los ingresos bajos no lo dejan frío (queda tibio).
   const tieneAhorro = parseEuros(m.ahorroDisponible) > 0;
   if (nivel === "frio" && tieneAhorro) { nivel = "tibio"; motivo = "Tiene ahorros: no se descarta aunque su cuota o ingresos sean bajos"; }
