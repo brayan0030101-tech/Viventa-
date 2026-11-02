@@ -236,11 +236,22 @@ export interface Propuesta {
   motivo: string;
 }
 
+/**
+ * Frío que SÍ se excluye de la cotización: por ingresos bajos o reportado sin plan. Quien solo es frío por destinar poco al mes (menos de 300 €) NO se excluye
+ * (Maricela, 2 nov 2026): pide información del proyecto más bajo y debe recibir la cotización con los más económicos (ver `proponer`).
+ */
+export function friaExcluyente(lead: LeadResumen): boolean {
+  if (lead.prioridad.nivel !== "frio") return false;
+  return !/^Destina menos de 300/.test(evaluarCalificacion(lead.ficha.metadata).motivo ?? "");
+}
+
 /** Decide qué cotizar a un cliente con el catálogo de ViveHome. estado null = faltan datos (no se cotiza, no se guarda). */
 export function proponer(lead: LeadResumen, cat: Catalogo): Propuesta {
   const m = lead.ficha.metadata;
-  const cap = leerCapacidad(m.capacidadMensual, cat);
-  if (!cap) return { estado: null, tipo: null, capacidad: null, items: [], motivo: `cuota mensual no clara («${m.capacidadMensual ?? ""}»)` };
+  const capLeida = leerCapacidad(m.capacidadMensual, cat);
+  if (!capLeida) return { estado: null, tipo: null, capacidad: null, items: [], motivo: `cuota mensual no clara («${m.capacidadMensual ?? ""}»)` };
+  // Los proyectos más baratos parten de unos 350 €/mes: quien dice menos se cotiza como si pudiera llegar a 350 (se le pregunta si puede subir el presupuesto).
+  const cap = { ...capLeida, pesos: Math.max(capLeida.pesos, Math.round(350 * cat.eur)) };
   const ciudades = ciudadesBuscadas(m.ciudadCompra, [...new Set(cat.tipologias.map((t) => t.ciudad))]);
   if (!ciudades) return { estado: null, tipo: null, capacidad: cap.pesos, items: [], motivo: `ciudad no clara («${m.ciudadCompra ?? ""}»)` };
   const e = ciudades.conArea.length ? elegirProyectos(cat.tipologias, ciudades.conArea, cap.pesos) : ({ tipo: "sin_proyectos", items: [], motivo: "sin_20" } as const);
@@ -452,7 +463,7 @@ export async function runCotizacionesBot(env: Env, now = Date.now(), deps: Depen
           }
           const faltanBase = evaluarCalificacion(lead.ficha.metadata).faltan.filter((k) => !["reportadoDatacredito", "compraSoloOAcompanado", "puedeQuitarReporte"].includes(k));
           if (faltanBase.length) continue; // el bot todavía está haciendo las preguntas: se cotiza al terminar
-          if (lead.prioridad.nivel === "frio" || (evaluarCalificacion(lead.ficha.metadata).reportado && evaluarCalificacion(lead.ficha.metadata).puedeQuitarReporte !== true)) {
+          if (friaExcluyente(lead) || (evaluarCalificacion(lead.ficha.metadata).reportado && evaluarCalificacion(lead.ficha.metadata).puedeQuitarReporte !== true)) {
             await actualizar(db, f.id, { estado: "omitida", error: "no cumple las condiciones (frío o reportado sin ponerse al día)" }, now);
             continue;
           }
@@ -592,7 +603,7 @@ async function enviarPlantillas(env: Env, db: Db, modo: Modo, now: number, deps:
     // Mismas condiciones que para crear la cotización (member/REGLAS-COTIZACIONES.md): la plantilla promete una cotización y cuesta dinero.
     const cal = evaluarCalificacion(lead.ficha.metadata);
     if (cal.faltan.filter((k) => !["reportadoDatacredito", "compraSoloOAcompanado", "puedeQuitarReporte"].includes(k)).length) continue; // aún no terminó las preguntas base
-    if (lead.prioridad.nivel === "frio" || (cal.reportado && cal.puedeQuitarReporte !== true)) {
+    if (friaExcluyente(lead) || (cal.reportado && cal.puedeQuitarReporte !== true)) {
       await actualizar(db, f.id, { estado: "omitida", error: "antes de la plantilla: no cumple las condiciones (frío o reportado sin ponerse al día)" }, now);
       continue;
     }

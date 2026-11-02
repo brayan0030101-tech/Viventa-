@@ -1298,7 +1298,7 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     }
 
     // Persist assistant message (with usage + model_used + tool calls)
-    await msgs.append(convId, "assistant", assistantText, {
+    const assistantMsgId = await msgs.append(convId, "assistant", assistantText, {
       modelUsed: usedModelId,
       inputTokens,
       outputTokens,
@@ -1340,14 +1340,25 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
     const channel = this.state.channel as ChannelId;
     const adapter = pickAdapter(channel);
     const { sendChunkedReply } = await import("./replies/sender");
-    await sendChunkedReply(
-      adapter,
-      channel,
-      this.state.channelUserId,
-      chunks,
-      this.env,
-      cfg.interChunkDelayMs,
-    );
+    // Envío con 3 intentos (2 s y 5 s de espera): un fallo pasajero del proveedor ya no deja al cliente sin respuesta (2 nov 2026: un envío falló
+    // y el cliente esperó 38 min). Si aun así falla, se BORRA la respuesta guardada: así el turno vuelve a verse como «sin respuesta» y el auditor
+    // (y su reintento automático) lo recupera; antes quedaba guardada como si se hubiera enviado.
+    let envioError: unknown = null;
+    for (let intento = 0; intento < 3; intento++) {
+      if (intento > 0) await new Promise((r) => setTimeout(r, intento === 1 ? 2_000 : 5_000));
+      try {
+        await sendChunkedReply(adapter, channel, this.state.channelUserId, chunks, this.env, cfg.interChunkDelayMs);
+        envioError = null;
+        break;
+      } catch (e) {
+        envioError = e;
+        console.error(`[SupportAgent.processBuffer] envío falló (intento ${intento + 1}/3):`, e);
+      }
+    }
+    if (envioError) {
+      await db.run("DELETE FROM messages WHERE id = ?", [assistantMsgId]).catch(() => undefined);
+      throw envioError;
+    }
 
     console.log(
       `[SupportAgent.processBuffer] sent ${chunks.length} chunks, model=${usedModelId}, cost=$${costOfUsage(
