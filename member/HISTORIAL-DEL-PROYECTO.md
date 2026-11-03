@@ -411,3 +411,6 @@
 
 ## 2026-11-03 — Botones Zoho y WhatsApp en las tareas de Oportunidades (Seguimientos)
 - La sección «Oportunidades (SV y VC)» de Seguimientos solo tenía «Cambiar fecha» y «Marcar completa». Ahora cada cliente lleva «🔗 Abrir en Zoho» (ficha de la oportunidad, `tab/Deals/<id>`) y «💬 Abrir en WhatsApp» (si hay teléfono).
+
+## 2026-11-03 — Seguimientos: Maricela elige la acción
+- La tarjeta de «Preparar mensaje» tiene un selector «¿Qué quieres hacer con este cliente?» (llamar/WhatsApp, videollamada, Revisar en el futuro, Cliente perdido, Descartado). Al cambiarlo (`/crm/seguimientos/accion` → `cambiarAccionBorrador`) el borrador guardado se ajusta (motivo de Zoho por defecto, sin siguiente tarea en futuro/perdido/descartado) y «Ya lo envié» aplica esa acción en Zoho.

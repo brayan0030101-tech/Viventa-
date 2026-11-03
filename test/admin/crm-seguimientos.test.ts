@@ -10,7 +10,7 @@ vi.mock("../../src/llm/work-model", () => ({
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { hoyMadrid, masDias, leerBorrador, tarjetaBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho } from "../../member/crm-seguimientos.local";
+import { cambiarAccionBorrador, hoyMadrid, masDias, leerBorrador, tarjetaBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho } from "../../member/crm-seguimientos.local";
 import { tokenZoho, tareasPendientes } from "../../member/crm-zohoapi.local";
 import type { Env } from "../../src/env";
 
@@ -189,6 +189,22 @@ describe("borrador de seguimiento", () => {
     expect(r.ok).toBe(false);
     const g = await db.first("SELECT 1 FROM crm_seg_borrador WHERE tarea_id = ?", [TAREA]);
     expect(g).toBeNull();
+  });
+});
+
+describe("Maricela elige la acción", () => {
+  it("cambia la acción propuesta por la IA (de WhatsApp a «futuro») y el borrador guardado queda con motivo y sin siguiente tarea", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"tibio","accion":"whatsapp","mensaje":"Hola [nombre], intenté llamarte.","motivo":"x","nota":"n","tarea_siguiente":"Llamar de nuevo","dias_siguiente":5}' });
+    const r = await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    expect(r.ok && r.borrador.accion).toBe("whatsapp");
+    expect(await cambiarAccionBorrador(env, TAREA, "futuro", NOW)).toBe(true);
+    const r2 = await prepararBorrador(env, TAREA, { f: zoho as never }, NOW + 1000);
+    expect(r2.ok && r2.reutilizado).toBe(true);
+    expect(r2.ok && r2.borrador.accion).toBe("futuro");
+    expect(r2.ok && r2.borrador.motivoCierre).toBe("Interesado más adelante");
+    expect(r2.ok && r2.borrador.tareaSiguiente).toBe("");
+    expect(r2.ok && r2.borrador.diasSiguiente).toBeNull();
+    expect(await cambiarAccionBorrador(env, TAREA, "inventada", NOW)).toBe(false);
   });
 });
 

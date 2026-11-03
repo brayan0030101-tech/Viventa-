@@ -557,6 +557,28 @@ const campoCopiable = (id: string, titulo: string, valor: string, filas: number,
         onclick="var t=document.getElementById('${id}');t.select();try{navigator.clipboard.writeText(t.value)}catch(e){document.execCommand('copy')};this.textContent='✔ Copiado';var b=this;setTimeout(function(){b.textContent='Copiar'},1800)">Copiar</button></div>
     <textarea id="${id}" ${nombre ? `name="${nombre}"` : ""} ${editable ? "" : "readonly"} rows="${filas}" class="crm-in" style="width:100%;resize:vertical;font-size:12.5px;line-height:1.5">${esc(valor)}</textarea></div>`;
 
+/** Maricela elige la acción a mano (WhatsApp, videollamada, futuro, perdido, descartado) en vez de depender de lo que propuso la IA: se guarda en el borrador. */
+export async function cambiarAccionBorrador(env: Env, tareaId: string, accion: string, now = Date.now()): Promise<boolean> {
+  if (!["whatsapp", "videollamada", "futuro", "perdido", "descartado"].includes(accion)) return false;
+  const db = new Db(env.DB);
+  await asegurarTabla(db);
+  const g = await db.first<{ borrador: string }>("SELECT borrador FROM crm_seg_borrador WHERE tarea_id = ?", [tareaId]);
+  if (!g) return false;
+  const b = JSON.parse(g.borrador) as Borrador;
+  const nueva = accion as Accion;
+  b.accion = nueva;
+  const lista = nueva === "perdido" ? MOTIVOS_PERDIDO : nueva === "descartado" ? MOTIVOS_DESCARTADO : nueva === "futuro" ? MOTIVOS_FUTURO : [];
+  b.motivoCierre = lista.length ? (lista.includes(b.motivoCierre) ? b.motivoCierre : nueva === "perdido" ? "Dejó de responder" : nueva === "descartado" ? "No quiere ser contactado" : "Interesado más adelante") : "";
+  b.diasSiguiente = esCierre(nueva) || nueva === "futuro" ? null : (b.diasSiguiente ?? PLAZO_DIAS[b.temperatura][0]);
+  if (esCierre(nueva) || nueva === "futuro") b.tareaSiguiente = "";
+  else if (!b.tareaSiguiente) b.tareaSiguiente = "Llamar para retomar el contacto";
+  if (nueva === "descartado") b.mensaje = "";
+  else if (!b.mensaje) b.mensaje = nueva === "futuro" || nueva === "perdido" ? "Hola, no queremos llenarte de mensajes. Cuando quieras retomar tu proyecto de vivienda en Colombia, escríbenos y con gusto te ayudamos." : "";
+  b.motivo = `Acción elegida por Maricela (la IA proponía otra). ${b.motivo}`.slice(0, 400);
+  await db.run("UPDATE crm_seg_borrador SET borrador = ?, creado = ? WHERE tarea_id = ?", [JSON.stringify(b), now, tareaId]);
+  return true;
+}
+
 export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: string; convId?: string }, hoy: string, reutilizado = false, escritura = false): string {
   const t = ETIQ_TEMP[b.temperatura];
   const tel = (cand.movil || cand.telefono).replace(/\D/g, "");
@@ -593,8 +615,10 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
       : `${b.accion === "perdido" ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.perdido)}»</b> y solo se deja la nota (ninguna tarea). Antes puedes enviarle un último mensaje dejando la puerta abierta (opcional).</div>` : ""}
          ${campoCopiable(id + "m", b.accion === "perdido" || b.accion === "futuro" ? "Último mensaje para el cliente (opcional, puedes editarlo)" : "Mensaje para el cliente (puedes editarlo)", b.mensaje, 5, true)}
          ${boton}`;
+  const selAccion = `<select name="accion" hx-post="/crm/seguimientos/accion" hx-vals='{"tarea":"${esc(b.tareaId)}"}' hx-trigger="change" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" class="crm-in" style="font-size:12px;padding:4px 6px;margin-left:8px" title="Cambia lo que se va a hacer con este cliente">${(Object.keys(ETIQ_ACC) as Accion[]).map((a) => `<option value="${a}"${a === b.accion ? " selected" : ""}>${ETIQ_ACC[a]}</option>`).join("")}</select>`;
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
+    <div style="font-size:12px;margin-bottom:10px"><b style="color:var(--cream)">¿Qué quieres hacer con este cliente?</b>${selAccion}</div>
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
     ${avisoFuturo}${avisoLlamar}${cuerpo}
     <form hx-post="/crm/seguimientos/hecho" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" hx-confirm="${esc(confirmacion)}" style="margin:0">
@@ -627,6 +651,11 @@ export function tarjetaHechoZoho(r: ResultadoZoho, tareaId: string): string {
 function resumenPasos(p: PasosHechos): string {
   const hechos = [p.nota ? "nota creada" : "", p.tarea ? "siguiente tarea creada" : "", p.completada ? "tarea marcada como completa" : "", p.estado ? "estado del candidato cambiado" : ""].filter(Boolean);
   return hechos.length ? hechos.join(" · ") : "nada todavía";
+}
+
+export async function fragmentoCambiarAccion(env: Env, tareaId: string, accion: string, now = Date.now(), f?: FetchFn): Promise<string> {
+  if (!(await cambiarAccionBorrador(env, tareaId, accion, now))) return `<div style="color:var(--bad);font-size:12.5px;margin-top:8px">No se pudo cambiar la acción: prepara el mensaje de nuevo.</div>`;
+  return fragmentoBorrador(env, tareaId, false, now, f);
 }
 
 export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota: string; tareaSiguiente: string; motivo?: string }, now = Date.now(), f?: FetchFn): Promise<string> {
