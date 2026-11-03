@@ -5,7 +5,7 @@
 import type { Env } from "../src/env";
 import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM } from "./crm.local";
-import { ZohoError, coql, duenoZoho, tareaPorId, completarTarea, ESTADOS_HECHOS, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
+import { ZohoError, urlFichaZoho, coql, duenoZoho, tareaPorId, completarTarea, ESTADOS_HECHOS, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
 import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
 
 const DIA = 86_400_000;
@@ -222,7 +222,7 @@ export async function completarTareaOp(env: Env, tareaId: string, now = Date.now
   }
 }
 
-export function htmlTareasOportunidades(filas: FilaTareaOp[], hoy: string, escritura: boolean): string {
+export function htmlTareasOportunidades(filas: FilaTareaOp[], hoy: string, escritura: boolean, env?: Env): string {
   if (filas.length === 0) return `<div style="padding:24px 18px;text-align:center;color:var(--dim)">No hay tareas vencidas ni para hoy en tus oportunidades 🎉</div>`;
   const COLS = "130px minmax(160px,1fr) 80px minmax(150px,1fr) 260px";
   return `<div class="crm-row crm-head" style="grid-template-columns:${COLS}"><span>Vence</span><span>Cliente</span><span>Rama</span><span>Tarea · etapa</span><span></span></div>
@@ -232,7 +232,7 @@ export function htmlTareasOportunidades(filas: FilaTareaOp[], hoy: string, escri
         const atr = x.atraso > 0 ? `<b style="color:var(--bad)">Vencida hace ${x.atraso} día${x.atraso === 1 ? "" : "s"}</b>` : `<b style="color:var(--ok)">Hoy</b>`;
         return `<div class="crm-row" style="grid-template-columns:${COLS};align-items:start">
           <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span></span>
-          <span><b style="color:var(--cream)">${esc(x.op.nombre)}</b>${x.op.telefono ? `<br><span class="text-dim" style="font-size:11px">${esc(x.op.telefono)}</span>` : ""}</span>
+          <span><b style="color:var(--cream)">${esc(x.op.nombre)}</b>${x.op.telefono ? `<br><span class="text-dim" style="font-size:11px">${esc(x.op.telefono)}</span>` : ""}<br><a href="${esc(urlFichaZoho(env ?? ({} as Env), x.op.id, "Deals"))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)">🔗 Abrir en Zoho</a>${(() => { const d = x.op.telefono.replace(/\D/g, ""); return d.length >= 9 ? `<br><a href="https://wa.me/${esc(d)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)">💬 Abrir en WhatsApp</a>` : ""; })()}</span>
           <span>${chipRama(x.op.rama)}</span>
           <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Tarea")}<br><span class="text-dim" style="font-size:10.5px">${esc(x.op.etapa)}</span></span>
           <span><form hx-post="/crm/seguimientos/fecha" hx-target="#${id}" hx-swap="innerHTML" hx-disabled-elt="find button" style="margin:0 0 4px;display:flex;gap:4px;flex-wrap:wrap"><input type="hidden" name="tarea" value="${esc(x.tarea.id)}"><input type="date" name="fecha" min="${esc(hoy)}" required class="crm-in" style="font-size:11px;padding:3px 4px;width:118px"><button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar fecha</button></form>

@@ -718,7 +718,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
       const { tareasDeOportunidades, htmlTareasOportunidades } = await import("./crm-oportunidades.local");
       const filasOp = await tareasDeOportunidades(env, now, f);
       seccionOps = `<div class="crm-sec" style="margin:22px 0 8px">💼 Oportunidades (SV y VC) · ${filasOp.length} tarea${filasOp.length === 1 ? "" : "s"} vencida${filasOp.length === 1 ? "" : "s"} o de hoy</div>
-        <div class="crm-card"><div style="overflow-x:auto"><div style="min-width:900px">${htmlTareasOportunidades(filasOp, hoyMadrid(now), await escrituraActiva(env))}</div></div></div>
+        <div class="crm-card"><div style="overflow-x:auto"><div style="min-width:900px">${htmlTareasOportunidades(filasOp, hoyMadrid(now), await escrituraActiva(env), env)}</div></div></div>
         <p class="text-dim" style="font-size:11px;margin-top:8px">Tareas de las oportunidades de Maricela en Zoho (Servicio Viventa y Vivecasa) con fecha de hoy o anterior que no están «Completa». Puedes cambiar su fecha o marcarlas completas; el tablero completo está en <a href="/crm/oportunidades" style="color:var(--accent)">💼 Oportunidades</a>.</p>`;
     } catch (e) {
       console.error("[crm-seguimientos] oportunidades:", e);

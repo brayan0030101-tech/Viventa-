@@ -408,3 +408,6 @@
 - Un cliente quedó 38 min sin respuesta: el turno guardó la respuesta pero el envío por WhatsApp falló (no hay registro en YCloud), así que el sistema creyó que ya estaba contestado (el auditor no lo vio como «sin respuesta»). Ahora el envío se intenta 3 veces (2 s y 5 s) y, si aún falla, se BORRA la respuesta guardada para que el turno vuelva a verse sin responder y el auditor lo reintente solo.
 - Cotización: quien solo es frío por destinar poco al mes (< 300 €) ya no se excluye de la cola de cotizaciones (`friaExcluyente`); se cotiza como si pudiera llegar a 350 € (`proponer`) con los 2 proyectos más económicos. Los fríos por ingresos bajos o reportados sin plan siguen excluidos. Instrucciones del bot: «INFORMACION DEL PROYECTO MAS BAJO» (respaldo `custom_instructions_respaldo_20261102_cotizacion`): no decir «el equipo se la presenta», avisar que llega la cotización.
 - Bolívar: el catálogo de ViveHome no trae la constructora; la selección de proyectos NO prioriza a Bolívar (pendiente la lista de proyectos Bolívar).
+
+## 2026-11-03 — Botones Zoho y WhatsApp en las tareas de Oportunidades (Seguimientos)
+- La sección «Oportunidades (SV y VC)» de Seguimientos solo tenía «Cambiar fecha» y «Marcar completa». Ahora cada cliente lleva «🔗 Abrir en Zoho» (ficha de la oportunidad, `tab/Deals/<id>`) y «💬 Abrir en WhatsApp» (si hay teléfono).
