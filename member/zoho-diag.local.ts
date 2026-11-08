@@ -81,7 +81,11 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       const db = new Db(env.DB);
       const ids = (await db.all<{ z: string }>("SELECT DISTINCT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE json_extract(metadata,'$.viventa_registrado_por') IN ('bot','CRM') AND json_extract(metadata,'$.zoho_lead_id') IS NOT NULL ORDER BY json_extract(metadata,'$.viventa_registrado') DESC LIMIT 40")).map((r) => r.z).filter((x) => /^\d{6,30}$/.test(x));
       const filas = await coql(env, `select id, Lead_Status, Created_Time, Enlace_corto_Formulario_Consulta_Centrales, Enlace_largo_Formulario_Consulta_Centrales from Leads where id in (${ids.map((x) => `'${x}'`).join(",")})`);
-      res = { total: filas.length, conCorto: filas.filter((f) => f["Enlace_corto_Formulario_Consulta_Centrales"]).length, conLargo: filas.filter((f) => f["Enlace_largo_Formulario_Consulta_Centrales"]).length, ejemplo: filas.slice(0, 6).map((f) => ({ estado: f["Lead_Status"], creado: String(f["Created_Time"]).slice(0, 16), corto: f["Enlace_corto_Formulario_Consulta_Centrales"] ?? null, largo: String(f["Enlace_largo_Formulario_Consulta_Centrales"] ?? "").slice(0, 60) })) };
+      const conLink = filas.filter((f) => f["Enlace_corto_Formulario_Consulta_Centrales"]).map((f) => ({ id: f["id"], estado: f["Lead_Status"], creado: String(f["Created_Time"]).slice(0, 16), corto: f["Enlace_corto_Formulario_Consulta_Centrales"] }));
+      const prosp = filas.find((f) => f["Lead_Status"] === "En Prospección");
+      const { transicionesDe } = await import("./crm-zohoapi.local");
+      const trans = prosp ? (await transicionesDe(env, String(prosp["id"])).catch(() => [])).map((t) => ({ nombre: t.nombre, pideNota: t.pideNota, motivos: t.motivos })) : [];
+      res = { conLink, trans, total: filas.length, conCorto: filas.filter((f) => f["Enlace_corto_Formulario_Consulta_Centrales"]).length, conLargo: filas.filter((f) => f["Enlace_largo_Formulario_Consulta_Centrales"]).length, ejemplo: filas.slice(0, 6).map((f) => ({ estado: f["Lead_Status"], creado: String(f["Created_Time"]).slice(0, 16), corto: f["Enlace_corto_Formulario_Consulta_Centrales"] ?? null, largo: String(f["Enlace_largo_Formulario_Consulta_Centrales"] ?? "").slice(0, 60) })) };
     } catch (e) { res = { error: e instanceof Error ? e.message : String(e) }; }
     await st.set("zoho_diag_resultado", JSON.stringify({ enlaces: res }).slice(0, 9000));
     return;
