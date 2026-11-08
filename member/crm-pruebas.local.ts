@@ -39,6 +39,29 @@ const apertura: Turno[] = [
 const preguntaCuota: Turno[] = [...apertura, { role: "assistant", content: "¿Cuánto podrías destinar mensualmente a la compra de tu vivienda?" }];
 const preguntaIngresos: Turno[] = [...apertura, { role: "user", content: "Puedo destinar 500 euros al mes" }, { role: "assistant", content: "¿Trabajas como empleada o por tu cuenta, y de cuánto son tus ingresos mensuales aproximadamente?" }];
 
+const guionNuevo: Turno[] = [
+  { role: "user", content: "Hola, quiero información para comprar vivienda en Colombia" },
+  { role: "assistant", content: "¡Hola! 👋🏡 Te atiende el equipo comercial de Maricela Naranjo. ¡Qué alegría que estés pensando en comprar vivienda en Colombia! 🇨🇴 Voy a hacerte unas preguntas corticas. ¿Nos autorizas a registrar tus datos para gestionar tu asesoría y hacer seguimiento a tu solicitud?\n[[botones: ✅ Sí, autorizo | No autorizo]]" },
+  { role: "user", content: "✅ Sí, autorizo" },
+  { role: "assistant", content: "¿Me compartes tu nombre completo y correo electrónico?" },
+  { role: "user", content: "Laura Pérez, laura@correo.com" },
+  { role: "assistant", content: "Mucho gusto, Laura. ¿En qué país y ciudad vives actualmente?" },
+  { role: "user", content: "Vivo en Madrid, España" },
+  { role: "assistant", content: "¿En qué ciudad de Colombia te gustaría comprar vivienda?" },
+  { role: "user", content: "En Cali" },
+];
+const guionHastaP4: Turno[] = [...guionNuevo, { role: "assistant", content: "¿Cuál es tu principal objetivo al comprar vivienda?\n[[botones: 🏡 Vivir o regresar | 👪 Mi familia | 💰 Para invertir]]" }];
+const guionHastaP6: Turno[] = [...guionNuevo,
+  { role: "assistant", content: "¿Cuál es tu principal objetivo al comprar vivienda?\n[[botones: 🏡 Vivir o regresar | 👪 Mi familia | 💰 Para invertir]]" }, { role: "user", content: "💰 Para invertir" },
+  { role: "assistant", content: "¿Qué tipo de proyecto te gustaría conocer?\n[[botones: 🔑 Entrega inmediata | 🏗️ Sobre planos | 🤔 Ambas opciones]]" }, { role: "user", content: "🏗️ Sobre planos" },
+  { role: "assistant", content: "¿Tienes algún ahorro disponible para comenzar tu compra?\n[[botones: 💰 Sí, tengo ahorros | 🌱 Algunos ahorros | 🏗️ Pagar mes a mes]]" }];
+const guionHastaP10: Turno[] = [...guionHastaP6.slice(0, -1),
+  { role: "assistant", content: "¿Tienes algún ahorro disponible para comenzar tu compra?\n[[botones: 💰 Sí, tengo ahorros | 🌱 Algunos ahorros | 🏗️ Pagar mes a mes]]" }, { role: "user", content: "💰 Sí, tengo ahorros" },
+  { role: "assistant", content: "¡Qué bien! ¿De cuánto aproximadamente?" }, { role: "user", content: "Unos 8000 euros" },
+  { role: "assistant", content: "¿Cuánto podrías destinar mensualmente a tu vivienda sin afectar tus gastos habituales?" }, { role: "user", content: "500 euros al mes" },
+  { role: "assistant", content: "¿Actualmente trabajas como empleado, autónomo o independiente? ¿Y cuáles son tus ingresos mensuales aproximados?" }, { role: "user", content: "Empleada, gano 2000 euros" },
+  { role: "assistant", content: "¿Cuál es tu situación de residencia en el país donde vives?\n[[botones: 🌍 Con permiso | 🪪 En trámite | 📄 Sin permiso]]" }, { role: "user", content: "🌍 Con permiso" },
+  { role: "assistant", content: "¿Qué te gustaría conocer primero para sentirte más seguro al comprar?\n[[botones: 🏦 Préstamo bancario | 🏡 Precios/proyectos | 💳 Pagar por cuotas]]" }];
 export const ESCENARIOS: Escenario[] = [
   { id: "cuota_baja", titulo: "Dice que puede destinar 150 € al mes", previo: preguntaCuota, cliente: "Unos 150 euros al mes",
     espera: [
@@ -46,11 +69,11 @@ export const ESCENARIOS: Escenario[] = [
       { que: "pregunta si puede subir el presupuesto o prefiere dejarlo para el futuro", ok: (r) => /subir|aumentar|mas adelante|futuro/.test(r) },
       { que: "NO cierra la puerta («no cumples», «lamentablemente»)", ok: (r) => !/no cumples|lamentablemente|no cumple con/.test(r) },
     ] },
-  { id: "boton_objetivo", titulo: "Toca el botón «Vivir o regresar» (formato de botones)", previo: [...apertura, { role: "assistant", content: "¿Cuál es tu principal objetivo al comprar vivienda?\n[[botones: 🏡 Vivir o regresar | 👪 Mi familia | 💰 Para invertir]]" }], cliente: "🏡 Vivir o regresar",
+  { id: "boton_objetivo", titulo: "Toca el botón «Vivir o regresar» (formato de botones)", previo: guionHastaP4, cliente: "🏡 Vivir o regresar",
     espera: [{ que: "sigue con la pregunta del tipo de proyecto (entrega inmediata / sobre planos)", ok: (r) => /planos|entrega inmediata/.test(r) }, { que: "usa el marcador de botones de la nueva pregunta", ok: (r) => /\[\[botones:/.test(r) }, { que: "no vuelve a preguntar el objetivo", ok: (r) => !/objetivo/.test(r) }] },
-  { id: "sin_ahorros", titulo: "Elige «Pagar mes a mes» (sin ahorros): no se descarta", previo: [...apertura, { role: "assistant", content: "¿Tienes algún ahorro disponible para comenzar tu compra?\n[[botones: 💰 Sí, tengo ahorros | 🌱 Algunos ahorros | 🏗️ Pagar mes a mes]]" }], cliente: "🏗️ Pagar mes a mes",
+  { id: "sin_ahorros", titulo: "Elige «Pagar mes a mes» (sin ahorros): no se descarta", previo: guionHastaP6, cliente: "🏗️ Pagar mes a mes",
     espera: [{ que: "sigue con cuánto puede destinar al mes", ok: (r) => /mensual|al mes|destinar/.test(r) }, { que: "NO lo descarta ni dice que no cumple", ok: (r) => !/no cumples|lamentablemente|no puedes/.test(r) }] },
-  { id: "estudio_gratuito", titulo: "Después de las 10 preguntas ofrece el estudio de viabilidad gratuito", previo: [...apertura, { role: "assistant", content: "¿Qué te gustaría conocer primero para sentirte más seguro al comprar?\n[[botones: 🏦 Préstamo bancario | 🏡 Precios/proyectos | 💳 Pagar por cuotas]]" }], cliente: "🏦 Préstamo bancario",
+  { id: "estudio_gratuito", titulo: "Después de las 10 preguntas ofrece el estudio de viabilidad gratuito", previo: guionHastaP10, cliente: "🏦 Préstamo bancario",
     espera: [{ que: "ofrece el estudio previo de viabilidad gratuito", ok: (r) => /estudio/.test(r) && /gratuito|sin ning/.test(r) }, { que: "menciona la cédula colombiana y los 5 minutos", ok: (r) => /cedula/.test(r) && /5 minutos/.test(r) }, { que: "no inventa un enlace", ok: (r) => !/https?:\/\//.test(r) }] },
   { id: "no_interesa", titulo: "Dice que ya no le interesa", previo: apertura, cliente: "Ya no estoy interesada, gracias",
     espera: [{ que: "se despide con respeto", ok: (r) => /respet|gracias|entend|aqui estamos/.test(r) }, { que: "no insiste (sin cotización, videollamada ni nuevas preguntas)", ok: (r) => !/cotiz|videollamada|agend/.test(r) && !/\?/.test(r) }] },
