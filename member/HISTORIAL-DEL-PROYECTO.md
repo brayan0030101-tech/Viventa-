@@ -414,3 +414,6 @@
 
 ## 2026-11-03 — Seguimientos: Maricela elige la acción
 - La tarjeta de «Preparar mensaje» tiene un selector «¿Qué quieres hacer con este cliente?» (llamar/WhatsApp, videollamada, Revisar en el futuro, Cliente perdido, Descartado). Al cambiarlo (`/crm/seguimientos/accion` → `cambiarAccionBorrador`) el borrador guardado se ajusta (motivo de Zoho por defecto, sin siguiente tarea en futuro/perdido/descartado) y «Ya lo envié» aplica esa acción en Zoho.
+
+## 2026-11-08 — Los muy calientes también reciben cotización
+- Pedido de Maricela. La cola de cotizaciones (`citasQueExcluyen`, cola.ts) ya no omite a los calientes que tienen videollamada agendada; el resto de clientes con cita siguen excluidos. Instrucciones del bot (respaldo `custom_instructions_respaldo_20261108_cot_calientes`): al ofrecer o confirmar la videollamada a un muy caliente, avisa que le llega una cotización.

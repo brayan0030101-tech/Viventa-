@@ -13,7 +13,7 @@ Antes de empezar: `git pull origin main` y leer también `member/HISTORIAL-DEL-P
   «En cierre» = caliente, ya habló con Maricela y tiene el formulario enviado (estado de Zoho).
 
 ## Flujo
-1. Los muy calientes (sin reporte) pasan directo a proponer videollamada.
+1. Los muy calientes (sin reporte) pasan directo a proponer videollamada y TAMBIÉN reciben la cotización (8 nov 2026), aunque ya tengan cita.
 2. Tibios y reportados con plan: primero la cotización (`primero_cotizacion`), luego videollamada (`proponerLlamada`).
 3. WhatsApp fuera de las 24 h: solo plantilla aprobada de Meta. Instagram: solo dentro de las 24 h, sin plantillas.
 4. Nunca decir «el equipo lo confirma» para agendar: el bot agenda con Cal.com (videollamada de 45 min, un inicio por hora).

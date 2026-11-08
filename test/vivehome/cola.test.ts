@@ -156,7 +156,7 @@ describe("cotizaciones del bot", () => {
   });
 
   it("activo: se salta a quien tiene videollamada o ya recibió cotización de Maricela", async () => {
-    const conCita = await cliente("34600000001", "Con Cita", { ciudadCompra: "Cali", capacidadMensual: "500 euros" });
+    const conCita = await cliente("34600000001", "Con Cita", { ciudadCompra: "Cali", capacidadMensual: "350 euros", ingresosMensuales: "1400 euros" });
     await db.run("INSERT INTO leads (id, conversation_id, intent, created_at, updated_at) VALUES (?,?,?,?,?)", [crypto.randomUUID(), conCita, "Cita · videollamada", NOW, NOW]);
     const conCot = await cliente("34600000002", "Con Cotizacion", { ciudadCompra: "Cali", capacidadMensual: "500 euros" });
     await db.run("INSERT INTO cotizaciones_enviadas (msg_id, cot_id, tel, enviada_en) VALUES ('m', '2387', '34600000002', ?)", [NOW - 5 * H]);
@@ -166,6 +166,15 @@ describe("cotizaciones del bot", () => {
     expect(await filasDe(env, conCita)).toHaveLength(0);
     expect((await filasDe(env, conCot))[0].estado).toBe("omitida");
     expect(s.creadas).toHaveLength(0);
+  });
+
+  it("activo: a los muy calientes se les manda la cotización aunque ya tengan videollamada agendada", async () => {
+    const caliente = await cliente("34600000003", "Caliente Con Cita", { ciudadCompra: "Cali", capacidadMensual: "800 euros", ingresosMensuales: "3000 euros" });
+    await db.run("INSERT INTO leads (id, conversation_id, intent, created_at, updated_at) VALUES (?,?,?,?,?)", [crypto.randomUUID(), caliente, "Cita · videollamada", NOW, NOW]);
+    await ajustar(AJUSTE_MODO, "activo");
+    const s = simular();
+    await runCotizacionesBot(env, NOW, s.deps);
+    expect((await filasDe(env, caliente)).length).toBeGreaterThan(0);
   });
 
   it("fuera de la ventana de 24 h no crea nada: queda pendiente de plantilla y vuelve a la cola cuando el cliente escribe", async () => {

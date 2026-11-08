@@ -207,11 +207,24 @@ async function candidatos(db: Db, modo: Modo, now: number): Promise<ConvFila[]> 
   )
     .map((r) => r.conversation_id)
     .filter((id) => !conFila.has(id));
-  const conCita = new Set((await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%'")).map((r) => r.conversation_id));
+  const conCita = await citasQueExcluyen(db, ids);
   const posibles = (await convsPorId(db, ids.filter((id) => !conCita.has(id)))).filter((c) => ["ycloud", "zernio"].includes(c.channel) && !descartada(c));
   const out: ConvFila[] = [];
   for (const c of posibles) if (!esNumeroColombiano(c.channel_user_id) && !(await dijoQueNo(db, c.id))) out.push(c);
   return out;
+}
+
+/**
+ * Conversaciones con videollamada agendada a las que NO se les manda cotización. Los muy calientes (que pasan directo a la videollamada) también
+ * reciben la cotización aunque ya tengan cita (Maricela, 8 nov 2026): solo se excluye a los que no son calientes.
+ */
+async function citasQueExcluyen(db: Db, ids: string[]): Promise<Set<string>> {
+  const conCita = (await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%'")).map((r) => r.conversation_id).filter((id) => ids.includes(id));
+  if (!conCita.length) return new Set();
+  const convs = await convsPorId(db, conCita);
+  const leads = await leadsDe(db, convs);
+  const calientes = new Set(leads.filter((l) => l.prioridad.nivel === "caliente").map((l) => l.convId));
+  return new Set(conCita.filter((id) => !calientes.has(id)));
 }
 
 /** ¿Ya recibió una cotización de Maricela (enlace de ViveHome en un mensaje saliente)? */
@@ -590,7 +603,7 @@ async function enviarPlantillas(env: Env, db: Db, modo: Modo, now: number, deps:
   if (!(await (deps.plantillaAprobada ?? plantillaAprobadaPorDefecto)(env))) return 0;
   const convs = await convsPorId(db, filas.map((f) => f.conv_id));
   const leads = await leadsDe(db, convs);
-  const conCita = new Set((await db.all<{ conversation_id: string }>("SELECT DISTINCT conversation_id FROM leads WHERE intent LIKE 'Cita ·%'")).map((r) => r.conversation_id));
+  const conCita = await citasQueExcluyen(db, filas.map((f) => f.conv_id));
   let n = 0;
   for (const f of filas) {
     if (n >= MAX_PLANTILLAS_POR_PASADA) break;
