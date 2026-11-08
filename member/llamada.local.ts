@@ -248,11 +248,8 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         const cal = evaluarCalificacion(lead.ficha.metadata);
         if (!reagendando && nivel === "frio") return { ofrecerLlamada: false as const, motivo: "no_cumple_condiciones", prioridad: nivel, message: MENSAJE_NO_CUMPLE };
         if (!reagendando && cal.faltan.length) return { ofrecerLlamada: false as const, motivo: "faltan_preguntas", faltan: cal.faltan, message: `Todavía faltan datos antes de ofrecer la videollamada (${cal.faltan.join(", ")}). Sigue con el guion y pregúntalos de a uno; luego vuelve a llamar esta herramienta.` };
-        // Flujo (reunión del 21 oct): a todos se les envía primero la cotización para que sepan cuánto vale y dónde queda; si de verdad les interesa, se agenda.
-        // Los muy calientes (buen ingreso, perfil caliente) pasan directo a la videollamada.
-        const conCotizacion = reagendando || (nivel === "caliente" && !cal.reportado) ? true : await cotizacionEnviada(db, convId, lead.telefono);
-        if (!reagendando && cal.reportado && !(cal.puedeQuitarReporte === true && conCotizacion)) return { ofrecerLlamada: false as const, motivo: "reportado", message: "El cliente está reportado en Datacrédito: no se le ofrece videollamada todavía. Si dijo que se pone al día pronto, el sistema le envía una cotización y, si le interesa y la ve viable, ahí sí se agenda. Cierra con amabilidad." };
-        if (!conCotizacion) return { ofrecerLlamada: false as const, motivo: "primero_cotizacion", message: "Todavía no se le ha enviado la cotización. No ofrezcas videollamada: dile que en unos minutos le llega una cotización con el valor y la ubicación de los proyectos, y que después, si le interesa, agendan la videollamada con Maricela. El sistema se la envía solo." };
+        // Guion definitivo (9 nov 2026, Maricela): después de las 10 preguntas y el estudio gratuito se pasa a la videollamada. Ya no hace falta la cotización antes
+        // (el sistema la envía en paralelo) ni se bloquea a quien está reportado en Datacrédito: nunca se le cierra la puerta al cliente.
         if (!calcomConfigured(env)) return { ofrecerLlamada: false as const, motivo: "agenda_no_configurada" };
         const eventTypeId = resolveEventTypeId(env, "Videollamada Viventa");
         if (!eventTypeId) return { ofrecerLlamada: false as const, motivo: "sin_tipo_de_evento" };

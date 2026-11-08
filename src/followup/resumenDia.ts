@@ -127,7 +127,7 @@ export function parseEuros(texto: string | null | undefined): number {
   return Math.round(n);
 }
 
-export const CAMPOS_PREGUNTAS = ["ciudadResidencia", "ciudadCompra", "entregaInmediataOFutura", "ahorroDisponible", "capacidadMensual", "tipoEmpleo", "ingresosMensuales", "reportadoDatacredito", "compraSoloOAcompanado"];
+export const CAMPOS_PREGUNTAS = ["ciudadResidencia", "ciudadCompra", "entregaInmediataOFutura", "ahorroDisponible", "capacidadMensual", "tipoEmpleo", "ingresosMensuales"];
 
 export interface Calificacion {
   nivel: "caliente" | "tibio" | "frio";

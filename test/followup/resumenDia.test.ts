@@ -83,9 +83,11 @@ describe("calificación (reunión Maricela–Brayan, 21 oct 2026)", () => {
   });
   it("evaluarCalificacion dice qué preguntas faltan", () => {
     const c = evaluarCalificacion({ ...caliente });
-    expect(c.completo).toBe(false);
-    expect(c.faltan).toContain("compraSoloOAcompanado");
+    // Guion definitivo (9 nov 2026): Datacrédito y «compra sola o acompañada» ya no son preguntas del guion.
+    expect(c.faltan).not.toContain("compraSoloOAcompanado");
     expect(c.faltan).not.toContain("reportadoDatacredito");
+    expect(evaluarCalificacion({ ciudadCompra: "Cali" }).completo).toBe(false);
+    expect(evaluarCalificacion({ ciudadCompra: "Cali" }).faltan).toContain("ingresosMensuales");
   });
 });
 

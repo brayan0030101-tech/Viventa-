@@ -94,6 +94,7 @@ export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: stri
     faltan.length ? `Prospección incompleta: faltan ${faltan.map((k) => ETIQUETA_PREGUNTA[k] ?? k).join(", ")}. Se sube para intentar activarlo: escribirle o llamarlo para completar los datos.` : "",
     linea("Quiere comprar en", m.ciudadCompra), linea("Vive en", m.ciudadResidencia), linea("Para", m.motivoCompra), linea("Entrega", m.entregaInmediataOFutura),
     linea("Ahorro", m.ahorroDisponible), linea("Puede destinar al mes", m.capacidadMensual), linea("Trabajo", m.tipoEmpleo), linea("Ingresos", m.ingresosMensuales),
+    linea("Situación de residencia", m.situacionResidencia), linea("Quiere conocer primero", m.primerInteres), linea("Estudio de viabilidad gratuito", m.estudioViabilidad),
     linea("Reportado en Datacrédito", m.reportadoDatacredito), linea("¿Puede quitar el reporte?", m.puedeQuitarReporte),
     linea("Compra", m.compraSoloOAcompanado), linea("Datos de quien compra con él/ella", m.datosCoComprador), linea("Ingresos de la otra persona", m.ingresosCoComprador),
     linea("Notas de la conversación", resumirNotas(l.ficha.notas)),

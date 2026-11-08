@@ -92,6 +92,9 @@ const CAMPOS: Array<[string, string]> = [
   ["compraSoloOAcompanado", "Compra"],
   ["reportadoDatacredito", "Reportado en Datacrédito"],
   ["puedeQuitarReporte", "¿Puede quitar el reporte?"],
+  ["situacionResidencia", "Situación de residencia"],
+  ["primerInteres", "Quiere conocer primero"],
+  ["estudioViabilidad", "Estudio de viabilidad gratuito"],
   ["ingresosCoComprador", "Ingresos de quien compra con él/ella"],
   ["datosCoComprador", "Datos de quien compra con él/ella"],
 ];

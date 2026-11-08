@@ -89,28 +89,22 @@ describe("proponerLlamada", () => {
     expect(r.message).toContain("subir un poco tu presupuesto");
     expect(r.message).not.toMatch(/lamentablemente|no cumples/i);
   });
-  it("si faltan preguntas (Datacrédito, compra sola o acompañada) no se ofrece todavía", async () => {
-    const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora" });
+  it("si faltan preguntas del guion (aquí los ingresos) no se ofrece todavía", async () => {
+    const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora" });
     const r = await correr(id);
     expect(r.ofrecerLlamada).toBe(false);
     expect(r.motivo).toBe("faltan_preguntas");
-    expect(r.faltan).toEqual(["reportadoDatacredito", "compraSoloOAcompanado"]);
+    expect(r.faltan).toEqual(["ingresosMensuales"]);
   });
-  it("tibio: primero se le envía la cotización; con la cotización ya enviada sí se ofrece", async () => {
+  it("tibio: se le ofrece la videollamada sin esperar la cotización (guion definitivo del 9 nov)", async () => {
     const meta = { ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "1400", capacidadMensual: "350 euros", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", reportadoDatacredito: "No", compraSoloOAcompanado: "Solo" };
     const id = await cliente(meta);
-    const antes = await correr(id);
-    expect(antes.ofrecerLlamada).toBe(false);
-    expect(antes.motivo).toBe("primero_cotizacion");
-    await db.run("CREATE TABLE IF NOT EXISTS cotizaciones_bot (id INTEGER PRIMARY KEY AUTOINCREMENT, conv_id TEXT, estado TEXT)");
-    await db.run("INSERT INTO cotizaciones_bot (conv_id, estado) VALUES (?, 'enviada')", [id]);
     expect((await correr(id)).ofrecerLlamada).toBe(true);
   });
-  it("reportado en Datacrédito: no se ofrece (aunque diga que se pone al día, hasta que haya cotización enviada)", async () => {
+  it("reportado en Datacrédito que se pone al día: ya no se le cierra la puerta, se le ofrece la videollamada", async () => {
     const id = await cliente({ ciudadResidencia: "España, Girona", ciudadCompra: "Cali", ahorroDisponible: "10.000", ingresosMensuales: "2000", capacidadMensual: "800", tipoEmpleo: "empleado", entregaInmediataOFutura: "ahora", reportadoDatacredito: "Sí", puedeQuitarReporte: "Sí, pronto", compraSoloOAcompanado: "Solo" });
     const r = await correr(id);
-    expect(r.ofrecerLlamada).toBe(false);
-    expect(r.motivo).toBe("reportado");
+    expect(r.ofrecerLlamada).toBe(true);
   });
   it("cliente tibio/caliente: devuelve horarios reales y pide correo si falta", async () => {
     const id = await cliente(
