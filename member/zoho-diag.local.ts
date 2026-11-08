@@ -72,6 +72,20 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     if (!quedan) await st.set("zoho_diag_pedir", ""); // si quedan, se conserva el pedido y la próxima pasada continúa
     return;
   }
+  if (pedido === "enlaces_viabilidad") {
+    // ¿Los candidatos creados por el sistema ya traen el enlace del formulario de viabilidad (campo Enlace_corto_Formulario_Consulta_Centrales)?
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { coql } = await import("./crm-zohoapi.local");
+      const db = new Db(env.DB);
+      const ids = (await db.all<{ z: string }>("SELECT DISTINCT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE json_extract(metadata,'$.viventa_registrado_por') IN ('bot','CRM') AND json_extract(metadata,'$.zoho_lead_id') IS NOT NULL ORDER BY json_extract(metadata,'$.viventa_registrado') DESC LIMIT 40")).map((r) => r.z).filter((x) => /^\d{6,30}$/.test(x));
+      const filas = await coql(env, `select id, Lead_Status, Created_Time, Enlace_corto_Formulario_Consulta_Centrales, Enlace_largo_Formulario_Consulta_Centrales from Leads where id in (${ids.map((x) => `'${x}'`).join(",")})`);
+      res = { total: filas.length, conCorto: filas.filter((f) => f["Enlace_corto_Formulario_Consulta_Centrales"]).length, conLargo: filas.filter((f) => f["Enlace_largo_Formulario_Consulta_Centrales"]).length, ejemplo: filas.slice(0, 6).map((f) => ({ estado: f["Lead_Status"], creado: String(f["Created_Time"]).slice(0, 16), corto: f["Enlace_corto_Formulario_Consulta_Centrales"] ?? null, largo: String(f["Enlace_largo_Formulario_Consulta_Centrales"] ?? "").slice(0, 60) })) };
+    } catch (e) { res = { error: e instanceof Error ? e.message : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ enlaces: res }).slice(0, 9000));
+    return;
+  }
   if (pedido.startsWith("lead_campos:")) {
     // Campos con valor de un candidato (recortados) y de sus transiciones: para ver dónde guarda Zoho el enlace del formulario de viabilidad.
     await st.set("zoho_diag_pedir", "");
