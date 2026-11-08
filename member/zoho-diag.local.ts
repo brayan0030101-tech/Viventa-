@@ -72,6 +72,23 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     if (!quedan) await st.set("zoho_diag_pedir", ""); // si quedan, se conserva el pedido y la próxima pasada continúa
     return;
   }
+  if (pedido.startsWith("lead_campos:")) {
+    // Campos con valor de un candidato (recortados) y de sus transiciones: para ver dónde guarda Zoho el enlace del formulario de viabilidad.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { zohoGet, transicionesDe } = await import("./crm-zohoapi.local");
+      const id = pedido.slice(12).trim();
+      const j = (await zohoGet(env, `/Leads/${id}`)) as { data?: Array<Record<string, unknown>> };
+      const d = j.data?.[0] ?? {};
+      const campos: Record<string, string> = {};
+      for (const [k, v] of Object.entries(d)) if (v != null && v !== "" && !(Array.isArray(v) && !v.length)) campos[k] = typeof v === "object" ? JSON.stringify(v).slice(0, 80) : String(v).slice(0, 100);
+      const trans = await transicionesDe(env, id).catch(() => []);
+      res = { campos, transiciones: trans.map((t) => `${t.nombre}${t.pideNota ? " (nota)" : ""}`) };
+    } catch (e) { res = { error: e instanceof Error ? e.message : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ lead_campos: res }).slice(0, 11000));
+    return;
+  }
   if (pedido === "zoho_cola") {
     // Cuántos clientes hay por subir (pendientes e incompletos), con teléfono y con correo.
     await st.set("zoho_diag_pedir", "");
