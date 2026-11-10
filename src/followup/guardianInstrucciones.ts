@@ -20,6 +20,7 @@ export const MARCADORES: Array<{ clave: string; texto: string }> = [
   { clave: "ahorros", texto: "NADIE CON AHORROS O CON BUEN INGRESO SE DESCARTA" },
   { clave: "puerta", texto: "NUNCA CIERRES LA PUERTA AL CLIENTE" },
   { clave: "guion", texto: "GUION DEFINITIVO DEL CHATBOT" },
+  { clave: "agendar_primero", texto: "SI EL CLIENTE QUIERE HABLAR CON MARICELA, PRIMERO SE AGENDA" },
 ];
 
 export async function asegurarTablaInstrucciones(db: Db): Promise<void> {

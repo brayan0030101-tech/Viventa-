@@ -432,3 +432,7 @@
 ## 10 nov 2026 — «Ya lo envié» (futuro/descartado/perdido) dejaba la tarea anterior abierta
 - Causa: si la respuesta de Zoho al cambio de estado no era la esperada, se abortaba antes de completar la tarea (aunque Zoho sí cambiaba el estado).
 - Ahora: antes y después de la transición se lee el estado real del candidato; si ya está en el estado pedido, se sigue y se completa la tarea. Modo diag `cerrar_tareas:<ids>` para limpiar las ya afectadas.
+
+## 10 nov 2026 — Si el cliente quiere hablar con Maricela, primero se agenda
+- Pedido de Maricela (caso Jessica Torres). Regla añadida al final de las instrucciones (respaldo: custom_instructions_respaldo_20261110_agendar_primero) y marcador `agendar_primero` en el guardián. Solo cambia el orden; el resto del guion igual.
+- Pendiente de decidir con Brayan/Maricela (NO aplicado): no enviar cotización a quien pidió entender el proceso antes; no sugerir rango de presupuesto; no ofrecer estudio de viabilidad antes de la videollamada; consolidar respuestas fragmentadas; no intercalar cotización al reprogramar.
