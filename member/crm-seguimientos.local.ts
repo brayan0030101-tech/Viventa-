@@ -14,7 +14,7 @@ import { MAX_TAREAS_DIA, fechaDisponibleZoho, nombreDia } from "./crm-agenda.loc
 import { SettingsRepo } from "../src/db/settings";
 import {
   ZohoError, ESTADOS_HECHOS, urlFichaZoho, cambiarFechaTarea, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
-  tareaPorId, tareasPendientes, transicionesDe, ejecutarTransicion, zohoListo,
+  tareaPorId, tareasPendientes, transicionesDe, ejecutarTransicion, estadoActualCandidato, zohoListo,
   type CandidatoZoho, type FetchFn, type NotaZoho, type TareaZoho,
 } from "./crm-zohoapi.local";
 
@@ -166,6 +166,12 @@ export async function aplicarEnZoho(
       pasos.nota = (await crearNota(env, g.lead_id, nota, opts.f, now)) || "ok";
       await guardar(false);
     }
+    // Si el candidato YA está en ese estado (la transición se hizo aunque la respuesta de Zoho no fuera clara, o Maricela lo cambió a mano), no hay nada que cambiar:
+    // se sigue con la tarea (antes se quedaba a medias: la nota creada pero la tarea sin cerrar, 10 nov 2026).
+    if (estadoNombre && !pasos.estado && (await estadoActualCandidato(env, g.lead_id, opts.f, now)) === estadoNombre) {
+      pasos.estado = true;
+      await guardar(false);
+    }
     if (estadoNombre && !pasos.estado) {
       const trans = (await transicionesDe(env, g.lead_id, opts.f, now)).find((x) => x.nombre === estadoNombre);
       if (!trans) {
@@ -176,7 +182,12 @@ export async function aplicarEnZoho(
         const datos: Record<string, string> = {};
         if (motivoOk) datos[CAMPO_MOTIVO] = motivoOk;
         if (trans.pideNota) datos["Notes"] = nota || "Seguimiento";
-        await ejecutarTransicion(env, g.lead_id, trans.id, datos, opts.f, now);
+        try {
+          await ejecutarTransicion(env, g.lead_id, trans.id, datos, opts.f, now);
+        } catch (e) {
+          // La respuesta de Zoho no fue la esperada: se comprueba el estado real antes de dar el paso por fallido (a veces el cambio sí se hizo).
+          if ((await estadoActualCandidato(env, g.lead_id, opts.f, now)) !== estadoNombre) throw e;
+        }
         pasos.estado = true;
         await guardar(false);
       }

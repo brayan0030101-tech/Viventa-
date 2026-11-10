@@ -31,6 +31,8 @@ const TRANS_REALES = () => [
   { id: "2259602001737850665", name: "Descartado", fields: [campoMotivo(["No es colombiano", "No quiere ser contactado", "Sin datos de contacto", "Interesado en otro país", "Número errado", "Reside y tiene ingresos en Colombia"])] },
 ];
 let fallaCrearTarea = false;
+let respuestaBlueprintRara = false;
+let estadoCandidato = "Contactado";
 let estadoTarea = "En Proceso";
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   llamadas.push(url);
@@ -39,11 +41,13 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   if ((metodo === "POST" || metodo === "PUT") && url.includes("/crm/v6/") && !url.endsWith("/coql") && !url.includes("/oauth/")) {
     const cuerpo = JSON.parse(String(init?.body)) as { data?: Array<Record<string, any>>; blueprint?: Array<Record<string, any>> };
     escrituras.push({ url, method: metodo, body: (cuerpo.data?.[0] ?? cuerpo.blueprint?.[0]) as Record<string, any> });
+    if (respuestaBlueprintRara && url.endsWith("/actions/blueprint")) { estadoCandidato = "Cliente perdido"; return json({ data: [] }); }
     if (fallaCrearTarea && metodo === "POST" && url.endsWith("/Tasks")) return json({ data: [{ status: "error", message: "boom" }] }, 400);
     return json({ data: [{ status: "success", details: { id: "9990001" } }] });
   }
   if (url.includes("/oauth/v2/token")) return json({ access_token: "tok-" + llamadas.length, expires_in: 3600 });
   if (url.includes("/users?type=CurrentUser")) return json({ users: [{ id: "555", full_name: "Maricela Naranjo" }] });
+  if (/\/Leads\/\d+\?fields=Lead_Status/.test(url)) return json({ data: [{ Lead_Status: estadoCandidato }] });
   if (/\/Leads\/\d+\?fields=Owner/.test(url)) return json({ data: [{ Owner: { id: "555", name: "Maricela Naranjo" } }] });
   if (url.endsWith("/coql")) {
     const q = String(JSON.parse(String(init?.body)).select_query);
@@ -69,6 +73,8 @@ beforeEach(async () => {
   escrituras.length = 0;
   transiciones = TRANS_REALES();
   fallaCrearTarea = false;
+  respuestaBlueprintRara = false;
+  estadoCandidato = "Contactado";
   estadoTarea = "En Proceso";
   zoho.mockClear();
   generarMock.mockReset().mockResolvedValue({
@@ -333,6 +339,16 @@ describe("fase 2: actualizar Zoho", () => {
     expect(escrituras.map((e) => `${e.method} ${e.url.replace(/^.*\/crm\/v6/, "")}`)).toEqual([`POST /Leads/${LEAD}/Notes`, `PUT /Leads/${LEAD}/actions/blueprint`, `PUT /Tasks/${TAREA}`]);
     expect(escrituras.some((e) => e.url.endsWith("/Tasks") && e.method === "POST")).toBe(false);
     expect(escrituras[1].body).toEqual({ transition_id: "2259602001737850663", data: { motivo: "Precio muy alto" } }); // el motivo elegido en pantalla manda
+  });
+
+  it("si Zoho cambia el estado pero responde algo raro, no deja la tarea abierta: comprueba el estado real y la completa", async () => {
+    generarMock.mockResolvedValue({ text: '{"temperatura":"frio","accion":"perdido","mensaje":"","motivo_cierre":"Desistio compra","nota":"Desistió de comprar."}' });
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    respuestaBlueprintRara = true;
+    const r = await aplicarEnZoho(env, TAREA, { nota: "Desistió de comprar.", tareaSiguiente: "", motivo: "Precio muy alto" }, { f: zoho as never }, NOW);
+    expect(r.ok).toBe(true);
+    expect(escrituras.some((e) => e.method === "PUT" && e.url.endsWith(`/Tasks/${TAREA}`))).toBe(true);
   });
 
   it("«descartado»: un motivo que la transición no acepta se cambia por el del borrador; si tampoco vale, no hace nada", async () => {

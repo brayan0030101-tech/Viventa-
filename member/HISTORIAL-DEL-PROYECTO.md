@@ -428,3 +428,7 @@
 ## 2026-11-09 — El bot envía el formulario de viabilidad
 - Corrige lo anterior: sí puede enviarlo. Zoho genera el enlace personal de cada candidato en el campo `Enlace_corto_Formulario_Consulta_Centrales` (cutt.ly con sus datos; los candidatos creados desde el 30 oct ya lo traen). Herramienta nueva `enviarViabilidad` (member/viabilidad.local.ts): busca al cliente en Zoho (o lo sube si aún no está), lee el enlace y devuelve el mensaje listo (gratis, cédula colombiana, 5 minutos, no garantiza el crédito). El bot lo envía y se deja nota en Zoho («Estudio de viabilidad: se le envió por WhatsApp el enlace…», sin decir bot). Si Zoho aún no generó el enlace queda pendiente (`viabilidad_pendiente`): `runViabilidadPendiente` (cada 15 min) lo envía en cuanto exista (dentro de las 24 h) y avisa al equipo si pasan 6 h sin enlace o la ventana se cerró.
 - Instrucciones del bot: en el paso 11, si dice que sí → `captureLead estudioViabilidad Sí` + `enviarViabilidad` (respaldo `custom_instructions_respaldo_20261109_viabilidad`).
+
+## 10 nov 2026 — «Ya lo envié» (futuro/descartado/perdido) dejaba la tarea anterior abierta
+- Causa: si la respuesta de Zoho al cambio de estado no era la esperada, se abortaba antes de completar la tarea (aunque Zoho sí cambiaba el estado).
+- Ahora: antes y después de la transición se lee el estado real del candidato; si ya está en el estado pedido, se sigue y se completa la tarea. Modo diag `cerrar_tareas:<ids>` para limpiar las ya afectadas.

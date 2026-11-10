@@ -331,6 +331,13 @@ export async function ejecutarTransicion(env: Env, leadId: string, transicionId:
   if (!r || r.status !== "success") throw new ZohoError(`Zoho no hizo el cambio de estado: ${r?.message ?? "sin respuesta"}`);
 }
 
+/** Estado actual de un candidato en Zoho (para comprobar si una transición se hizo aunque la respuesta no fuera la esperada). */
+export async function estadoActualCandidato(env: Env, leadId: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  if (!idValido(leadId)) return "";
+  const j = (await llamar(env, `/Leads/${leadId}?fields=Lead_Status`, {}, f, now).catch(() => null)) as { data?: Array<{ Lead_Status?: string }> } | null;
+  return String(j?.data?.[0]?.Lead_Status ?? "");
+}
+
 /** Cambia la fecha de vencimiento de una tarea. */
 export async function cambiarFechaTarea(env: Env, tareaId: string, fecha: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
   if (!idValido(tareaId) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ZohoError("Datos de la tarea no válidos.");

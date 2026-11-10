@@ -4,7 +4,7 @@
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
-import { buscarCandidato, candidatosEnEstado, candidatosPorIds, coql, duenoZoho, tareasPendientes, zohoGet, zohoListo } from "./crm-zohoapi.local";
+import { completarTarea, buscarCandidato, candidatosEnEstado, candidatosPorIds, coql, duenoZoho, tareasPendientes, zohoGet, zohoListo } from "./crm-zohoapi.local";
 import { tareasDelDia } from "./crm-agenda.local";
 import { hoyMadrid } from "./crm-seguimientos.local";
 
@@ -340,6 +340,16 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     } catch (e) {
       await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
     }
+    return;
+  }
+  if (pedido.startsWith("cerrar_tareas:")) {
+    // Completa tareas que quedaron abiertas por el fallo de «Ya lo envié» (ids separados por coma).
+    await st.set("zoho_diag_pedir", "");
+    const out: Record<string, string> = {};
+    for (const id of pedido.slice(14).split(",").map((x) => x.trim()).filter(Boolean)) {
+      try { await completarTarea(env, id, fetch, now); out[id] = "completada"; } catch (e) { out[id] = e instanceof Error ? e.message.slice(0, 120) : String(e); }
+    }
+    await st.set("zoho_diag_resultado", JSON.stringify(out));
     return;
   }
   if (pedido.startsWith("prospectar:")) {
