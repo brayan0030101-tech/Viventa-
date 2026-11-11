@@ -251,6 +251,28 @@ describe("videollamada: recordatorios y resumen", () => {
     expect((await runRecordatoriosLlamada(env, NOW + 5 * 60_000)).r24).toBe(0);
   });
 
+  it("si la cita ya no existe en Cal.com (cancelada o quitada del calendario), no manda recordatorios ni resumen y la marca cancelada", async () => {
+    const convId = await seedConv("ycloud", "34600000077");
+    await msgs.append(convId, "user", "quiero agendar", { createdAt: NOW - 3 * H });
+    const meta = JSON.stringify({ servicio: "Videollamada Viventa", calStart: new Date(NOW + 55 * 60_000).toISOString(), estado: "Reservada (Cal.com)", calBookingUid: "uid-cancelada" });
+    await db.run(
+      `INSERT INTO leads (id, conversation_id, name, contact, channel_user_id, intent, metadata, created_at, updated_at)
+       VALUES (?, ?, 'Caterin', '34600000077', '34600000077', 'Cita · Videollamada Viventa · 2026-10-21 14:00', ?, ?, ?)`,
+      [crypto.randomUUID(), convId, meta, NOW - 5 * 24 * H, NOW - 5 * 24 * H],
+    );
+    const fetchReal = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ status: "success", data: { status: "cancelled" } }), { status: 200 })) as typeof fetch;
+    try {
+      const r = await runRecordatoriosLlamada({ ...env, CALCOM_API_KEY: "k" } as never, NOW);
+      expect(r).toEqual({ r24: 0, r1: 0, resumenes: 0 });
+      expect(sendOutboundMock).not.toHaveBeenCalled();
+      const fila = await db.first<{ m: string }>("SELECT metadata AS m FROM leads WHERE conversation_id = ?", [convId]);
+      expect(JSON.parse(fila!.m).estado).toBe("Cancelada (Cal.com)");
+    } finally {
+      globalThis.fetch = fetchReal;
+    }
+  });
+
   it("a ~1 h manda el recordatorio y el resumen del lead a Maricela", async () => {
     await seedCita("34600000021", NOW + 55 * 60_000, NOW - 3 * 24 * H);
     const r = await runRecordatoriosLlamada(env, NOW);

@@ -436,3 +436,8 @@
 ## 10 nov 2026 — Si el cliente quiere hablar con Maricela, primero se agenda
 - Pedido de Maricela (caso Jessica Torres). Regla añadida al final de las instrucciones (respaldo: custom_instructions_respaldo_20261110_agendar_primero) y marcador `agendar_primero` en el guardián. Solo cambia el orden; el resto del guion igual.
 - Pendiente de decidir con Brayan/Maricela (NO aplicado): no enviar cotización a quien pidió entender el proceso antes; no sugerir rango de presupuesto; no ofrecer estudio de viabilidad antes de la videollamada; consolidar respuestas fragmentadas; no intercalar cotización al reprogramar.
+
+## 11 nov 2026 — Recordatorios de una cita que ya no existe (caso Caterin)
+- Maricela y la clienta acordaron hablar en enero por chat, pero la reserva de Cal.com del 10 nov seguía en el sistema: el bot mandó recordatorio de 24 h y de 1 h.
+- Ahora, antes de resumen/24 h/1 h, `estadoReserva` (src/integrations/calcom.ts) consulta Cal.com; si la reserva está cancelada/rechazada/no existe, no se avisa y el lead pasa a «Cancelada (Cal.com)». Si Cal.com no responde, se envía como siempre.
+- Límite: si la cita sigue «activa» en Cal.com (p. ej. solo se quitó del Google Calendar), el bot sigue avisando. Hay que cancelarla en Cal.com o decirle al bot que la cancele.

@@ -239,6 +239,27 @@ export async function createBooking(
  * eso createBooking lo devuelve y agendarCita lo persiste en el lead
  * (metadata.calBookingUid): sin uid, una cita creada hoy no se puede cancelar mañana.
  */
+/**
+ * Estado real de una reserva en Cal.com. «cancelada» = cancelada, rechazada o ya no existe (404): no se debe avisar al cliente de esa cita.
+ * Ante cualquier duda (sin clave, error de red, respuesta rara) devuelve «desconocida» y el recordatorio sale como siempre.
+ */
+export async function estadoReserva(env: Env, uid: string): Promise<"activa" | "cancelada" | "desconocida"> {
+  if (!env.CALCOM_API_KEY || !uid) return "desconocida";
+  try {
+    const res = await fetch(`${CALCOM_API}/bookings/${encodeURIComponent(uid)}`, {
+      headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": BOOKINGS_VERSION },
+    });
+    if (res.status === 404) return "cancelada";
+    if (!res.ok) return "desconocida";
+    const body = (await res.json()) as { data?: { status?: string } };
+    const st = String(body.data?.status ?? "").toLowerCase();
+    if (st === "cancelled" || st === "canceled" || st === "rejected") return "cancelada";
+    return st ? "activa" : "desconocida";
+  } catch {
+    return "desconocida";
+  }
+}
+
 export async function cancelBooking(
   env: Env,
   uid: string,

@@ -38,6 +38,7 @@ import { camilaConfigured, notifyCamila, leadFicha } from "../lib/camila";
 import { messageOwner } from "../tools/handoffHuman";
 import { sendOutbound } from "./send";
 import { sendYCloudTemplate } from "../channels/ycloud";
+import { estadoReserva } from "../integrations/calcom";
 
 const H = 3600_000;
 const MIN = 60_000;
@@ -332,6 +333,13 @@ export async function runRecordatoriosLlamada(
     if (!Number.isFinite(inicio)) continue;
     const falta = inicio - now;
     if (falta <= 0 || falta > 25 * H) continue;
+
+    // Si la cita ya no existe en Cal.com (Maricela la canceló o la quitó del calendario, o se acordó otra fecha por chat), NO se avisa a nadie:
+    // el 10 nov 2026 una clienta que había quedado para enero recibió los recordatorios de la cita vieja.
+    if (meta.calBookingUid && (!meta.viventa_r1 || !meta.viventa_r24 || !meta.viventa_resumen) && (await estadoReserva(env, meta.calBookingUid)) === "cancelada") {
+      await db.run("UPDATE leads SET metadata = json_set(COALESCE(metadata,'{}'), '$.estado', 'Cancelada (Cal.com)') WHERE id = ?", [lead.id]);
+      continue;
+    }
 
     const conv = lead.conversation_id ? await new ConversationsRepo(db).getById(lead.conversation_id) : null;
     const lastUser = conv
