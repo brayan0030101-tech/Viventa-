@@ -427,6 +427,19 @@ describe("botones de WhatsApp (YCloud)", () => {
   });
 });
 
+describe("botones: error ambiguo de Meta", () => {
+  it("con el error 131000 (500, «Something went wrong») NO reenvía como texto: el mensaje con botones suele llegar y se duplicaba", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"error":{"status":500,"message":"(#131000) Something went wrong"}}', { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await ycloudAdapter.sendReply(
+      { channel: "ycloud", channelUserId: "34600000000", chunks: ["¿Te gustaría realizarlo?"], buttons: [{ title: "Sí, quiero", payload: "btn:Sí" }, { title: "Ahora no", payload: "btn:No" }] },
+      { YCLOUD_WA_FROM: "+34000", YCLOUD_API_KEY: "k" } as any,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("regla fija: nunca a números colombianos", () => {
   it("reconoce +57…, 57… y usuarios CO.…, y no confunde España ni otros países", async () => {
     const { esNumeroColombiano } = await import("../../src/channels/ycloud");

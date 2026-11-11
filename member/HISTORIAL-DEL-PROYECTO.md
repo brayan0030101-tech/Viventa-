@@ -445,3 +445,6 @@
 ## 11 nov 2026 — Llamada de otra persona pegada a Lyseth Bonilla (Fathom)
 - El emparejador de Fathom elegía la cita más cercana en ±90 min aunque los nombres no coincidieran: la llamada de José y Magali (3 nov) quedó como resultado de Lyseth y su nota de Zoho salió mezclada.
 - Ahora: si la hora no es casi exacta (>20 min) hace falta que coincida el correo o el nombre (`coincideNombre`); si no, queda «sin cita» y se avisa a Camila. Datos de Lyseth limpiados (resultado, pendientes, nota en caché); el texto se guardó en crm_fathom_texto (recording 199346894).
+
+## 11 nov 2026 — Mensaje del estudio de viabilidad llegaba doble
+- Meta devolvió 500 «(#131000) Something went wrong» al mensaje con botones, pero el mensaje sí llegó; el bot lo reenviaba como texto numerado y la clienta (+48 690 817 852) recibió dos. Ahora ese error ambiguo NO provoca reenvío (src/channels/ycloud.ts). Si de verdad no llega, lo detecta el vigilante de fallos de YCloud. Los rechazos claros (4xx) siguen reenviándose como texto.

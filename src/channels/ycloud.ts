@@ -469,6 +469,9 @@ export const ycloudAdapter: ChannelAdapter = {
         console.error(`ycloud sendReply con botones falló (${res.status}): ${motivoBotones.slice(0, 200)} → reintento como texto`);
         // Se deja constancia aunque el reintento salga bien: así se sabe POR QUÉ falló el mensaje con botones.
         await registrarFallo(env, reply.channelUserId, `botones rechazados ${res.status}: ${motivoBotones}`);
+        // Error 131000 «Something went wrong» de Meta (HTTP 500): es AMBIGUO, el mensaje con botones suele llegar igual. Reenviarlo como texto lo duplicaba
+        // (11 nov 2026: la clienta recibió el estudio de viabilidad dos veces). Si de verdad no llega, el vigilante de fallos de YCloud lo avisa al equipo.
+        if (res.status >= 500 && /131000|Something went wrong/i.test(motivoBotones)) continue;
         res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
