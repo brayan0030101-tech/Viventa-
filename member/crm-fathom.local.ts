@@ -8,6 +8,24 @@ import { notifyCamila } from "../src/lib/camila";
 
 const TOLERANCIA_MS = 5 * 60_000;
 const VENTANA_CITA_MS = 90 * 60_000;
+/** Dentro de este margen la hora basta para emparejar; más lejos hace falta que coincida el nombre o el correo (evita pegarle a un cliente la llamada de otro: Lyseth/José, 3 nov 2026). */
+const MARGEN_SOLO_HORA_MS = 20 * 60_000;
+
+const sinTildes = (t: string): string => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const palabras = (t: string): string[] => sinTildes(t).split(/[^a-z]+/).filter((w) => w.length >= 4);
+
+/** ¿El nombre del cliente aparece entre quienes hablaron o fueron invitados a la reunión? */
+export function coincideNombre(nombreCliente: string, r: ReunionFathom): boolean {
+  const mios = new Set(palabras(nombreCliente));
+  if (!mios.size) return false;
+  const otros = [
+    ...(r.transcript ?? []).map((t) => t.speaker?.display_name ?? ""),
+    ...(r.calendar_invitees ?? []).map((i) => i.name ?? ""),
+    r.meeting_title ?? "",
+    r.title ?? "",
+  ].flatMap(palabras);
+  return otros.some((w) => mios.has(w));
+}
 
 // ─── Firma ───────────────────────────────────────────────────────────────────
 
@@ -70,13 +88,19 @@ export async function emparejarLlamada(env: Env, r: ReunionFathom, now = Date.no
   if (!Number.isFinite(inicio)) return null;
   const { cargarLlamadas } = await import("./crm-calendario.local");
   const cand = (await cargarLlamadas(env, now)).filter((l) => l.estado !== "cancelada" && Math.abs(l.inicio - inicio) <= VENTANA_CITA_MS);
-  if (cand.length <= 1) return cand[0]?.id ?? null;
+  if (!cand.length) return null;
   const correos = new Set((r.calendar_invitees ?? []).filter((i) => i.is_external && i.email).map((i) => i.email!.toLowerCase()));
   const { cargarCrm } = await import("./crm.local");
   const porConv = new Map((await cargarCrm(env, now)).map((f) => [f.lead.convId, f.lead.correo.toLowerCase()]));
-  const exacto = cand.find((l) => [...correos].some((c) => (porConv.get(l.convId) ?? "").includes(c)));
+  const exacto = cand.find((l) => [...correos].some((c) => c && (porConv.get(l.convId) ?? "").includes(c)));
   if (exacto) return exacto.id;
-  return cand.sort((a, b) => Math.abs(a.inicio - inicio) - Math.abs(b.inicio - inicio))[0].id;
+  const mejor = cand.sort((a, b) => Math.abs(a.inicio - inicio) - Math.abs(b.inicio - inicio))[0];
+  // Con varias citas cercanas, o si la hora no es casi exacta, el nombre debe coincidir: si no, es la llamada de otra persona.
+  const horaExacta = Math.abs(mejor.inicio - inicio) <= MARGEN_SOLO_HORA_MS;
+  if (cand.length === 1 && horaExacta) return mejor.id;
+  const porNombre = cand.filter((l) => coincideNombre(l.nombre, r));
+  if (porNombre.length) return porNombre.sort((a, b) => Math.abs(a.inicio - inicio) - Math.abs(b.inicio - inicio))[0].id;
+  return cand.length > 1 && horaExacta ? mejor.id : null;
 }
 
 // ─── Recepción ───────────────────────────────────────────────────────────────

@@ -441,3 +441,7 @@
 - Maricela y la clienta acordaron hablar en enero por chat, pero la reserva de Cal.com del 10 nov seguía en el sistema: el bot mandó recordatorio de 24 h y de 1 h.
 - Ahora, antes de resumen/24 h/1 h, `estadoReserva` (src/integrations/calcom.ts) consulta Cal.com; si la reserva está cancelada/rechazada/no existe, no se avisa y el lead pasa a «Cancelada (Cal.com)». Si Cal.com no responde, se envía como siempre.
 - Límite: si la cita sigue «activa» en Cal.com (p. ej. solo se quitó del Google Calendar), el bot sigue avisando. Hay que cancelarla en Cal.com o decirle al bot que la cancele.
+
+## 11 nov 2026 — Llamada de otra persona pegada a Lyseth Bonilla (Fathom)
+- El emparejador de Fathom elegía la cita más cercana en ±90 min aunque los nombres no coincidieran: la llamada de José y Magali (3 nov) quedó como resultado de Lyseth y su nota de Zoho salió mezclada.
+- Ahora: si la hora no es casi exacta (>20 min) hace falta que coincida el correo o el nombre (`coincideNombre`); si no, queda «sin cita» y se avisa a Camila. Datos de Lyseth limpiados (resultado, pendientes, nota en caché); el texto se guardó en crm_fathom_texto (recording 199346894).

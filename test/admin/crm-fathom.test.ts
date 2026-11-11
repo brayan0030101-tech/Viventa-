@@ -75,6 +75,21 @@ describe("reunión de Fathom → análisis automático", () => {
     expect(notifyMock).toHaveBeenCalledTimes(1);
   });
 
+  it("si la hora no es casi exacta y los nombres no coinciden, NO se la pega a otro cliente (era la llamada de otra persona)", async () => {
+    const otra = reunion({
+      scheduled_start_time: "2026-10-12T10:45:00.000Z",
+      calendar_invitees: [],
+      transcript: Array.from({ length: 6 }, (_, i) => ({ speaker: { display_name: i % 2 ? "José Pérez" : "Maricela" }, text: frase, timestamp: `00:0${i}:00` })),
+    });
+    expect(await emparejarLlamada(env, otra as never, NOW)).toBeNull();
+    const deLuis = reunion({
+      scheduled_start_time: "2026-10-12T10:45:00.000Z",
+      calendar_invitees: [],
+      transcript: Array.from({ length: 6 }, (_, i) => ({ speaker: { display_name: i % 2 ? "Luis Mora" : "Maricela" }, text: frase, timestamp: `00:0${i}:00` })),
+    });
+    expect(await emparejarLlamada(env, deLuis as never, NOW)).toBe("cita-ycloud:34600000002");
+  });
+
   it("no procesa dos veces la misma grabación", async () => {
     await procesarReunionFathom(env, reunion() as never, NOW);
     expect((await procesarReunionFathom(env, reunion() as never, NOW)).estado).toBe("duplicada");
