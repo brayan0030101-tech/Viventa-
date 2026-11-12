@@ -70,13 +70,17 @@ export function enviarViabilidadTool(env: Env, getConversationId: () => string |
       const convId = getConversationId();
       if (!convId || !convId.startsWith("ycloud:")) return { ok: false as const, motivo: "Solo se envía por WhatsApp." };
       const db = new Db(env.DB);
+      // Se marca PENDIENTE desde el principio: subir al cliente a Zoho y esperar su enlace tarda decenas de segundos y, si el turno se corta a
+      // mitad (11 nov 2026: la clienta dijo «Sí, quiero» y no recibió nada), la pasada de cada 15 min igualmente le manda el formulario.
+      await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_pendiente', ?) WHERE id = ?", [Date.now(), convId]).catch(() => undefined);
       try {
         const r = await obtenerEnlaceViabilidad(env, convId);
         if (r.ok) {
           await registrarEnvio(env, convId, fetch, Date.now());
           return { ok: true as const, url: r.url, mensajeSugerido: textoViabilidad(r.url) };
         }
-        if (r.pendiente) await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_pendiente', ?) WHERE id = ?", [Date.now(), convId]);
+        // Sin posibilidad de enviarlo por sí solo (no corresponde, Zoho desconectado…): se quita la marca para que no se reintente en bucle.
+        if (!r.pendiente) await db.run("UPDATE conversations SET metadata = json_remove(COALESCE(metadata,'{}'),'$.viabilidad_pendiente') WHERE id = ?", [convId]).catch(() => undefined);
         return { ok: false as const, pendiente: !!r.pendiente, motivo: r.motivo };
       } catch (e) {
         console.error("[viabilidad]", e instanceof Error ? e.message : e);

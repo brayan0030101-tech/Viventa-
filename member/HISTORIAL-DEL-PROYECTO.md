@@ -448,3 +448,8 @@
 
 ## 11 nov 2026 — Mensaje del estudio de viabilidad llegaba doble
 - Meta devolvió 500 «(#131000) Something went wrong» al mensaje con botones, pero el mensaje sí llegó; el bot lo reenviaba como texto numerado y la clienta (+48 690 817 852) recibió dos. Ahora ese error ambiguo NO provoca reenvío (src/channels/ycloud.ts). Si de verdad no llega, lo detecta el vigilante de fallos de YCloud. Los rechazos claros (4xx) siguen reenviándose como texto.
+
+## 12 nov 2026 — «Sí, quiero» al estudio de viabilidad sin respuesta (+48 690 817 852)
+- El turno de la clienta (11 nov 13:44 UTC) creó el ticket y subió el lead a Zoho pero no dejó ni respuesta, ni marca pendiente, ni error (ai_fallos vacío). Causa más probable: el turno se cortó dentro de la herramienta enviarViabilidad, que sube a Zoho y espera hasta ~20 s el enlace. NO confirmado (no hay registro del corte).
+- Arreglo: enviarViabilidad marca la conversación «pendiente» ANTES de empezar; así la pasada de 15 min (runViabilidadPendiente) le manda el formulario aunque el turno muera. Si no hay forma de enviarlo se quita la marca.
+- Maricela ya le escribió a mano (formulario y llamada) el 12 nov.
