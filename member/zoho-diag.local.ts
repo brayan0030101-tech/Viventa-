@@ -342,6 +342,24 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido.startsWith("motivos_estado:")) {
+    // Solo lectura: de un estado (p. ej. Descartado) toma hasta 6 candidatos y muestra los campos cuyo nombre parece un motivo (para saber cómo excluir «No quiere ser contactado»).
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const estado = pedido.slice(15).trim();
+      const lista = (await candidatosEnEstado(env, estado, fetch, now)).slice(0, 6);
+      const out: unknown[] = [];
+      for (const c of lista) {
+        const j = (await zohoGet(env, `/Leads/${c.id}`, fetch, now)) as { data?: Array<Record<string, unknown>> };
+        const d = j.data?.[0] ?? {};
+        out.push(Object.fromEntries(Object.entries(d).filter(([k, v]) => /motiv|razon|reason|descart|perdid/i.test(k) && v)));
+      }
+      await st.set("zoho_diag_resultado", JSON.stringify({ estado, total: lista.length, campos: out }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido.startsWith("cerrar_tareas:")) {
     // Completa tareas que quedaron abiertas por el fallo de «Ya lo envié» (ids separados por coma).
     await st.set("zoho_diag_pedir", "");

@@ -453,3 +453,9 @@
 - El turno de la clienta (11 nov 13:44 UTC) creó el ticket y subió el lead a Zoho pero no dejó ni respuesta, ni marca pendiente, ni error (ai_fallos vacío). Causa más probable: el turno se cortó dentro de la herramienta enviarViabilidad, que sube a Zoho y espera hasta ~20 s el enlace. NO confirmado (no hay registro del corte).
 - Arreglo: enviarViabilidad marca la conversación «pendiente» ANTES de empezar; así la pasada de 15 min (runViabilidadPendiente) le manda el formulario aunque el turno muera. Si no hay forma de enviarlo se quita la marca.
 - Maricela ya le escribió a mano (formulario y llamada) el 12 nov.
+
+## 13 nov 2026 — Oferta de seguros ERGO|DKV (pedido de Maricela)
+- Oferta: 1 mes de seguro gratis (salud, vida, decesos) en nuevas contrataciones con Maricela; Maricela confirmó que puede usar su lista. Módulo: member/crm-seguros.local.ts.
+- Plantilla Meta `viventa_tpl_seguros` (MARKETING, {{1}}=nombre) con botón URL wa.me/34603039032 y botón «No me interesa». APAGADO: solo corre con `viventa_seguros_masivo = activo` y plantilla APROBADA.
+- De a poco: 3 por pasada, máx. 10 al día (`viventa_seguros_max_dia`), 9–21 h del cliente, una sola vez por cliente, nunca números de Colombia. Estados: Descartado, Cliente perdido, Revisar en el futuro. Excluye motivos «No quiere ser contactado», «Número errado», «Sin datos de contacto».
+- «No me interesa» deja al cliente marcado; respuestas con interés avisan a Camila/Maricela. Diag `motivos_estado:<estado>` para ver cómo guarda Zoho los motivos.
