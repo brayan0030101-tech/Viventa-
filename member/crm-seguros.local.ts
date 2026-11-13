@@ -1,6 +1,6 @@
 // member/crm-seguros.local.ts — Oferta de seguros ERGO|DKV de Maricela a los clientes en «Descartado», «Cliente perdido» y «Revisar en el futuro».
 // Pedido de Maricela (13 nov 2026, ya confirmó que puede usar su lista). Oferta: 1 mes de seguro gratis (salud, vida, decesos) en nuevas contrataciones con ella.
-// Va por una plantilla de Meta (categoría MARKETING) con botón «Escríbeme por WhatsApp» (wa.me/34603039032) y botón «No me interesa».
+// Va por una plantilla de Meta (categoría MARKETING) con botones «Quiero información» y «No me interesa» (Meta no permite enlaces directos a WhatsApp en botones: al pulsar «Quiero información» el bot manda el enlace wa.me/34603039032 de Maricela).
 // SOLO corre con `viventa_seguros_masivo = activo`, y solo cuando Meta aprobó la plantilla `viventa_tpl_seguros`. De a poco: máx. por día
 // (ajuste `viventa_seguros_max_dia`, 10 por defecto) y 3 por pasada; una sola vez por cliente; de 9 a 21 h del cliente; nunca a números de Colombia.
 import type { Env } from "../src/env";
@@ -32,7 +32,7 @@ export const TEXTO_PLANTILLA_SEGUROS =
   "❤️ Vida, para proteger a quienes más quieres\n" +
   "🏡 Decesos, para que tu familia tenga tranquilidad\n\n" +
   "Beneficio exclusivo para nuevas contrataciones gestionadas conmigo.\n\n" +
-  "¿Te gustaría conocer las opciones y cuánto te costaría? Te preparo una propuesta sin compromiso.";
+  "¿Te gustaría conocer las opciones y cuánto te costaría? Pulsa «Quiero información» y te preparo una propuesta sin compromiso.";
 
 /** Si el cliente escribió hace menos de 24 h no hace falta plantilla: sale el mismo texto con el enlace dentro. */
 const textoLibre = (nombre: string): string => `${TEXTO_PLANTILLA_SEGUROS.replace(/\{\{1\}\}/g, nombre || "hola")}\n\nEscríbeme aquí y te lo preparo: ${WA_SEGUROS}`;
@@ -146,7 +146,7 @@ export async function runSegurosMasivo(env: Env, now = Date.now(), f?: FetchFn):
         await new MessagesRepo(db).append(
           conv.id,
           "note",
-          `Oferta de seguros (ERGO|DKV, 1 mes gratis) enviada ${via === "plantilla" ? "con la plantilla" : "como texto"} a un cliente que estaba en «${estado}». Esto NO es sobre vivienda. Si responde con interés en seguros, dile que Maricela le atiende directamente por ${WA_SEGUROS} y llama handoffHuman con el motivo "Interesado en seguros". Si dice que no le interesa o pulsa «No me interesa», agradécele en una frase amable, no insistas y no le ofrezcas nada más.`,
+          `Oferta de seguros (ERGO|DKV, 1 mes gratis) enviada ${via === "plantilla" ? "con la plantilla" : "como texto"} a un cliente que estaba en «${estado}». Esto NO es sobre vivienda. Si pulsa «Quiero información» o responde con interés en seguros, contéstale en UN mensaje corto: dile que Maricela le atiende directamente y que le escriba aquí ${WA_SEGUROS}, y llama handoffHuman con el motivo "Interesado en seguros" (sin hablar de vivienda ni de precios). Si dice que no le interesa o pulsa «No me interesa», agradécele en una frase amable, no insistas y no le ofrezcas nada más.`,
         );
         await db.run("UPDATE crm_seguros SET enviado_en = ? WHERE lead_id = ?", [now, cand.id]);
         out.sent++;

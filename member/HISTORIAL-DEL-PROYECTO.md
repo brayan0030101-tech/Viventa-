@@ -459,3 +459,4 @@
 - Plantilla Meta `viventa_tpl_seguros` (MARKETING, {{1}}=nombre) con botón URL wa.me/34603039032 y botón «No me interesa». APAGADO: solo corre con `viventa_seguros_masivo = activo` y plantilla APROBADA.
 - De a poco: 3 por pasada, máx. 10 al día (`viventa_seguros_max_dia`), 9–21 h del cliente, una sola vez por cliente, nunca números de Colombia. Estados: Descartado, Cliente perdido, Revisar en el futuro. Excluye motivos «No quiere ser contactado», «Número errado», «Sin datos de contacto».
 - «No me interesa» deja al cliente marcado; respuestas con interés avisan a Camila/Maricela. Diag `motivos_estado:<estado>` para ver cómo guarda Zoho los motivos.
+- Meta rechazó el botón URL a wa.me («Direct links to WhatsApp aren't allowed for buttons»): la plantilla lleva botones «Quiero información» y «No me interesa»; al pulsar el primero el bot manda el enlace wa.me de Maricela. Zoho guarda el motivo en el campo `motivo` (comprobado).
