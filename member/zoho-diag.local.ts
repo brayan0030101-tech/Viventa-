@@ -90,6 +90,33 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ enlaces: res }).slice(0, 9000));
     return;
   }
+  if (pedido === "enlaces_comparar") {
+    // Solo lectura: de los últimos 40 candidatos que subió el sistema, ¿cuáles traen enlace y qué tienen en común (correo, estado, fecha, quién los modificó)?
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { coql } = await import("./crm-zohoapi.local");
+      const db = new Db(env.DB);
+      const ids = (await db.all<{ z: string }>("SELECT DISTINCT json_extract(metadata,'$.zoho_lead_id') AS z FROM conversations WHERE json_extract(metadata,'$.viventa_registrado_por') IN ('bot','CRM') AND json_extract(metadata,'$.zoho_lead_id') IS NOT NULL ORDER BY json_extract(metadata,'$.viventa_registrado') DESC LIMIT 40")).map((r) => r.z).filter((x) => /^\d{6,30}$/.test(x));
+      const filas = await coql(env, `select id, Lead_Status, Created_Time, Email, Mobile, Lead_Source, Modified_By, Modified_Time, Fecha_cambio_de_estado, Estado_de_Llamada, Enlace_corto_Formulario_Consulta_Centrales from Leads where id in (${ids.map((x) => `'${x}'`).join(",")}) order by Created_Time desc`);
+      res = filas.map((f) => ({ c: String(f["Created_Time"]).slice(5, 16), e: f["Lead_Status"], link: f["Enlace_corto_Formulario_Consulta_Centrales"] ? "SI" : "no", mail: f["Email"] ? "si" : "no", src: String(f["Lead_Source"] ?? "").slice(0, 12), mod: String((f["Modified_By"] as { name?: string } | null)?.name ?? "").slice(0, 14), m: String(f["Modified_Time"] ?? "").slice(5, 16) }));
+    } catch (e) { res = { error: e instanceof Error ? e.message : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ comparar: res }).slice(0, 9000));
+    return;
+  }
+  if (pedido.startsWith("get:")) {
+    // Solo lectura: una consulta GET cualquiera a la API de Zoho (recortada), para explorar. Solo rutas que empiezan por «/».
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { zohoGet } = await import("./crm-zohoapi.local");
+      const ruta = pedido.slice(4).trim();
+      if (!ruta.startsWith("/")) throw new Error("la ruta debe empezar por /");
+      res = await zohoGet(env, ruta);
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ get: res }).slice(0, 9000));
+    return;
+  }
   if (pedido.startsWith("lead_campos:")) {
     // Campos con valor de un candidato (recortados) y de sus transiciones: para ver dónde guarda Zoho el enlace del formulario de viabilidad.
     await st.set("zoho_diag_pedir", "");
