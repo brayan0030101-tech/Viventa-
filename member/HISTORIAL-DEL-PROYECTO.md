@@ -460,3 +460,7 @@
 - De a poco: 3 por pasada, máx. 10 al día (`viventa_seguros_max_dia`), 9–21 h del cliente, una sola vez por cliente, nunca números de Colombia. Estados: Descartado, Cliente perdido, Revisar en el futuro. Excluye motivos «No quiere ser contactado», «Número errado», «Sin datos de contacto».
 - «No me interesa» deja al cliente marcado; respuestas con interés avisan a Camila/Maricela. Diag `motivos_estado:<estado>` para ver cómo guarda Zoho los motivos.
 - Meta rechazó el botón URL a wa.me («Direct links to WhatsApp aren't allowed for buttons»): la plantilla lleva botones «Quiero información» y «No me interesa»; al pulsar el primero el bot manda el enlace wa.me de Maricela. Zoho guarda el motivo en el campo `motivo` (comprobado).
+
+## 14 nov 2026 — «Sí, quiero» al estudio sin formulario (+34 642 22 09 08 y +34 622 95 86 47), con publicidad activa
+- Dos clientas más aceptaron el estudio y no recibieron el formulario. Zoho no había generado el enlace (la ficha de +34642220908 está En Prospección, sin Enlace_corto/largo tras más de 1 h). Además, esperar ~20 s al enlace DENTRO del turno hacía que el bot tardara hasta 12 min en contestar (la segunda cliente recibió respuesta tras ~12 min, probablemente por el reintento automático).
+- Arreglo: enviarViabilidad ya no espera (una lectura y, si no está, queda pendiente); el aviso a Camila/Maricela de «enlace sin generar» sale a los 20 min (antes 6 h) con el enlace a la ficha de Zoho para enviarlo a mano. Causa de que Zoho no genere el enlace: SIN CONFIRMAR (revisar la automatización de Zoho / cutt.ly).

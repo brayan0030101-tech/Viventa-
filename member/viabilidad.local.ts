@@ -37,14 +37,13 @@ export async function obtenerEnlaceViabilidad(env: Env, convId: string, f: Fetch
     if (!leadId) return { ok: false, motivo: "El cliente todavía no está en Zoho." };
     await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_lead_id', ?) WHERE id = ?", [leadId, convId]);
   }
-  // Zoho genera el enlace unos segundos o minutos después de crear el candidato: se reintenta un momento.
-  for (let i = 0; i < 4; i++) {
+  // Zoho genera el enlace unos segundos o minutos después de crear el candidato. NO se espera aquí (14 nov 2026: esperar ~20 s dentro del turno del bot
+  // hizo que los clientes que decían «Sí, quiero» quedaran sin respuesta hasta 12 min): una lectura y, si aún no está, queda pendiente para la pasada de 15 min.
+  for (let i = 0; i < 1; i++) {
     const j = (await zohoGet(env, `/Leads/${esc(leadId)}?fields=Enlace_corto_Formulario_Consulta_Centrales,Enlace_largo_Formulario_Consulta_Centrales`, f, now).catch(() => null)) as { data?: Array<Record<string, unknown>> } | null;
     const d = j?.data?.[0];
     const url = String(d?.["Enlace_corto_Formulario_Consulta_Centrales"] || d?.["Enlace_largo_Formulario_Consulta_Centrales"] || "").trim();
     if (/^https?:\/\//.test(url)) return { ok: true, url };
-    if (i < 3 && f === fetch) await new Promise((r) => setTimeout(r, 6_000));
-    else if (i < 3) break;
   }
   return { ok: false, motivo: "Zoho todavía no generó el enlace del formulario.", pendiente: true };
 }
@@ -120,9 +119,12 @@ export async function runViabilidadPendiente(env: Env, now = Date.now(), f: Fetc
       } catch (e) {
         console.error("[viabilidad] envío pendiente:", e instanceof Error ? e.message : e);
       }
-    } else if (now - c.p > 6 * H && !c.aviso) {
+    } else if (now - c.p > 20 * 60_000 && !c.aviso) {
+      // A los 20 min sin enlace se avisa (antes eran 6 h): con publicidad activa el cliente no puede esperar; Maricela lo envía desde la ficha de Zoho.
       const { notifyCamila } = await import("../src/lib/camila");
-      await notifyCamila(env, { heading: "📋 Formulario de viabilidad sin enlace", body: `${c.display_name || c.channel_user_id} aceptó el estudio gratuito pero Zoho no generó su enlace (${r.motivo}). Envíaselo tú.` }).catch(() => false);
+      const { urlFichaZoho } = await import("./crm-zohoapi.local");
+      const z = (await db.first<{ z: string | null }>("SELECT json_extract(COALESCE(metadata,'{}'),'$.zoho_lead_id') AS z FROM conversations WHERE id = ?", [c.id]))?.z;
+      await notifyCamila(env, { heading: "📋 Formulario de viabilidad: envíalo tú", body: `${c.display_name || c.channel_user_id} (+${c.channel_user_id}) aceptó el estudio gratuito pero Zoho todavía no generó su enlace (${r.motivo}). Ábrelo en su ficha de Zoho y envíaselo por WhatsApp.${z ? `\n${urlFichaZoho(env, z)}` : ""}` }).catch(() => false);
       await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_aviso', ?) WHERE id = ?", [new Date(now).toISOString(), c.id]);
     }
   }
