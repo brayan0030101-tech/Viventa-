@@ -104,6 +104,18 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ comparar: res }).slice(0, 9000));
     return;
   }
+  if (pedido === "enlaces_largos") {
+    // Solo lectura: los enlaces completos (largo y corto) de los candidatos que sí los tienen, para ver qué cambia de uno a otro.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { coql } = await import("./crm-zohoapi.local");
+      const filas = await coql(env, "select id, Lead_Status, Created_Time, Enlace_corto_Formulario_Consulta_Centrales, Enlace_largo_Formulario_Consulta_Centrales from Leads where Enlace_largo_Formulario_Consulta_Centrales is not null order by Created_Time desc limit 6");
+      res = filas.map((f) => ({ id: f["id"], e: f["Lead_Status"], c: String(f["Created_Time"]).slice(0, 16), corto: f["Enlace_corto_Formulario_Consulta_Centrales"], largo: f["Enlace_largo_Formulario_Consulta_Centrales"] }));
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ largos: res }).slice(0, 9000));
+    return;
+  }
   if (pedido.startsWith("get:")) {
     // Solo lectura: una consulta GET cualquiera a la API de Zoho (recortada), para explorar. Solo rutas que empiezan por «/».
     await st.set("zoho_diag_pedir", "");
