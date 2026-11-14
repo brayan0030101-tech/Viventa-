@@ -122,9 +122,14 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     let res: unknown;
     try {
       const { zohoGet } = await import("./crm-zohoapi.local");
-      const ruta = pedido.slice(4).trim();
-      if (!ruta.startsWith("/")) throw new Error("la ruta debe empezar por /");
-      res = await zohoGet(env, ruta);
+      // Varias rutas separadas por «|»: cada una devuelve su resultado (o su error) recortado.
+      const rutas = pedido.slice(4).split("|").map((x) => x.trim()).filter(Boolean);
+      const out: Record<string, unknown> = {};
+      for (const ruta of rutas) {
+        if (!ruta.startsWith("/")) { out[ruta] = "la ruta debe empezar por /"; continue; }
+        try { out[ruta] = JSON.stringify(await zohoGet(env, ruta)).slice(0, 1500); } catch (e) { out[ruta] = "ERROR " + (e instanceof Error ? e.message.slice(0, 200) : String(e)); }
+      }
+      res = out;
     } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
     await st.set("zoho_diag_resultado", JSON.stringify({ get: res }).slice(0, 9000));
     return;
