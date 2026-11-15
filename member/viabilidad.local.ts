@@ -124,7 +124,7 @@ export async function runViabilidadPendiente(env: Env, now = Date.now(), f: Fetc
       const { notifyCamila } = await import("../src/lib/camila");
       const { urlFichaZoho } = await import("./crm-zohoapi.local");
       const z = (await db.first<{ z: string | null }>("SELECT json_extract(COALESCE(metadata,'{}'),'$.zoho_lead_id') AS z FROM conversations WHERE id = ?", [c.id]))?.z;
-      await notifyCamila(env, { heading: "📋 Formulario de viabilidad: envíalo tú", body: `${c.display_name || c.channel_user_id} (+${c.channel_user_id}) aceptó el estudio gratuito pero Zoho todavía no generó su enlace (${r.motivo}). Ábrelo en su ficha de Zoho y envíaselo por WhatsApp.${z ? `\n${urlFichaZoho(env, z)}` : ""}` }).catch(() => false);
+      await notifyCamila(env, { heading: "📋 Formulario de viabilidad: envíalo tú", body: `${c.display_name || c.channel_user_id} (+${c.channel_user_id}) aceptó el estudio gratuito pero Zoho todavía no generó su enlace (${r.motivo}). Ábrela en Zoho y pulsa el botón «Enviar Formulario CC» (así se genera su enlace); luego envíaselo por WhatsApp.${z ? `\n${urlFichaZoho(env, z)}` : ""}` }).catch(() => false);
       await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_aviso', ?) WHERE id = ?", [new Date(now).toISOString(), c.id]);
     }
   }
