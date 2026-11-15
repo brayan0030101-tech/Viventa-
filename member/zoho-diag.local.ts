@@ -115,6 +115,21 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ probar_funciones: res }));
     return;
   }
+  if (pedido.startsWith("ejecutar_formulario:")) {
+    // EJECUTA el botón «Enviar Formulario CC» (envia_encuesta_centrales) en UNA ficha: genera el enlace y Zoho le manda el correo al cliente. Solo con orden expresa.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const [convId, leadId] = pedido.slice(20).split("|");
+      const { generarEnlaceEnZoho, obtenerEnlaceViabilidad } = await import("./viabilidad.local");
+      const gen = await generarEnlaceEnZoho(env, convId, leadId, { forzar: true });
+      await new Promise((r) => setTimeout(r, 4000));
+      const enl = await obtenerEnlaceViabilidad(env, convId).catch((e) => ({ ok: false as const, motivo: String(e) }));
+      res = { generar: gen, enlace: enl.ok ? "SI (generado)" : enl };
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ ejecutar_formulario: res }));
+    return;
+  }
   if (pedido === "botones_zoho") {
     // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
     await st.set("zoho_diag_pedir", "");

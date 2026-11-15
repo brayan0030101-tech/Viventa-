@@ -6,7 +6,8 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
-import { buscarCandidato, crearNota, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
+import { buscarCandidato, crearNota, ejecutarFuncion, exigirDeMaricela, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
+import { SettingsRepo } from "../src/db/settings";
 import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
 
 const H = 3_600_000;
@@ -15,6 +16,38 @@ export const textoViabilidad = (url: string): string =>
   `Aquí tienes el formulario del estudio previo de viabilidad: ${url}\n\nTe tomará menos de 5 minutos y es gratis: solo ten a mano tu cédula de ciudadanía colombiana. Es una estimación preliminar de cuánto podrías financiar con un banco en Colombia: no garantiza la aprobación del crédito y no te compromete en nada con Viventa. 😊`;
 
 const esc = (v: string) => v.replace(/[^\w:.+-]/g, "");
+
+/** Función de Zoho que ejecuta el botón «Enviar Formulario CC»: genera el enlace personal Y le manda el correo al cliente. */
+export const FUNCION_FORMULARIO_ZOHO = "envia_encuesta_centrales";
+/** Ajuste (D1): solo con «activo» el bot ejecuta esa función por su cuenta. APAGADO hasta una prueba aprobada con un cliente real. */
+export const AJUSTE_FUNCION = "viventa_viabilidad_funcion";
+
+/**
+ * Hace lo mismo que pulsar el botón «Enviar Formulario CC» de la ficha. Una sola vez por cliente (la marca se guarda ANTES de ejecutar: Zoho además
+ * manda un correo, y repetirlo sería un correo doble), solo con el ajuste activo (o forzado a mano) y solo en fichas de Maricela.
+ */
+export async function generarEnlaceEnZoho(env: Env, convId: string, leadId: string, opts: { forzar?: boolean; f?: FetchFn; now?: number } = {}): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  const f = opts.f ?? fetch;
+  const now = opts.now ?? Date.now();
+  const db = new Db(env.DB);
+  if (!opts.forzar && ((await new SettingsRepo(db).get(AJUSTE_FUNCION)) ?? "").trim().toLowerCase() !== "activo") return { ok: false, motivo: "La ejecución automática del botón está apagada." };
+  const ya = await db.first<{ x: string | null }>("SELECT json_extract(COALESCE(metadata,'{}'),'$.viabilidad_funcion') AS x FROM conversations WHERE id = ?", [convId]);
+  if (ya?.x) return { ok: false, motivo: "El botón ya se ejecutó para este cliente." };
+  try {
+    await exigirDeMaricela(env, leadId, f, now);
+  } catch (e) {
+    return { ok: false, motivo: e instanceof Error ? e.message : "La ficha no es de Maricela." };
+  }
+  const j = (await zohoGet(env, `/Leads/${esc(leadId)}?fields=Phone,Mobile,Email`, f, now).catch(() => null)) as { data?: Array<Record<string, unknown>> } | null;
+  const d = j?.data?.[0] ?? {};
+  await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_funcion', ?) WHERE id = ?", [new Date(now).toISOString(), convId]);
+  try {
+    await ejecutarFuncion(env, FUNCION_FORMULARIO_ZOHO, { id: leadId, Telefono: String(d["Phone"] ?? ""), Mobile: String(d["Mobile"] ?? ""), email: String(d["Email"] ?? "") }, f, now);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, motivo: e instanceof Error ? e.message.slice(0, 200) : "No se pudo ejecutar la función de Zoho." };
+  }
+}
 
 /** Enlace personal del formulario de viabilidad del cliente (null si Zoho todavía no lo generó). Sube al cliente a Zoho si aún no está. */
 export async function obtenerEnlaceViabilidad(env: Env, convId: string, f: FetchFn = fetch, now = Date.now()): Promise<{ ok: true; url: string } | { ok: false; motivo: string; pendiente?: boolean }> {
@@ -44,6 +77,15 @@ export async function obtenerEnlaceViabilidad(env: Env, convId: string, f: Fetch
     const d = j?.data?.[0];
     const url = String(d?.["Enlace_corto_Formulario_Consulta_Centrales"] || d?.["Enlace_largo_Formulario_Consulta_Centrales"] || "").trim();
     if (/^https?:\/\//.test(url)) return { ok: true, url };
+  }
+  // Sin enlace: se hace lo mismo que el botón «Enviar Formulario CC» (si el ajuste está activo) y se vuelve a leer una vez.
+  const gen = await generarEnlaceEnZoho(env, convId, leadId, { f, now });
+  if (gen.ok) {
+    if (f === fetch) await new Promise((r) => setTimeout(r, 3_000));
+    const j2 = (await zohoGet(env, `/Leads/${esc(leadId)}?fields=Enlace_corto_Formulario_Consulta_Centrales,Enlace_largo_Formulario_Consulta_Centrales`, f, now).catch(() => null)) as { data?: Array<Record<string, unknown>> } | null;
+    const d2 = j2?.data?.[0];
+    const url2 = String(d2?.["Enlace_corto_Formulario_Consulta_Centrales"] || d2?.["Enlace_largo_Formulario_Consulta_Centrales"] || "").trim();
+    if (/^https?:\/\//.test(url2)) return { ok: true, url: url2 };
   }
   return { ok: false, motivo: "Zoho todavía no generó el enlace del formulario.", pendiente: true };
 }
