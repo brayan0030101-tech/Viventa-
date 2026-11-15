@@ -104,6 +104,18 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ comparar: res }).slice(0, 9000));
     return;
   }
+  if (pedido === "botones_zoho") {
+    // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { zohoGet } = await import("./crm-zohoapi.local");
+      const j = (await zohoGet(env, "/settings/custom_buttons?module=Leads")) as { custom_buttons?: Array<Record<string, any>> };
+      res = (j.custom_buttons ?? []).map((b) => ({ id: b.id, nombre: b.name, lugar: b.location, tipo: b.type, activo: b.active ?? undefined, accion: JSON.stringify(b.action ?? b.actions ?? {}).slice(0, 300), url: b.url ?? b.action?.url, descripcion: b.description }));
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ botones: res }).slice(0, 10000));
+    return;
+  }
   if (pedido === "enlaces_largos") {
     // Solo lectura: los enlaces completos (largo y corto) de los candidatos que sí los tienen, para ver qué cambia de uno a otro.
     await st.set("zoho_diag_pedir", "");
