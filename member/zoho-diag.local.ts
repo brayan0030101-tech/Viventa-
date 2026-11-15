@@ -104,6 +104,17 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ comparar: res }).slice(0, 9000));
     return;
   }
+  if (pedido === "probar_funciones") {
+    // Prueba SIN efectos: intenta ejecutar una función que NO existe. Si el error es «falta un permiso», el token no puede ejecutar funciones; si es «no existe», sí puede.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { ejecutarFuncion } = await import("./crm-zohoapi.local");
+      res = { respuesta: JSON.stringify(await ejecutarFuncion(env, "funcion_que_no_existe_prueba", {})).slice(0, 600) };
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 400) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ probar_funciones: res }));
+    return;
+  }
   if (pedido === "botones_zoho") {
     // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
     await st.set("zoho_diag_pedir", "");

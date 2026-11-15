@@ -290,6 +290,15 @@ export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: s
 }
 
 /** Lectura genérica de la API de Zoho (solo GET): para diagnósticos y para leer las transiciones de un candidato. */
+/**
+ * Ejecuta una función personalizada de Zoho (Deluge) por la API, igual que pulsar su botón: POST /functions/<nombre>/actions/execute?auth_type=oauth.
+ * Devuelve lo que responda Zoho (recortado por quien llama). Falla con «falta un permiso» si el token no tiene ZohoCRM.functions.execute.CREATE.
+ */
+export async function ejecutarFuncion(env: Env, nombre: string, argumentos: Record<string, string>, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {
+  if (!/^[A-Za-z0-9_]{3,80}$/.test(nombre)) throw new ZohoError("Nombre de función no válido.");
+  return llamar(env, `/functions/${nombre}/actions/execute?auth_type=oauth`, { method: "POST", body: JSON.stringify({ arguments: argumentos }) }, f, now);
+}
+
 export async function zohoGet(env: Env, ruta: string, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {
   return llamar(env, ruta, {}, f, now);
 }
