@@ -139,7 +139,7 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       const out: Record<string, unknown> = {};
       for (const ruta of rutas) {
         if (!ruta.startsWith("/")) { out[ruta] = "la ruta debe empezar por /"; continue; }
-        try { out[ruta] = JSON.stringify(await zohoGet(env, ruta)).slice(0, 1500); } catch (e) { out[ruta] = "ERROR " + (e instanceof Error ? e.message.slice(0, 200) : String(e)); }
+        try { out[ruta] = JSON.stringify(await zohoGet(env, ruta)).replace(/"profiles":\[[^\]]*\]/g, "\"profiles\":[…]").slice(0, Math.floor(8000 / rutas.length)); } catch (e) { out[ruta] = "ERROR " + (e instanceof Error ? e.message.slice(0, 200) : String(e)); }
       }
       res = out;
     } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
