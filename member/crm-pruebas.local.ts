@@ -71,6 +71,12 @@ export const ESCENARIOS: Escenario[] = [
     ] },
   { id: "boton_objetivo", titulo: "Responde «Vivir o regresar» (antes era botón; ahora la pregunta va en texto natural)", previo: guionHastaP4, cliente: "🏡 Vivir o regresar",
     espera: [{ que: "sigue con la pregunta del tipo de proyecto (entrega inmediata / sobre planos)", ok: (r) => /planos|entrega inmediata/.test(r) }, { que: "hace la nueva pregunta en texto natural (SIN botones ni lista numerada, 16 nov 2026)", ok: (r) => !/\[\[botones:/.test(r) && !/(^|\n)\s*[1-3][).]\s/.test(r) }, { que: "no vuelve a preguntar el objetivo", ok: (r) => !/objetivo/.test(r) }] },
+  { id: "pide_proyectos", titulo: "Pide los proyectos de Medellín por menos de 200 millones (hay que atenderlo, no seguir el formulario)", previo: guionHastaP6, cliente: "Antes que nada me puedes pasar los proyectos que tienes en Medellín que no superen los 200 millones y que sea una buena zona",
+    espera: [
+      { que: "le dice con honestidad cómo está lo que pidió (menciona millones de pesos)", ok: (r) => /millon/.test(r) },
+      { que: "NO responde solo «el equipo te enviará opciones» sin dar nada", ok: (r) => !/^(?=.*(equipo|maricela)).{0,160}$/.test(r) || /millon/.test(r) },
+      { que: "presenta al menos un proyecto por su nombre (de la herramienta)", ok: (r) => /proyecto|torre|altos|conjunto|reserva|bosques|parque|villa|portal|mirador|jardines|verde/.test(r) },
+    ] },
   { id: "sin_ahorros", titulo: "Elige «Pagar mes a mes» (sin ahorros): no se descarta", previo: guionHastaP6, cliente: "🏗️ Pagar mes a mes",
     espera: [{ que: "sigue con cuánto puede destinar al mes", ok: (r) => /mensual|al mes|destinar/.test(r) }, { que: "NO lo descarta ni dice que no cumple", ok: (r) => !/no cumples|lamentablemente|no puedes/.test(r) }] },
   { id: "estudio_gratuito", titulo: "Después de las 10 preguntas ofrece el estudio de viabilidad gratuito", previo: guionHastaP10, cliente: "🏦 Préstamo bancario",

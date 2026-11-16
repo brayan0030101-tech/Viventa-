@@ -19,6 +19,7 @@ import { verDisponibilidadTool, agendarCitaTool, cancelarCitaTool } from "../src
 import { proponerLlamadaTool } from "./llamada.local";
 import { enlaceWhatsAppTool } from "./puente-whatsapp.local";
 import { enviarViabilidadTool } from "./viabilidad.local";
+import { proyectosEconomicosTool } from "./proyectos.local";
 
 // El giro "inmobiliaria" no trae agendarCita/verDisponibilidad de fábrica (esas
 // tools son de los giros de cita — barbería, spa, dentista…). Viventa SÍ agenda
@@ -27,6 +28,8 @@ import { enviarViabilidadTool } from "./viabilidad.local";
 export function memberTools(ctx: MemberToolCtx): Record<string, unknown> {
   // Instagram → WhatsApp: el enlace con el mensaje ya escrito (no depende de Cal.com).
   const base: Record<string, unknown> = ctx.env.YCLOUD_WA_FROM ? { enlaceWhatsApp: enlaceWhatsAppTool(ctx.env, ctx.getConversationId) } : {};
+  // Cuando el cliente pide ver proyectos o precios, el bot lo atiende con datos reales del catálogo (no se queda en el formulario).
+  base.proyectosEconomicos = proyectosEconomicosTool(ctx.env, ctx.getConversationId);
   // Estudio previo de viabilidad: el bot envía el enlace personal del formulario (lo genera Zoho).
   if (ctx.env.ZOHO_REFRESH_TOKEN) base.enviarViabilidad = enviarViabilidadTool(ctx.env, ctx.getConversationId);
   if (!calcomConfigured(ctx.env)) return base;

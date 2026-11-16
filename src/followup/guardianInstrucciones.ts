@@ -22,6 +22,7 @@ export const MARCADORES: Array<{ clave: string; texto: string }> = [
   { clave: "guion", texto: "GUION DEFINITIVO DEL CHATBOT" },
   { clave: "agendar_primero", texto: "SI EL CLIENTE QUIERE HABLAR CON MARICELA, PRIMERO SE AGENDA" },
   { clave: "sin_botones", texto: "SIN BOTONES EN EL GUION Y TRATO MUY CERCANO" },
+  { clave: "atender", texto: "ATENDER LO QUE EL CLIENTE PIDE" },
 ];
 
 export async function asegurarTablaInstrucciones(db: Db): Promise<void> {
