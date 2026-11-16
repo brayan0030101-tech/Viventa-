@@ -894,8 +894,7 @@ export async function runSistemaViventa(env: Env, now = Date.now()): Promise<voi
   await runSubidaZoho(env, now).catch((e) => console.error("[sistemaViventa] subida a Zoho:", e));
   const { runSincronizarEstadosZoho } = await import("../../member/crm-zohosubida.local");
   await runSincronizarEstadosZoho(env, now).catch((e) => console.error("[sistemaViventa] estados de Zoho:", e));
-  const { runViabilidadPendiente } = await import("../../member/viabilidad.local");
-  await runViabilidadPendiente(env, now).catch((e) => console.error("[sistemaViventa] viabilidad pendiente:", e));
+  // La viabilidad pendiente corre aparte, cada 5 min (src/index.ts).
   const { runVigilanteZoho } = await import("../../member/crm-zohovigilante.local");
   await runVigilanteZoho(env, now).catch((e) => console.error("[sistemaViventa] vigilante de Zoho:", e));
   const { runVigilanteMisCandidatos } = await import("../../member/crm-zohovigilante.local");

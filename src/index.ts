@@ -865,6 +865,11 @@ export default {
         const { runCitaManual } = await import("../member/cita-manual.local");
         await runCitaManual(env).catch((e) => console.error("citaManual:", e));
       }
+      {
+        // Formulario de viabilidad pendiente: cada 5 min (antes cada 15), porque Zoho tarda unos minutos en escribir el enlace y el cliente espera.
+        const { runViabilidadPendiente } = await import("../member/viabilidad.local");
+        await runViabilidadPendiente(env).catch((e) => console.error("viabilidadPendiente:", e));
+      }
       if (new Date().getUTCMinutes() % 15 < 5) {
         const { runSistemaViventa } = await import("./followup/sistemaViventa");
         await runSistemaViventa(env).catch((e) => console.error("sistemaViventa:", e));
