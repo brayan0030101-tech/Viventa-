@@ -20,7 +20,7 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
     return json({ code: "success", details: { output: "ok" } });
   }
   if (url.includes("/users?type=CurrentUser")) return json({ users: [{ id: "555", full_name: "Maricela Naranjo" }] });
-  if (url.includes(`/Leads/${LEAD}?fields=Owner`)) return json({ data: [{ Owner: { id: LEAD === "x" ? "1" : "555", name: "Maricela Naranjo" } }] });
+  if (url.includes(`/Leads/${LEAD}?fields=Owner`)) return json({ data: [{ Owner: { id: "555", name: "Maricela Naranjo" } }] });
   if (url.includes(`/Leads/${LEAD}?fields=Phone`)) return json({ data: [{ Phone: "+34600000077", Mobile: "+34600000077", Email: "ana@correo.com" }] });
   if (url.includes(`/Leads/${LEAD}`)) return json({ data: [{ id: LEAD, Enlace_corto_Formulario_Consulta_Centrales: enlace, Enlace_largo_Formulario_Consulta_Centrales: enlace ? "https://forms.viventa.co/x" : null }] });
   return new Response("", { status: 204 });
