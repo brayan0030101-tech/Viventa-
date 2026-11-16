@@ -17,8 +17,8 @@ export const textoViabilidad = (url: string): string =>
 
 const esc = (v: string) => v.replace(/[^\w:.+-]/g, "");
 
-/** Función de Zoho que ejecuta el botón «Enviar Formulario CC»: genera el enlace personal Y le manda el correo al cliente. */
-export const FUNCION_FORMULARIO_ZOHO = "envia_encuesta_centrales";
+/** Función de Zoho (independiente, API REST con OAuth2) con el mismo código que el botón «Enviar Formulario CC» (envia_encuesta_centrales): genera el enlace personal y le manda el correo al cliente. */
+export const FUNCION_FORMULARIO_ZOHO = "enviar_formulario_bot";
 /** Ajuste (D1): solo con «activo» el bot ejecuta esa función por su cuenta. APAGADO hasta una prueba aprobada con un cliente real. */
 export const AJUSTE_FUNCION = "viventa_viabilidad_funcion";
 

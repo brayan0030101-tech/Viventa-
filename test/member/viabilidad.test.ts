@@ -57,7 +57,7 @@ describe("formulario de viabilidad", () => {
     await obtenerEnlaceViabilidad(env, "ycloud:34600000077", zoho as never, NOW);
     await obtenerEnlaceViabilidad(env, "ycloud:34600000077", zoho as never, NOW + 60_000);
     expect(llamadasFuncion).toHaveLength(1);
-    expect(llamadasFuncion[0].url).toContain("/functions/envia_encuesta_centrales/actions/execute");
+    expect(llamadasFuncion[0].url).toContain("/functions/enviar_formulario_bot/actions/execute");
     expect(JSON.parse(llamadasFuncion[0].body).arguments).toEqual({ id: LEAD, Telefono: "+34600000077", Mobile: "+34600000077", email: "ana@correo.com" });
     expect(await generarEnlaceEnZoho(env, "ycloud:34600000077", LEAD, { forzar: true, f: zoho as never, now: NOW })).toMatchObject({ ok: false });
   });
