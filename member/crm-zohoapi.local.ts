@@ -296,7 +296,8 @@ export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: s
  */
 export async function ejecutarFuncion(env: Env, nombre: string, argumentos: Record<string, string>, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {
   if (!/^[A-Za-z0-9_]{3,80}$/.test(nombre)) throw new ZohoError("Nombre de función no válido.");
-  const r = (await llamar(env, `/functions/${nombre}/actions/execute?auth_type=oauth`, { method: "POST", body: JSON.stringify({ arguments: argumentos }) }, f, now)) as Record<string, unknown>;
+  // Los argumentos van en el cuerpo Y en el parámetro `arguments` de la dirección: con solo el cuerpo la función recibía todo vacío (16 nov 2026: «Value is empty and replaceAll cannot be applied»).
+  const r = (await llamar(env, `/functions/${nombre}/actions/execute?auth_type=oauth&arguments=${encodeURIComponent(JSON.stringify(argumentos))}`, { method: "POST", body: JSON.stringify({ arguments: argumentos }) }, f, now)) as Record<string, unknown>;
   // Zoho contesta HTTP 200 aunque la función NO se haya ejecutado (p. ej. {"code":"NOT_ACTIVE","status":"error","message":"api is inactive for the given custom function"}).
   if (String(r["code"] ?? "").toLowerCase() !== "success" || String(r["status"] ?? "success").toLowerCase() === "error") {
     throw new ZohoError(`Zoho no ejecutó la función ${nombre}: ${String(r["message"] ?? r["code"] ?? "sin detalle").slice(0, 160)}`);
