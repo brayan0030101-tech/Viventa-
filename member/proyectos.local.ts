@@ -12,6 +12,9 @@ import { AREAS, ciudadesBuscadas, mensualidadEstimada, pctParaCotizar } from "..
 import type { Catalogo } from "../src/vivehome/navegador";
 
 const MAX_OPCIONES = 3;
+/** Con entrega tan cercana la cuota inicial se concentra en pocos meses: la «cuota mensual durante la construcción» sale enorme y NO sirve (16 nov 2026: salió 69.500.000 al mes). Solo se muestra si hay al menos 12 meses. */
+export const MESES_MIN_CUOTA = 12;
+export const textoEntrega = (meses: number): string => (meses <= 3 ? "entrega inmediata o casi inmediata" : `entrega en unos ${meses} meses`);
 const CATALOGO_MAX_EDAD = 3 * 24 * 3_600_000;
 
 export interface OpcionEconomica {
@@ -104,9 +107,11 @@ export function proyectosEconomicosTool(env: Env, getConversationId: () => strin
           proyecto: o.proyecto,
           ciudad: o.ciudad,
           desde: `desde unos ${millones(o.valor)}`,
-          entrega: `entrega en unos ${o.entregaMeses} meses`,
+          entrega: textoEntrega(o.entregaMeses),
           area: o.area ? `${o.area} m²` : undefined,
-          cuotaMensualAprox: `unos ${o.cuotaMensualPesos.toLocaleString("es-ES")} pesos al mes (≈ ${o.cuotaMensualEuros.toLocaleString("es-ES")} €) durante la construcción`,
+          ...(o.entregaMeses >= MESES_MIN_CUOTA
+            ? { cuotaMensualAprox: `unos ${o.cuotaMensualPesos.toLocaleString("es-ES")} pesos al mes (≈ ${o.cuotaMensualEuros.toLocaleString("es-ES")} €) durante la construcción` }
+            : { nota: "Entrega muy cercana: la cuota inicial se paga en pocos meses; NO digas una cuota mensual de este proyecto." }),
         }));
         return {
           ok: true as const,
@@ -143,6 +148,10 @@ export function mensajeProyectosEconomicos(nombre: string, ciudadDicha: string, 
     topeMillones && !hayDentro
       ? `por menos de ${topeMillones} millones no hay hoy en ${ciudadDicha}, pero los más económicos parten desde unos ${millones(desde)}. Estas son las 3 opciones más económicas:`
       : `estas son las opciones más económicas que tenemos hoy en ${ciudadDicha}:`;
-  const lineas = opciones.map((o) => `• ${o.proyecto} (${o.ciudad}): desde unos ${millones(o.valor)}, entrega en unos ${o.entregaMeses} meses y una cuota aproximada de ${o.cuotaMensualPesos.toLocaleString("es-ES")} pesos al mes durante la construcción.`);
+  const lineas = opciones.map((o) =>
+    o.entregaMeses >= MESES_MIN_CUOTA
+      ? `• ${o.proyecto} (${o.ciudad}): desde unos ${millones(o.valor)}, ${textoEntrega(o.entregaMeses)} y una cuota aproximada de ${o.cuotaMensualPesos.toLocaleString("es-ES")} pesos al mes durante la construcción.`
+      : `• ${o.proyecto} (${o.ciudad}): desde unos ${millones(o.valor)}, ${textoEntrega(o.entregaMeses)} (la cuota inicial se paga en pocos meses, así que no es para pagar mes a mes).`,
+  );
   return `${nombre ? `${nombre}, ` : ""}${intro}\n\n${lineas.join("\n")}\n\nLos valores son aproximados; con la cotización de Maricela ves el detalle y la ubicación de cada uno. ¿Alguno te llama la atención?`;
 }

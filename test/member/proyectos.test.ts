@@ -49,3 +49,17 @@ describe("mensaje con los proyectos más económicos", () => {
     expect(t).toMatch(/¿Alguno te llama la atención\?$/);
   });
 });
+
+describe("entrega muy cercana: no se inventa una cuota mensual enorme", () => {
+  it("con menos de 12 meses no muestra cuota mensual y lo explica", async () => {
+    const { mensajeProyectosEconomicos } = await import("../../member/proyectos.local");
+    const t = mensajeProyectosEconomicos("Ana", "Medellín", [
+      { proyecto: "Listo Ya", ciudad: "La Estrella", valor: 235_000_000, entregaMeses: 1, area: "50", cuotaMensualPesos: 69_500_000, cuotaMensualEuros: 17_000, pctInicial: 20 },
+      { proyecto: "Largo Plazo", ciudad: "Bello", valor: 209_000_000, entregaMeses: 19, area: "50", cuotaMensualPesos: 2_150_000, cuotaMensualEuros: 540, pctInicial: 20 },
+    ], null);
+    expect(t).toContain("entrega inmediata o casi inmediata");
+    expect(t).not.toMatch(/69\.500\.000/);
+    expect(t).toMatch(/2\.150\.000 pesos al mes/);
+    expect(t).not.toMatch(/en unos 1 meses/);
+  });
+});

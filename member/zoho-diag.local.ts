@@ -153,6 +153,25 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ enviar_proyectos: res }));
     return;
   }
+  if (pedido.startsWith("enviar_texto:")) {
+    // ENVÍA un texto a una conversación de WhatsApp (queda guardado como mensaje del asistente). Formato: conv|texto (los saltos de línea se escriben «\\n»). Solo con orden expresa.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const resto = pedido.slice(13);
+      const i = resto.indexOf("|");
+      const convId = resto.slice(0, i);
+      const texto = resto.slice(i + 1).replace(/\\n/g, "\n").trim();
+      const db = new Db(env.DB);
+      const conv = await db.first<{ channel: string; channel_user_id: string }>("SELECT channel, channel_user_id FROM conversations WHERE id = ?", [convId]);
+      if (!conv || !texto) throw new Error("conversación o texto vacío");
+      const { sendOutbound } = await import("../src/followup/send");
+      await sendOutbound(env, { conversationId: convId, channel: conv.channel, channelUserId: conv.channel_user_id, text: texto }, now);
+      res = { enviado: true, texto };
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ enviar_texto: res }));
+    return;
+  }
   if (pedido === "botones_zoho") {
     // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
     await st.set("zoho_diag_pedir", "");
