@@ -13,6 +13,7 @@ import { MessagesRepo } from "../db/messages";
 import { ConversationsRepo } from "../db/conversations";
 import { pickAdapter } from "../replies/sender";
 import type { ChannelId } from "../channels/shared";
+import { botonesApagados } from "../lib/botones";
 
 /** Manda un texto a una conversación y lo deja registrado. Lanza si el canal
  *  rechaza el envío (el llamador lo captura por candidato). */
@@ -25,13 +26,14 @@ export async function sendOutbound(
   await new MessagesRepo(db).append(target.conversationId, "assistant", target.text);
   await new ConversationsRepo(db).touchLastMessage(target.conversationId, now);
   const adapter = pickAdapter(target.channel as ChannelId);
+  const botones = (await botonesApagados(env)) ? undefined : target.buttons;
   await adapter.sendReply(
     {
       channel: target.channel as ChannelId,
       channelUserId: target.channelUserId,
       chunks: [target.text],
       interChunkDelayMs: 0,
-      ...(target.buttons?.length ? { buttons: target.buttons } : {}),
+      ...(botones?.length ? { buttons: botones } : {}),
     },
     env,
   );

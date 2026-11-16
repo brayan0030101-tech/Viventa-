@@ -1,6 +1,7 @@
 import type { ChannelAdapter, ChannelId, ReplyButton, ReplyMedia } from "../channels/shared";
 import { BUTTON_CHANNELS, MEDIA_CHANNELS } from "../channels/shared";
 import type { Env } from "../env";
+import { botonesApagados } from "../lib/botones";
 import { telegramAdapter } from "../channels/telegram";
 import { webAdapter } from "../channels/web";
 import { manychatAdapter } from "../channels/manychat";
@@ -296,7 +297,9 @@ export async function sendChunkedReply(
       }
     }
   }
-  let buttons = ext.buttons;
+  // Con `viventa_botones = apagado` el marcador se descarta SIN convertirlo en lista numerada: la pregunta sale como texto natural.
+  const sinBotones = ext.buttons ? await botonesApagados(env) : false;
+  let buttons = sinBotones ? undefined : ext.buttons;
   if (buttons) {
     if (!BUTTON_CHANNELS.has(channel)) {
       const lista = botonesATexto(buttons);

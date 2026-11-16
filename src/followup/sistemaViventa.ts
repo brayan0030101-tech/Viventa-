@@ -38,6 +38,7 @@ import { camilaConfigured, notifyCamila, leadFicha } from "../lib/camila";
 import { messageOwner } from "../tools/handoffHuman";
 import { sendOutbound } from "./send";
 import { sendYCloudTemplate } from "../channels/ycloud";
+import { botonesApagados } from "../lib/botones";
 import { estadoReserva } from "../integrations/calcom";
 
 const H = 3600_000;
@@ -705,9 +706,12 @@ export async function runOfertaLlamada(env: Env, now = Date.now()): Promise<{ se
     if (!(await claim(db, "conversations", c.id, "viventa_oferta", now))) continue;
     const leadName = (await db.first<{ name: string | null }>("SELECT name FROM leads WHERE conversation_id = ? AND name IS NOT NULL AND intent NOT LIKE 'Cita ·%' ORDER BY created_at DESC LIMIT 1", [c.id]))?.name;
     const nombre = primerNombre(leadName, c.display_name);
+    const { listaDeDias } = await import("../../member/llamada.local");
+    const sinBotones = await botonesApagados(env);
+    // Sin botones los días van dentro de la frase (si no, el mensaje no diría qué días hay).
     const text =
       `¡Hola${nombre ? ` ${nombre}` : ""}! 😊 Maricela puede llamarte en una videollamada de 45 minutos para orientarte con tu caso. ` +
-      `¿Qué día te queda mejor? (hora de España)`;
+      (sinBotones ? `Tengo espacio ${listaDeDias(dias.slice(0, 3).map((d) => d.opciones[0].startTime))}. ¿Qué día te queda mejor? (hora de España)` : `¿Qué día te queda mejor? (hora de España)`);
     try {
       // La conversación quedó pausada al pasar al equipo: se reactiva para que el bot atienda la respuesta.
       await db.run("UPDATE conversations SET paused_until = NULL WHERE id = ?", [c.id]);

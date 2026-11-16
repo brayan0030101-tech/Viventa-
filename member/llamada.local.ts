@@ -61,6 +61,17 @@ export function botonDia(iso: string): string {
   return (t.charAt(0).toUpperCase() + t.slice(1)).slice(0, 20);
 }
 
+const DIA_LARGO = new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", weekday: "long", day: "numeric", month: "long" });
+/** «el lunes 12 de octubre» (para ofrecer días en una frase natural cuando no hay botones). */
+export function diaEnTexto(iso: string): string {
+  return `el ${DIA_LARGO.format(new Date(iso)).replace(",", "")}`;
+}
+/** «el lunes 12 de octubre, el martes 13 de octubre o el miércoles 14 de octubre». */
+export function listaDeDias(isos: string[]): string {
+  const t = isos.map(diaEnTexto);
+  return t.length <= 1 ? (t[0] ?? "") : `${t.slice(0, -1).join(", ")} o ${t[t.length - 1]}`;
+}
+
 /** Hasta 3 horas repartidas (el máximo de botones) para el paso «elige hora». */
 export function botonesHoras(opciones: Array<{ hora: string }>): string[] {
   const n = opciones.length;
@@ -219,6 +230,7 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
         // «activo» (todos los calientes/tibios), «prueba» (solo las conversaciones de
         // viventa_llamada_ids, separadas por coma) o cualquier otra cosa = apagado.
         const settings = new SettingsRepo(db);
+        const sinBotones = ((await settings.get("viventa_botones")) ?? "").trim().toLowerCase() === "apagado";
         const modo = ((await settings.get("viventa_llamada_modo")) ?? "").trim().toLowerCase();
         if (modo !== "activo") {
           const ids = ((await settings.get("viventa_llamada_ids")) ?? "").split(/[,;\s]+/).filter(Boolean);
@@ -279,16 +291,21 @@ export function proponerLlamadaTool(env: Env, getConversationId: () => string | 
             linea: esEspana(zona)
               ? d.linea
               : `${d.linea} (hora de España; en ${zona!.etiqueta}: ${d.opciones.map((o) => horaEn(o.startTime, zona!.tz)).join(" · ")})`,
-            marcadorHoras: `[[botones: ${botonesHoras(d.opciones).join(" | ")}]]`,
-            masHoras: tandasMasHoras(d.libres, botonesHoras(d.opciones)),
+            ...(sinBotones ? {} : { marcadorHoras: `[[botones: ${botonesHoras(d.opciones).join(" | ")}]]`, masHoras: tandasMasHoras(d.libres, botonesHoras(d.opciones)) }),
             opciones: d.libres.map((o) => ({ hora: o.hora, startTime: o.startTime })),
           })),
-          marcadorDias: `[[botones: ${dias.slice(0, 3).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]`,
-          // Días 4 y 5 (solo si el cliente pide «otro día» y ya vio los primeros).
-          ...(dias.length > 3 ? { marcadorMasDias: `[[botones: ${dias.slice(3, 6).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]` } : {}),
+          ...(sinBotones
+            ? { diasEnTexto: listaDeDias(dias.slice(0, 3).map((d) => d.opciones[0].startTime)), ...(dias.length > 3 ? { masDiasEnTexto: listaDeDias(dias.slice(3, 6).map((d) => d.opciones[0].startTime)) } : {}) }
+            : {
+                marcadorDias: `[[botones: ${dias.slice(0, 3).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]`,
+                // Días 4 y 5 (solo si el cliente pide «otro día» y ya vio los primeros).
+                ...(dias.length > 3 ? { marcadorMasDias: `[[botones: ${dias.slice(3, 6).map((d) => botonDia(d.opciones[0].startTime)).join(" | ")}]]` } : {}),
+              }),
           opciones,
           message: (reagendando ? "REAGENDANDO: ofrece estos horarios para cambiar la llamada (el cliente ya la tenía). NO canceles la cita actual todavía: cancélala solo cuando el cliente ya eligió el nuevo horario y lo agendaste. Nunca pases el caso al equipo para reagendar: reagendar lo haces tú. " : "") + (opciones.length
-            ? "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día; si no dice cuál y existe `marcadorMasDias`, envíalo (son más días con horarios). Siempre 'hora de España'. Si trae `zonaCliente`, cada `linea` YA incluye la hora local del cliente entre paréntesis: cópiala tal cual y no repitas «hora de España»."
+            ? sinBotones
+              ? "SIN BOTONES. Paso 1: pregunta con calidez, en una frase natural, qué día le queda mejor y nombra en la misma frase los días de `diasEnTexto` (no uses listas numeradas ni botones). Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas) y pregunta qué hora le viene mejor, en una frase natural. Si pide más horarios, ofrécele otras horas libres de ESE día usando `opciones`. Si pide otro día, repite el paso 2 con ese día; si no dice cuál y existe `masDiasEnTexto`, nómbraselos en una frase. Siempre 'hora de España'. Si trae `zonaCliente`, cada `linea` YA incluye la hora local del cliente entre paréntesis: cópiala tal cual y no repitas «hora de España»."
+              : "Paso 1: pregunta qué día le queda mejor y termina con `marcadorDias` tal cual. Paso 2 (cuando elija día): muestra la `linea` de ese día tal cual (los tachados YA están ocupados: no los ofrezcas), añade «Si necesitas más horarios, házmelo saber» y termina con el `marcadorHoras` de ese día. Si pide ver más horarios, envía la siguiente tanda de `masHoras` de ese día (una por vez). Si pide otro día, repite el paso 2 con ese día; si no dice cuál y existe `marcadorMasDias`, envíalo (son más días con horarios). Siempre 'hora de España'. Si trae `zonaCliente`, cada `linea` YA incluye la hora local del cliente entre paréntesis: cópiala tal cual y no repitas «hora de España»."
             : horario === "noche"
               ? "No hay horarios nocturnos libres: usa el comodín para que Maricela coordine la llamada."
               : "No hay huecos en los próximos días: usa el comodín para que Maricela coordine la llamada."),
