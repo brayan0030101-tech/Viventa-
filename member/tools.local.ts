@@ -29,7 +29,7 @@ export function memberTools(ctx: MemberToolCtx): Record<string, unknown> {
   // Instagram → WhatsApp: el enlace con el mensaje ya escrito (no depende de Cal.com).
   const base: Record<string, unknown> = ctx.env.YCLOUD_WA_FROM ? { enlaceWhatsApp: enlaceWhatsAppTool(ctx.env, ctx.getConversationId) } : {};
   // Cuando el cliente pide ver proyectos o precios, el bot lo atiende con datos reales del catálogo (no se queda en el formulario).
-  base.proyectosEconomicos = proyectosEconomicosTool(ctx.env, ctx.getConversationId);
+  if (ctx.env.VIVEHOME_USER) base.proyectosEconomicos = proyectosEconomicosTool(ctx.env, ctx.getConversationId);
   // Estudio previo de viabilidad: el bot envía el enlace personal del formulario (lo genera Zoho).
   if (ctx.env.ZOHO_REFRESH_TOKEN) base.enviarViabilidad = enviarViabilidadTool(ctx.env, ctx.getConversationId);
   if (!calcomConfigured(ctx.env)) return base;
