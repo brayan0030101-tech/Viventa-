@@ -61,6 +61,27 @@ describe("formulario de viabilidad", () => {
     expect(JSON.parse(llamadasFuncion[0].body).arguments).toEqual({ id: LEAD, Telefono: "+34600000077", Mobile: "+34600000077", email: "ana@correo.com" });
     expect(await generarEnlaceEnZoho(env, "ycloud:34600000077", LEAD, { forzar: true, f: zoho as never, now: NOW })).toMatchObject({ ok: false });
   });
+  it("si la ficha solo tiene móvil (sin teléfono fijo) se manda el móvil en los dos argumentos: la función de Zoho falla con valores vacíos", async () => {
+    const soloMovil = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes(`/Leads/${LEAD}?fields=Phone`)) return json({ data: [{ Phone: null, Mobile: "+19845286393", Email: "karen@correo.com" }] });
+      return zoho(url, init);
+    });
+    const r = await generarEnlaceEnZoho(env, "ycloud:34600000077", LEAD, { forzar: true, f: soloMovil as never, now: NOW });
+    expect(r).toMatchObject({ ok: true });
+    expect(JSON.parse(llamadasFuncion.at(-1)!.body).arguments).toEqual({ id: LEAD, Telefono: "+19845286393", Mobile: "+19845286393", email: "karen@correo.com" });
+  });
+  it("sin correo en la ficha no ejecuta la función (Zoho no podría enviar el formulario) y no gasta la única oportunidad", async () => {
+    const sinCorreo = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes(`/Leads/${LEAD}?fields=Phone`)) return json({ data: [{ Phone: "+34600000077", Mobile: "+34600000077", Email: null }] });
+      return zoho(url, init);
+    });
+    const antes = llamadasFuncion.length;
+    const r = await generarEnlaceEnZoho(env, "ycloud:34600000077", LEAD, { forzar: true, f: sinCorreo as never, now: NOW });
+    expect(r).toMatchObject({ ok: false });
+    expect(llamadasFuncion.length).toBe(antes);
+    const m = await db.first<{ x: string | null }>("SELECT json_extract(COALESCE(metadata,'{}'),'$.viabilidad_funcion') AS x FROM conversations WHERE id = 'ycloud:34600000077'");
+    expect(m?.x ?? null).toBeNull();
+  });
   it("si Zoho contesta 200 pero la función está inactiva (NOT_ACTIVE) NO se da por ejecutada", async () => {
     const inactiva = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes("/functions/")) return json({ code: "NOT_ACTIVE", status: "error", message: "api is inactive for the given custom function", details: { api_name: "envia_encuesta_centrales" } });

@@ -40,9 +40,15 @@ export async function generarEnlaceEnZoho(env: Env, convId: string, leadId: stri
   }
   const j = (await zohoGet(env, `/Leads/${esc(leadId)}?fields=Phone,Mobile,Email`, f, now).catch(() => null)) as { data?: Array<Record<string, unknown>> } | null;
   const d = j?.data?.[0] ?? {};
+  // La función de Zoho hace `replaceAll` sobre Mobile y Telefono y FALLA si alguno viene vacío (16 nov 2026: ficha con móvil y sin teléfono fijo). Si falta uno se usa el otro.
+  const movil = String(d["Mobile"] ?? "").trim();
+  const fijo = String(d["Phone"] ?? "").trim();
+  const correo = String(d["Email"] ?? "").trim();
+  if (!correo) return { ok: false, motivo: "La ficha no tiene correo: Zoho no puede enviar el formulario." };
+  if (!movil && !fijo) return { ok: false, motivo: "La ficha no tiene teléfono." };
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_funcion', ?) WHERE id = ?", [new Date(now).toISOString(), convId]);
   try {
-    const r = await ejecutarFuncion(env, FUNCION_FORMULARIO_ZOHO, { id: leadId, Telefono: String(d["Phone"] ?? ""), Mobile: String(d["Mobile"] ?? ""), email: String(d["Email"] ?? "") }, f, now);
+    const r = await ejecutarFuncion(env, FUNCION_FORMULARIO_ZOHO, { id: leadId, Telefono: fijo || movil, Mobile: movil || fijo, email: correo }, f, now);
     // Se guarda un resumen de lo que contestó Zoho (sin datos personales) para poder ver si la función dijo «éxito» o «fallo».
     const respuesta = JSON.stringify(r).replace(/[\w.+-]+@[\w.-]+/g, "[correo]").slice(0, 400);
     await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_funcion_resp', ?) WHERE id = ?", [respuesta, convId]).catch(() => undefined);
