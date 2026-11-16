@@ -26,7 +26,7 @@ export const AJUSTE_FUNCION = "viventa_viabilidad_funcion";
  * Hace lo mismo que pulsar el botón «Enviar Formulario CC» de la ficha. Una sola vez por cliente (la marca se guarda ANTES de ejecutar: Zoho además
  * manda un correo, y repetirlo sería un correo doble), solo con el ajuste activo (o forzado a mano) y solo en fichas de Maricela.
  */
-export async function generarEnlaceEnZoho(env: Env, convId: string, leadId: string, opts: { forzar?: boolean; f?: FetchFn; now?: number } = {}): Promise<{ ok: true } | { ok: false; motivo: string }> {
+export async function generarEnlaceEnZoho(env: Env, convId: string, leadId: string, opts: { forzar?: boolean; f?: FetchFn; now?: number } = {}): Promise<{ ok: true; respuesta?: string } | { ok: false; motivo: string }> {
   const f = opts.f ?? fetch;
   const now = opts.now ?? Date.now();
   const db = new Db(env.DB);
@@ -42,8 +42,11 @@ export async function generarEnlaceEnZoho(env: Env, convId: string, leadId: stri
   const d = j?.data?.[0] ?? {};
   await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_funcion', ?) WHERE id = ?", [new Date(now).toISOString(), convId]);
   try {
-    await ejecutarFuncion(env, FUNCION_FORMULARIO_ZOHO, { id: leadId, Telefono: String(d["Phone"] ?? ""), Mobile: String(d["Mobile"] ?? ""), email: String(d["Email"] ?? "") }, f, now);
-    return { ok: true };
+    const r = await ejecutarFuncion(env, FUNCION_FORMULARIO_ZOHO, { id: leadId, Telefono: String(d["Phone"] ?? ""), Mobile: String(d["Mobile"] ?? ""), email: String(d["Email"] ?? "") }, f, now);
+    // Se guarda un resumen de lo que contestó Zoho (sin datos personales) para poder ver si la función dijo «éxito» o «fallo».
+    const respuesta = JSON.stringify(r).replace(/[\w.+-]+@[\w.-]+/g, "[correo]").slice(0, 400);
+    await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.viabilidad_funcion_resp', ?) WHERE id = ?", [respuesta, convId]).catch(() => undefined);
+    return { ok: true, respuesta };
   } catch (e) {
     return { ok: false, motivo: e instanceof Error ? e.message.slice(0, 200) : "No se pudo ejecutar la función de Zoho." };
   }
