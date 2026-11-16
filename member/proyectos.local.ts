@@ -133,3 +133,16 @@ export function proyectosEconomicosTool(env: Env, getConversationId: () => strin
     },
   });
 }
+
+/** Mensaje natural con los proyectos más económicos (para mandarlo a mano o por el sistema). Usa solo lo que trae `masEconomicos`. */
+export function mensajeProyectosEconomicos(nombre: string, ciudadDicha: string, opciones: OpcionEconomica[], topeMillones: number | null): string {
+  if (!opciones.length) return "";
+  const desde = Math.min(...opciones.map((o) => o.valor));
+  const hayDentro = topeMillones ? opciones.some((o) => o.valor <= topeMillones * 1e6) : null;
+  const intro =
+    topeMillones && !hayDentro
+      ? `por menos de ${topeMillones} millones no hay hoy en ${ciudadDicha}, pero los más económicos parten desde unos ${millones(desde)}. Estas son las 3 opciones más económicas:`
+      : `estas son las opciones más económicas que tenemos hoy en ${ciudadDicha}:`;
+  const lineas = opciones.map((o) => `• ${o.proyecto} (${o.ciudad}): desde unos ${millones(o.valor)}, entrega en unos ${o.entregaMeses} meses y una cuota aproximada de ${o.cuotaMensualPesos.toLocaleString("es-ES")} pesos al mes durante la construcción.`);
+  return `${nombre ? `${nombre}, ` : ""}${intro}\n\n${lineas.join("\n")}\n\nLos valores son aproximados; con la cotización de Maricela ves el detalle y la ubicación de cada uno. ¿Alguno te llama la atención?`;
+}

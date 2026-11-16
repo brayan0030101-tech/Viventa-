@@ -130,6 +130,29 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ ejecutar_formulario: res }));
     return;
   }
+  if (pedido.startsWith("enviar_proyectos:")) {
+    // ENVÍA a un cliente (conversación de WhatsApp) los 3 proyectos más económicos de una ciudad y su área, con datos reales del catálogo. Formato: conv|ciudad|nombre|topeMillones
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const [convId, ciudad, nombre, tope] = pedido.slice(17).split("|");
+      const { masEconomicos, mensajeProyectosEconomicos } = await import("./proyectos.local");
+      const { catalogoGuardado } = await import("../src/vivehome/cola");
+      const db = new Db(env.DB);
+      const cat = await catalogoGuardado(db);
+      if (!cat) throw new Error("sin catálogo");
+      const conv = await db.first<{ channel: string; channel_user_id: string }>("SELECT channel, channel_user_id FROM conversations WHERE id = ?", [convId]);
+      if (!conv) throw new Error("sin conversación");
+      const r = masEconomicos(cat, ciudad, 3);
+      const texto = mensajeProyectosEconomicos(nombre ?? "", ciudad, r.opciones, tope ? Number(tope) : null);
+      if (!texto) throw new Error("sin opciones");
+      const { sendOutbound } = await import("../src/followup/send");
+      await sendOutbound(env, { conversationId: convId, channel: conv.channel, channelUserId: conv.channel_user_id, text: texto }, now);
+      res = { enviado: true, texto };
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ enviar_proyectos: res }));
+    return;
+  }
   if (pedido === "botones_zoho") {
     // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
     await st.set("zoho_diag_pedir", "");

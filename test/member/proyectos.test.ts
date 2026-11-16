@@ -36,3 +36,16 @@ describe("proyectos más económicos para atender lo que pide el cliente", () =>
     expect(r.opciones.length).toBeGreaterThan(0);
   });
 });
+
+describe("mensaje con los proyectos más económicos", () => {
+  it("dice la verdad del tope, nombra los proyectos y no promete lo que no hay", async () => {
+    const { mensajeProyectosEconomicos } = await import("../../member/proyectos.local");
+    const r = masEconomicos(cat, "Medellín");
+    const t = mensajeProyectosEconomicos("Veronica", "Medellín", r.opciones, 200);
+    expect(t).toContain("por menos de 200 millones no hay hoy en Medellín");
+    expect(t).toContain("Bello Verde");
+    expect(t).toContain("Altos del Norte");
+    expect(t.startsWith("Veronica, ")).toBe(true);
+    expect(t).toMatch(/¿Alguno te llama la atención\?$/);
+  });
+});
