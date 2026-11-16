@@ -16,6 +16,8 @@ export interface Escenario {
   canal?: "WhatsApp" | "Instagram";
   previo: Turno[];
   cliente: string;
+  /** Datos que en la vida real daría una herramienta (la simulación no llama herramientas). */
+  herramienta?: string;
   /** Cada comprobación: descripción + función sobre la respuesta (sin tildes y en minúsculas). */
   espera: Array<{ que: string; ok: (r: string) => boolean }>;
 }
@@ -72,6 +74,7 @@ export const ESCENARIOS: Escenario[] = [
   { id: "boton_objetivo", titulo: "Responde «Vivir o regresar» (antes era botón; ahora la pregunta va en texto natural)", previo: guionHastaP4, cliente: "🏡 Vivir o regresar",
     espera: [{ que: "sigue con la pregunta del tipo de proyecto (entrega inmediata / sobre planos)", ok: (r) => /planos|entrega inmediata/.test(r) }, { que: "hace la nueva pregunta en texto natural (SIN botones ni lista numerada, 16 nov 2026)", ok: (r) => !/\[\[botones:/.test(r) && !/(^|\n)\s*[1-3][).]\s/.test(r) }, { que: "no vuelve a preguntar el objetivo", ok: (r) => !/objetivo/.test(r) }] },
   { id: "pide_proyectos", titulo: "Pide los proyectos de Medellín por menos de 200 millones (hay que atenderlo, no seguir el formulario)", previo: guionHastaP6, cliente: "Antes que nada me puedes pasar los proyectos que tienes en Medellín que no superen los 200 millones y que sea una buena zona",
+    herramienta: "proyectosEconomicos devolvió ok=true, hayDentroDelPresupuesto=false, masEconomicoDesde=\"215 millones de pesos\", opciones: [Bello Verde (Bello): desde unos 215 millones de pesos, entrega en unos 24 meses, cuota aprox. 1.300.000 pesos al mes]; [Altos del Norte (Medellín): desde unos 238 millones de pesos, entrega en unos 30 meses, cuota aprox. 1.500.000 pesos al mes]; [Sabaneta Alta (Sabaneta): desde unos 420 millones de pesos, entrega en unos 36 meses]; cotizacionEnCamino=false.",
     espera: [
       { que: "le dice con honestidad cómo está lo que pidió (menciona millones de pesos)", ok: (r) => /millon/.test(r) },
       { que: "NO responde solo «el equipo te enviará opciones» sin dar nada", ok: (r) => !/^(?=.*(equipo|maricela)).{0,160}$/.test(r) || /millon/.test(r) },
@@ -104,13 +107,13 @@ async function asegurarTabla(db: Db): Promise<void> {
   await db.run("CREATE TABLE IF NOT EXISTS pruebas_bot (id INTEGER PRIMARY KEY AUTOINCREMENT, creado INTEGER NOT NULL, estado TEXT NOT NULL, resultados TEXT NOT NULL DEFAULT '[]')");
 }
 
-const MODO_PRUEBA = "\n\nMODO PRUEBA: esto es una simulación. No llames herramientas ni escribas marcas internas: responde SOLO con el mensaje exacto que le enviarías al cliente en este turno.";
+const MODO_PRUEBA = "\n\nMODO PRUEBA: esto es una simulación. No llames herramientas ni escribas marcas internas: responde SOLO con el mensaje exacto que le enviarías al cliente en este turno. Si en tus instrucciones una herramienta te daría datos, esos datos están en «RESULTADO SIMULADO DE HERRAMIENTA» (si no hay ese bloque, responde sin inventar cifras de proyectos).";
 
 export async function correrEscenario(env: Env, e: Escenario, instrucciones: string): Promise<ResultadoEscenario> {
   try {
     const llm = await workModel(env, "smart", "insights");
     const r = await llm.generate({
-      system: `${instrucciones}\n\nCANAL ACTUAL: ${e.canal ?? "WhatsApp"}.${MODO_PRUEBA}`,
+      system: `${instrucciones}\n\nCANAL ACTUAL: ${e.canal ?? "WhatsApp"}.${MODO_PRUEBA}${e.herramienta ? `\n\nRESULTADO SIMULADO DE HERRAMIENTA: ${e.herramienta}` : ""}`,
       messages: [...e.previo, { role: "user", content: e.cliente }],
       maxOutputTokens: 500, temperature: 0,
     } as never);
