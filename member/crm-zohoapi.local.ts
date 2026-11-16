@@ -296,7 +296,12 @@ export async function cambiarEstadoCandidato(env: Env, leadId: string, estado: s
  */
 export async function ejecutarFuncion(env: Env, nombre: string, argumentos: Record<string, string>, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {
   if (!/^[A-Za-z0-9_]{3,80}$/.test(nombre)) throw new ZohoError("Nombre de función no válido.");
-  return llamar(env, `/functions/${nombre}/actions/execute?auth_type=oauth`, { method: "POST", body: JSON.stringify({ arguments: argumentos }) }, f, now);
+  const r = (await llamar(env, `/functions/${nombre}/actions/execute?auth_type=oauth`, { method: "POST", body: JSON.stringify({ arguments: argumentos }) }, f, now)) as Record<string, unknown>;
+  // Zoho contesta HTTP 200 aunque la función NO se haya ejecutado (p. ej. {"code":"NOT_ACTIVE","status":"error","message":"api is inactive for the given custom function"}).
+  if (String(r["code"] ?? "").toLowerCase() !== "success" || String(r["status"] ?? "success").toLowerCase() === "error") {
+    throw new ZohoError(`Zoho no ejecutó la función ${nombre}: ${String(r["message"] ?? r["code"] ?? "sin detalle").slice(0, 160)}`);
+  }
+  return r;
 }
 
 export async function zohoGet(env: Env, ruta: string, f: FetchFn = fetch, now = Date.now()): Promise<unknown> {

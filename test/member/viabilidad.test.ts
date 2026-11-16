@@ -61,6 +61,15 @@ describe("formulario de viabilidad", () => {
     expect(JSON.parse(llamadasFuncion[0].body).arguments).toEqual({ id: LEAD, Telefono: "+34600000077", Mobile: "+34600000077", email: "ana@correo.com" });
     expect(await generarEnlaceEnZoho(env, "ycloud:34600000077", LEAD, { forzar: true, f: zoho as never, now: NOW })).toMatchObject({ ok: false });
   });
+  it("si Zoho contesta 200 pero la función está inactiva (NOT_ACTIVE) NO se da por ejecutada", async () => {
+    const inactiva = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/functions/")) return json({ code: "NOT_ACTIVE", status: "error", message: "api is inactive for the given custom function", details: { api_name: "envia_encuesta_centrales" } });
+      return zoho(url, init);
+    });
+    const r = await generarEnlaceEnZoho(env, "ycloud:34600000077", LEAD, { forzar: true, f: inactiva as never, now: NOW });
+    expect(r).toMatchObject({ ok: false });
+    expect((r as { motivo: string }).motivo).toMatch(/inactive|inactiva|no ejecut/i);
+  });
   it("el mensaje lleva el enlace, la cédula, los 5 minutos y que no garantiza el crédito", () => {
     const t = textoViabilidad("https://cutt.ly/AbCd1234");
     expect(t).toContain("https://cutt.ly/AbCd1234");
