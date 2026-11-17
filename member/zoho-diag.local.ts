@@ -172,6 +172,20 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ enviar_texto: res }));
     return;
   }
+  if (pedido.startsWith("picklist:")) {
+    // Solo lectura: los valores de una lista desplegable de un módulo (formato modulo|campo), p. ej. Tasks|Priority.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const [modulo, campo] = pedido.slice(9).split("|");
+      const { zohoGet } = await import("./crm-zohoapi.local");
+      const j = (await zohoGet(env, `/settings/fields?module=${encodeURIComponent(modulo)}`)) as { fields?: Array<Record<string, any>> };
+      const c = (j.fields ?? []).find((x) => x.api_name === campo);
+      res = c ? { campo: c.api_name, etiqueta: c.field_label, tipo: c.data_type, valores: (c.pick_list_values ?? []).map((v: any) => ({ mostrar: v.display_value, real: v.actual_value })) } : { error: "campo no encontrado" };
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ picklist: res }));
+    return;
+  }
   if (pedido === "botones_zoho") {
     // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
     await st.set("zoho_diag_pedir", "");
