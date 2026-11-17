@@ -5,8 +5,8 @@
 import type { Env } from "../src/env";
 import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM } from "./crm.local";
-import { ZohoError, urlFichaZoho, coql, duenoZoho, tareaPorId, completarTarea, ESTADOS_HECHOS, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
-import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
+import { ZohoError, urlFichaZoho, coql, duenoZoho, tareaPorId, completarTarea, ESTADOS_HECHOS, prioridadDeZoho, pesoPrioridad, zohoGet, zohoListo, type FetchFn, type Prioridad } from "./crm-zohoapi.local";
+import { ETIQ_PRIORIDAD, escrituraActiva, hoyMadrid, htmlPrioridad } from "./crm-seguimientos.local";
 
 const DIA = 86_400_000;
 export type Rama = "SV" | "VC";
@@ -26,6 +26,7 @@ export interface TareaOp {
   asunto: string;
   vence: string;
   estado: string;
+  prioridad: Prioridad;
 }
 export interface Oportunidad {
   id: string;
@@ -76,7 +77,7 @@ export async function cargarOportunidades(env: Env, now = Date.now(), f?: FetchF
   );
   const tareasRaw = await todos(
     env,
-    (off) => `select id, Subject, Due_Date, Status, What_Id, $se_module from Tasks where ((Owner = '${dueno.id}' and $se_module = 'Deals') and Status not in ('Completa','Completed')) order by Due_Date asc limit ${off}, 200`,
+    (off) => `select id, Subject, Due_Date, Status, Priority, What_Id, $se_module from Tasks where ((Owner = '${dueno.id}' and $se_module = 'Deals') and Status not in ('Completa','Completed')) order by Due_Date asc limit ${off}, 200`,
     f,
     now,
   ).catch(() => []);
@@ -85,7 +86,7 @@ export async function cargarOportunidades(env: Env, now = Date.now(), f?: FetchF
     const dealId = refId(t["What_Id"]);
     if (!dealId) continue;
     const a = tareasDe.get(dealId) ?? [];
-    a.push({ id: String(t["id"]), asunto: String(t["Subject"] ?? ""), vence: String(t["Due_Date"] ?? ""), estado: String(t["Status"] ?? "") });
+    a.push({ id: String(t["id"]), asunto: String(t["Subject"] ?? ""), vence: String(t["Due_Date"] ?? ""), estado: String(t["Status"] ?? ""), prioridad: prioridadDeZoho(t["Priority"]) });
     tareasDe.set(dealId, a);
   }
   const contactosIds = deals.map((d) => refId(d["Contact_Name"]));
@@ -204,7 +205,8 @@ export async function tareasDeOportunidades(env: Env, now = Date.now(), f?: Fetc
   const { ops } = await cargarOportunidades(env, now, f);
   const out: FilaTareaOp[] = [];
   for (const op of ops) for (const t of op.tareas) if (t.vence && t.vence <= hoy) out.push({ tarea: t, op, atraso: Math.round((Date.parse(`${hoy}T12:00:00Z`) - Date.parse(`${t.vence}T12:00:00Z`)) / DIA) });
-  return out.sort((a, b) => b.atraso - a.atraso);
+  // Primero la prioridad de la tarea (alta, media, baja) y dentro de cada una la más atrasada.
+  return out.sort((a, b) => pesoPrioridad(a.tarea.prioridad) - pesoPrioridad(b.tarea.prioridad) || b.atraso - a.atraso);
 }
 
 /** Marca como «Completa» una tarea de oportunidad (solo si sigue pendiente). */
@@ -231,7 +233,7 @@ export function htmlTareasOportunidades(filas: FilaTareaOp[], hoy: string, escri
         const id = "fo-" + x.tarea.id;
         const atr = x.atraso > 0 ? `<b style="color:var(--bad)">Vencida hace ${x.atraso} día${x.atraso === 1 ? "" : "s"}</b>` : `<b style="color:var(--ok)">Hoy</b>`;
         return `<div class="crm-row" style="grid-template-columns:${COLS};align-items:start">
-          <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span></span>
+          <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span>${escritura ? htmlPrioridad(x.tarea.id, x.tarea.prioridad) : `<br><b style="font-size:11px">${ETIQ_PRIORIDAD[x.tarea.prioridad].txt}</b>`}</span>
           <span><b style="color:var(--cream)">${esc(x.op.nombre)}</b>${x.op.telefono ? `<br><span class="text-dim" style="font-size:11px">${esc(x.op.telefono)}</span>` : ""}<br><a href="${esc(urlFichaZoho(env ?? ({} as Env), x.op.id, "Deals"))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)">🔗 Abrir en Zoho</a>${(() => { const d = x.op.telefono.replace(/\D/g, ""); return d.length >= 9 ? `<br><a href="https://wa.me/${esc(d)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)">💬 Abrir en WhatsApp</a>` : ""; })()}</span>
           <span>${chipRama(x.op.rama)}</span>
           <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Tarea")}<br><span class="text-dim" style="font-size:10.5px">${esc(x.op.etapa)}</span></span>

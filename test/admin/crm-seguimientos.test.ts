@@ -10,7 +10,8 @@ vi.mock("../../src/llm/work-model", () => ({
 
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
-import { cambiarAccionBorrador, hoyMadrid, masDias, leerBorrador, tarjetaBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho } from "../../member/crm-seguimientos.local";
+import { cambiarAccionBorrador, hoyMadrid, masDias, leerBorrador, tarjetaBorrador, prepararBorrador, renderSeguimientos, fragmentoBorrador, cargarSeguimientos, aplicarEnZoho, cambiarPrioridad, prioridadPorDefecto, htmlPrioridad } from "../../member/crm-seguimientos.local";
+import { prioridadDeZoho, pesoPrioridad } from "../../member/crm-zohoapi.local";
 import { tokenZoho, tareasPendientes } from "../../member/crm-zohoapi.local";
 import type { Env } from "../../src/env";
 
@@ -34,6 +35,7 @@ let fallaCrearTarea = false;
 let respuestaBlueprintRara = false;
 let estadoCandidato = "Contactado";
 let estadoTarea = "En Proceso";
+let prioridadTarea: string | null = "Normal";
 const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   llamadas.push(url);
   const metodo = init?.method ?? "GET";
@@ -51,7 +53,7 @@ const zoho = vi.fn(async (url: string, init?: RequestInit) => {
   if (/\/Leads\/\d+\?fields=Owner/.test(url)) return json({ data: [{ Owner: { id: "555", name: "Maricela Naranjo" } }] });
   if (url.endsWith("/coql")) {
     const q = String(JSON.parse(String(init?.body)).select_query);
-    const fila = { id: TAREA, Subject: "Seguimiento Diana", Due_Date: "2026-10-12", Status: estadoTarea, Who_Id: { id: LEAD, name: "Diana" }, What_Id: null, $se_module: "Leads", Description: "" };
+    const fila = { id: TAREA, Subject: "Seguimiento Diana", Due_Date: "2026-10-12", Status: estadoTarea, Priority: prioridadTarea, Who_Id: { id: LEAD, name: "Diana" }, What_Id: null, $se_module: "Leads", Description: "" };
     if (q.includes(`where id = '${TAREA}'`)) return json({ data: [fila] });
     return json({ data: [fila, { ...fila, id: "2259602000033333333", Who_Id: { id: "2259602000099999999" } }] });
   }
@@ -76,6 +78,7 @@ beforeEach(async () => {
   respuestaBlueprintRara = false;
   estadoCandidato = "Contactado";
   estadoTarea = "En Proceso";
+  prioridadTarea = "Normal";
   zoho.mockClear();
   generarMock.mockReset().mockResolvedValue({
     text: '```json\n{"temperatura":"tibio","accion":"videollamada","proyectos_enviados":true,"segundo_titular":true,"mensaje":"Hola [nombre], ¿pudiste revisar con tu esposo los proyectos? Podemos verlo en una videollamada corta.","motivo":"Ya vio proyectos y gana menos de 1.250 euros","dias_siguiente":9,"razon_cierre":"","nota":"Se propuso videollamada y segundo titular.","tarea_siguiente":"Confirmar si desea agendar la videollamada"}\n```',
@@ -267,6 +270,52 @@ describe("permisos que faltan", () => {
   });
 });
 
+
+describe("prioridad de las tareas (alta, media, baja)", () => {
+  const activar = () => db.run("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('zoho_escritura','activo',?)", [NOW]);
+
+  it("traduce el campo Priority de Zoho y ordena alta primero", () => {
+    expect(["Highest", "High"].map(prioridadDeZoho)).toEqual(["alta", "alta"]);
+    expect(["Normal", null, "Medium"].map(prioridadDeZoho)).toEqual(["media", "media", "media"]);
+    expect(["Low", "Lowest"].map(prioridadDeZoho)).toEqual(["baja", "baja"]);
+    const lista = ["baja", "media", "alta", "media"] as const;
+    expect([...lista].sort((a, b) => pesoPrioridad(a) - pesoPrioridad(b))).toEqual(["alta", "media", "media", "baja"]);
+  });
+
+  it("la lista muestra la prioridad de cada tarea con los tres botones, y la de alta se ve como alta", async () => {
+    prioridadTarea = "High";
+    const { filas } = await cargarSeguimientos(env, NOW, zoho as never);
+    expect(filas[0].tarea.prioridad).toBe("alta");
+    const html = await renderSeguimientos(env, NOW, zoho as never);
+    expect(html).toContain("Prioridad alta");
+    expect(html).toContain("/crm/seguimientos/prioridad");
+    expect(html).toContain(">Alta<");
+    expect(html).toContain(">Media<");
+    expect(html).toContain(">Baja<");
+    expect(htmlPrioridad("123", "baja")).toContain("Prioridad baja");
+  });
+
+  it("cambiar la prioridad escribe el campo Priority de ESA tarea en Zoho (solo con la escritura activa)", async () => {
+    const r0 = await cambiarPrioridad(env, TAREA, "alta", NOW, zoho as never);
+    expect(r0.ok).toBe(false);
+    expect(escrituras).toHaveLength(0);
+    await activar();
+    const r = await cambiarPrioridad(env, TAREA, "alta", NOW, zoho as never);
+    expect(r).toEqual({ ok: true, prioridad: "alta" });
+    expect(escrituras).toHaveLength(1);
+    expect(`${escrituras[0].method} ${escrituras[0].url.replace(/^.*\/crm\/v6/, "")}`).toBe(`PUT /Tasks/${TAREA}`);
+    expect(escrituras[0].body).toEqual({ Priority: "High" });
+    expect((await cambiarPrioridad(env, TAREA, "urgentisima", NOW, zoho as never)).ok).toBe(false);
+  });
+
+  it("la siguiente tarea nace con prioridad por temperatura (caliente alta, tibio media, frío baja; «a futuro» baja) o la que elija Maricela", async () => {
+    expect([prioridadPorDefecto("caliente"), prioridadPorDefecto("tibio"), prioridadPorDefecto("frio"), prioridadPorDefecto("caliente", true)]).toEqual(["alta", "media", "baja", "baja"]);
+    await prepararBorrador(env, TAREA, { f: zoho as never }, NOW);
+    await activar();
+    await aplicarEnZoho(env, TAREA, { nota: "n", tareaSiguiente: "Llamar", prioridad: "alta" }, { f: zoho as never }, NOW);
+    expect(escrituras.find((e) => e.url.endsWith("/Tasks") && e.method === "POST")?.body.Priority).toBe("High");
+  });
+});
 
 describe("fase 2: actualizar Zoho", () => {
   const ENTRADA = { nota: "Se propuso videollamada.", tareaSiguiente: "Confirmar si desea agendar la videollamada" };

@@ -477,7 +477,12 @@ export function crmApp(): Hono<Vars> {
   app.post("/seguimientos/hecho", async (c) => {
     const { fragmentoHecho } = await import("./crm-seguimientos.local");
     const f = await c.req.parseBody();
-    return c.html(await fragmentoHecho(c.env, String(f["tarea"] ?? ""), { nota: String(f["nota"] ?? ""), tareaSiguiente: String(f["tarea_siguiente"] ?? ""), motivo: String(f["motivo_cierre"] ?? "") }));
+    return c.html(await fragmentoHecho(c.env, String(f["tarea"] ?? ""), { nota: String(f["nota"] ?? ""), tareaSiguiente: String(f["tarea_siguiente"] ?? ""), motivo: String(f["motivo_cierre"] ?? ""), prioridad: String(f["prioridad"] ?? "") }));
+  });
+  app.post("/seguimientos/prioridad", async (c) => {
+    const { fragmentoPrioridad } = await import("./crm-seguimientos.local");
+    const f = await c.req.parseBody();
+    return c.html(await fragmentoPrioridad(c.env, String(f["tarea"] ?? ""), String(f["prioridad"] ?? "")));
   });
   app.post("/seguimientos/accion", async (c) => {
     const { fragmentoCambiarAccion } = await import("./crm-seguimientos.local");

@@ -13,10 +13,13 @@ import { clavePhone } from "./crm-poragendar.local";
 import { MAX_TAREAS_DIA, fechaDisponibleZoho, nombreDia } from "./crm-agenda.local";
 import { SettingsRepo } from "../src/db/settings";
 import {
-  ZohoError, ESTADOS_HECHOS, urlFichaZoho, cambiarFechaTarea, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
+  ZohoError, ESTADOS_HECHOS, PRIORIDADES, pesoPrioridad, cambiarPrioridadTarea, urlFichaZoho, cambiarFechaTarea, candidatosPorIds, completarTarea, crearNota, crearTarea, duenoZoho, notasDe,
   tareaPorId, tareasPendientes, transicionesDe, ejecutarTransicion, estadoActualCandidato, zohoListo,
-  type CandidatoZoho, type FetchFn, type NotaZoho, type TareaZoho,
+  type CandidatoZoho, type FetchFn, type NotaZoho, type Prioridad, type TareaZoho,
 } from "./crm-zohoapi.local";
+
+/** Prioridad con la que se crea la siguiente tarea si Maricela no elige otra: caliente = alta, tibio = media, frío = baja (y los clientes «a futuro» = baja). */
+export const prioridadPorDefecto = (t: Temperatura, futuro = false): Prioridad => (futuro ? "baja" : t === "caliente" ? "alta" : t === "frio" ? "baja" : "media");
 
 const DIA = 86_400_000;
 const H = 3_600_000;
@@ -115,7 +118,7 @@ export type ResultadoZoho =
 export async function aplicarEnZoho(
   env: Env,
   tareaId: string,
-  entrada: { nota: string; tareaSiguiente: string; motivo?: string },
+  entrada: { nota: string; tareaSiguiente: string; motivo?: string; prioridad?: string },
   opts: { f?: FetchFn } = {},
   now = Date.now(),
 ): Promise<ResultadoZoho> {
@@ -204,7 +207,8 @@ export async function aplicarEnZoho(
       const disp = await fechaDisponibleZoho(env, fechaTarea, hoy, opts.f, now, prio).catch(() => ({ fecha: fechaTarea, motivo: "" }));
       fechaSig = disp.fecha;
       ajusteFecha = disp.motivo;
-      pasos.tarea = (await crearTarea(env, { leadId: g.lead_id, asunto: asuntoTarea, fecha: fechaSig, ownerId: dueno.id }, opts.f, now)) || "ok";
+      const prioridadSig: Prioridad = PRIORIDADES.includes(entrada.prioridad as Prioridad) ? (entrada.prioridad as Prioridad) : prioridadPorDefecto(b.temperatura, esFuturo);
+      pasos.tarea = (await crearTarea(env, { leadId: g.lead_id, asunto: asuntoTarea, fecha: fechaSig, ownerId: dueno.id, prioridad: prioridadSig }, opts.f, now)) || "ok";
       await guardar(false);
     }
     if (!pasos.completada) {
@@ -547,12 +551,52 @@ export async function cargarSeguimientos(env: Env, now = Date.now(), f?: FetchFn
     filas.push({ tarea: t, cand, atraso: Math.max(0, diasEntre(t.vence, hoy)), canal, ventanaAbierta, convId, borrador: bor.get(t.id) ?? null, nivel: crm?.nivel, enCierre: !!crm?.enCierre });
   }
   // Los clientes en cierre y los calientes van primero (reunión del 21 oct): son los que no se pueden enfriar.
+  // Primero la PRIORIDAD de la tarea (alta, media, baja: la elige Maricela en Zoho), y dentro de cada una los clientes en cierre y calientes y luego la más atrasada.
   const peso = (x: FilaSeguimiento): number => (x.enCierre ? 0 : x.nivel === "caliente" ? 1 : 2);
-  filas.sort((a, b) => peso(a) - peso(b) || b.atraso - a.atraso);
+  filas.sort((a, b) => pesoPrioridad(a.tarea.prioridad) - pesoPrioridad(b.tarea.prioridad) || peso(a) - peso(b) || b.atraso - a.atraso);
   return { filas, dueno: dueno.nombre };
 }
 
 // ─── Vistas ──────────────────────────────────────────────────────────────────
+
+export const ETIQ_PRIORIDAD: Record<Prioridad, { txt: string; color: string }> = {
+  alta: { txt: "🔴 Prioridad alta", color: "var(--bad)" },
+  media: { txt: "🟡 Prioridad media", color: "var(--accent-2)" },
+  baja: { txt: "⚪ Prioridad baja", color: "var(--info)" },
+};
+
+/** Selector de prioridad de una tarea ya creada (para la lista del día): tres botones que cambian el campo «Priority» en Zoho. */
+export function contenidoPrioridad(tareaId: string, actual: Prioridad): string {
+  const t = ETIQ_PRIORIDAD[actual];
+  const id = "pri-" + tareaId;
+  const boton = (p: Prioridad) =>
+    `<button type="button" hx-post="/crm/seguimientos/prioridad" hx-vals='{"tarea":"${tareaId}","prioridad":"${p}"}' hx-target="#${id}" hx-swap="innerHTML" hx-disabled-elt="this" style="cursor:pointer;padding:1px 7px;font-size:10.5px;border:1px solid var(--line);background:${p === actual ? "var(--line)" : "none"};color:var(--muted);font-family:inherit" title="Cambiar a prioridad ${p}">${p === "alta" ? "Alta" : p === "media" ? "Media" : "Baja"}</button>`;
+  return `<b style="color:${t.color};font-size:11px">${t.txt}</b><br><span style="display:inline-flex;gap:3px;margin-top:2px">${PRIORIDADES.map(boton).join("")}</span>`;
+}
+export function htmlPrioridad(tareaId: string, actual: Prioridad): string {
+  return `<span id="pri-${tareaId}" style="display:block;margin-top:5px">${contenidoPrioridad(tareaId, actual)}</span>`;
+}
+
+export async function cambiarPrioridad(env: Env, tareaId: string, p: string, now = Date.now(), f?: FetchFn): Promise<{ ok: true; prioridad: Prioridad } | { ok: false; error: string }> {
+  if (!PRIORIDADES.includes(p as Prioridad)) return { ok: false, error: "Elige alta, media o baja." };
+  if (!(await escrituraActiva(env))) return { ok: false, error: "Zoho está en modo solo lectura. Avísale a Brayan para activar la escritura." };
+  try {
+    const t = await tareaPorId(env, tareaId, f, now);
+    if (!t) return { ok: false, error: "No encontré esa tarea en Zoho." };
+    if (ESTADOS_HECHOS.includes(t.estado)) return { ok: false, error: "Esa tarea ya está completa." };
+    await cambiarPrioridadTarea(env, tareaId, p as Prioridad, f, now);
+    return { ok: true, prioridad: p as Prioridad };
+  } catch (e) {
+    console.error("[crm-seguimientos] cambiarPrioridad:", e);
+    return { ok: false, error: e instanceof ZohoError ? e.message : "No pude cambiar la prioridad en Zoho. Inténtalo en unos minutos." };
+  }
+}
+
+export async function fragmentoPrioridad(env: Env, tareaId: string, p: string, now = Date.now(), f?: FetchFn): Promise<string> {
+  const r = await cambiarPrioridad(env, tareaId, p, now, f);
+  if (!r.ok) return `<span style="color:var(--bad);font-size:11px">${esc(r.error)}</span>`;
+  return `${contenidoPrioridad(tareaId, r.prioridad)}<span style="color:var(--ok);font-size:10.5px;display:block">✔ Guardada en Zoho. Al recargar la lista, la tarea se reordena.</span>`;
+}
 
 const ETIQ_TEMP: Record<Temperatura, { txt: string; color: string }> = {
   caliente: { txt: "🔥 Caliente", color: "var(--bad)" },
@@ -638,6 +682,7 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
       ${campoCopiable(id + "n", "Nota para dejar en Zoho después de contactarle (puedes editarla)", b.nota, 2, true, "nota")}
       ${b.tareaSiguiente && b.accion !== "futuro" && !esCierre(b.accion) ? campoCopiable(id + "t", `Siguiente tarea en Zoho · para el ${masDias(hoy, b.diasSiguiente ?? 0)} (puedes editarla)`, b.tareaSiguiente, 1, true, "tarea_siguiente") : ""}
       <div class="text-muted" style="font-size:12px;margin-bottom:10px">Siguiente tarea: <b style="color:var(--cream)">${esc(sig)}</b></div>
+      ${b.diasSiguiente != null || b.accion === "futuro" ? `<div style="margin-bottom:12px"><b style="font-size:12px;color:var(--cream)">Prioridad de la siguiente tarea</b><br><select name="prioridad" class="crm-in" style="margin-top:4px;font-size:12.5px">${PRIORIDADES.map((p) => `<option value="${p}"${p === prioridadPorDefecto(b.temperatura, b.accion === "futuro") ? " selected" : ""}>${ETIQ_PRIORIDAD[p].txt}</option>`).join("")}</select><span class="text-dim" style="font-size:10.5px"> · las de prioridad alta salen primero en la lista del día</span></div>` : ""}
       ${escritura
         ? `<button type="submit" class="bigbtn" style="cursor:pointer;margin-bottom:10px">✅ Ya lo envié: actualizar Zoho</button><div class="text-dim" style="font-size:10.5px;margin:-4px 0 10px">Solo toca este candidato y esta tarea; antes de hacerlo te pide confirmar. Nunca borra nada.</div>`
         : `<div class="text-dim" style="font-size:11.5px;margin-bottom:10px">Zoho está en modo solo lectura: copia la nota y marca la tarea tú. (Escritura apagada.)</div>`}
@@ -669,7 +714,7 @@ export async function fragmentoCambiarAccion(env: Env, tareaId: string, accion: 
   return fragmentoBorrador(env, tareaId, false, now, f);
 }
 
-export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota: string; tareaSiguiente: string; motivo?: string }, now = Date.now(), f?: FetchFn): Promise<string> {
+export async function fragmentoHecho(env: Env, tareaId: string, entrada: { nota: string; tareaSiguiente: string; motivo?: string; prioridad?: string }, now = Date.now(), f?: FetchFn): Promise<string> {
   return tarjetaHechoZoho(await aplicarEnZoho(env, tareaId, entrada, { f }, now), tareaId);
 }
 
@@ -710,6 +755,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
       const hoy = hoyMadrid(now);
       const vencidas = filas.filter((x) => x.atraso > 0).length;
       const deHoy = filas.length - vencidas;
+      const nAlta = filas.filter((x) => x.tarea.prioridad === "alta").length;
       const nCierre = filas.filter((x) => x.enCierre).length;
       const nCalientes = filas.filter((x) => !x.enCierre && x.nivel === "caliente").length;
       const COLS = "150px minmax(160px,1fr) minmax(160px,1.2fr) 150px 130px";
@@ -722,7 +768,7 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
             <span style="font-size:12px">${atr}<br><span class="text-dim" style="font-size:10.5px">${esc(x.tarea.vence)}</span><br><span style="font-size:10.5px;color:${/no iniciada|not started/i.test(x.tarea.estado) ? "var(--accent-2)" : "var(--dim)"}">${esc(x.tarea.estado || "—")}${/no iniciada|not started/i.test(x.tarea.estado) ? " ⚠" : ""}</span>
               <form hx-post="/crm/seguimientos/fecha" hx-target="#fec-${esc(x.tarea.id)}" hx-swap="innerHTML" hx-disabled-elt="find button" style="margin:6px 0 0;display:flex;gap:4px;flex-wrap:wrap" title="Cambiar la fecha de esta tarea (sin fines de semana, máximo ${MAX_TAREAS_DIA} por día)">
                 <input type="hidden" name="tarea" value="${esc(x.tarea.id)}"><input type="date" name="fecha" min="${esc(hoy)}" value="${esc(masDias(hoy, 1))}" required class="crm-in" style="font-size:11px;padding:3px 4px;width:118px">
-                <button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar</button></form><span id="fec-${esc(x.tarea.id)}" style="display:block;margin-top:3px"></span></span>
+                <button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar</button></form><span id="fec-${esc(x.tarea.id)}" style="display:block;margin-top:3px"></span>${htmlPrioridad(x.tarea.id, x.tarea.prioridad)}</span>
             <span>${x.enCierre ? `<span style="color:var(--accent);font-size:11px;font-weight:700">🎯 EN CIERRE</span><br>` : x.nivel === "caliente" ? `<span style="color:var(--bad);font-size:11px;font-weight:700">🔥 CALIENTE</span><br>` : ""}<b style="color:var(--cream)">${esc(x.cand.nombre)}</b><br><span class="text-dim" style="font-size:11px">${tel}${x.cand.pais ? ` · ${esc(x.cand.pais)}` : ""}</span><br><a href="${esc(urlFichaZoho(env, x.tarea.leadId))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="Abre la ficha de este cliente en Zoho CRM">🔗 Abrir en Zoho</a>${(() => {
               const dig = (x.cand.movil || x.cand.telefono || "").replace(/\D/g, "");
               const wa = dig.length >= 9 ? `<a href="https://wa.me/${esc(dig)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent)" title="Abre su WhatsApp directamente">💬 Abrir en WhatsApp</a>` : "";
@@ -737,15 +783,16 @@ export async function renderSeguimientos(env: Env, now = Date.now(), f?: FetchFn
         })
         .join("");
       cuerpo = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+          <div class="crm-kpi"><div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">🔴 Prioridad alta</div><div style="font-weight:700;font-size:26px;color:var(--bad)">${nAlta}</div></div>
           <div class="crm-kpi"><div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">🎯 En cierre</div><div style="font-weight:700;font-size:26px;color:var(--accent)">${nCierre}</div></div>
           <div class="crm-kpi"><div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">🔥 Calientes</div><div style="font-weight:700;font-size:26px;color:var(--bad)">${nCalientes}</div></div>
           <div class="crm-kpi"><div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Vencidas</div><div style="font-weight:700;font-size:26px;color:var(--bad)">${vencidas}</div></div>
           <div class="crm-kpi"><div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)">Para hoy</div><div style="font-weight:700;font-size:26px">${deHoy}</div></div></div>
         <div class="crm-card"><div style="overflow-x:auto"><div style="min-width:860px">
-          <div class="crm-row crm-head" style="grid-template-columns:${COLS}"><span>Vence</span><span>Candidato</span><span>Tarea</span><span>Mensaje</span><span></span></div>
+          <div class="crm-row crm-head" style="grid-template-columns:${COLS}"><span>Vence · prioridad</span><span>Candidato</span><span>Tarea</span><span>Mensaje</span><span></span></div>
           ${filas.length ? filasHtml : `<div style="padding:44px 18px;text-align:center;color:var(--dim)">No hay tareas vencidas ni para hoy 🎉</div>`}
         </div></div></div>
-        <p class="text-dim" style="font-size:11px;margin-top:10px">Tareas de ${esc(dueno || "Maricela")} en Zoho (Candidatos) con fecha de hoy (${esc(hoy)}) o anterior que no están en «Completa». «Preparar mensaje» usa la IA una vez por candidato (unos 0,02 USD) y lee la nota de Zoho; el mensaje queda guardado 12 horas. Zoho no cambia hasta que pulses «Ya lo envié». Las tareas nuevas que crea el CRM nunca caen en sábado o domingo ni en un día con más de ${MAX_TAREAS_DIA} tareas (pasan al siguiente día con espacio), salvo las de clientes calientes o en cierre, que conservan su fecha. Los clientes en cierre y los calientes salen primero. Con «Cambiar» mueves la fecha de una tarea.</p>`;
+        <p class="text-dim" style="font-size:11px;margin-top:10px">Tareas de ${esc(dueno || "Maricela")} en Zoho (Candidatos) con fecha de hoy (${esc(hoy)}) o anterior que no están en «Completa». «Preparar mensaje» usa la IA una vez por candidato (unos 0,02 USD) y lee la nota de Zoho; el mensaje queda guardado 12 horas. Zoho no cambia hasta que pulses «Ya lo envié». Las tareas nuevas que crea el CRM nunca caen en sábado o domingo ni en un día con más de ${MAX_TAREAS_DIA} tareas (pasan al siguiente día con espacio), salvo las de clientes calientes o en cierre, que conservan su fecha. Las tareas de prioridad ALTA salen primero, luego las medias y las bajas (cambia la prioridad con los botones Alta · Media · Baja de cada tarea; se guarda en Zoho). Dentro de cada prioridad, los clientes en cierre y los calientes salen primero. Con «Cambiar» mueves la fecha de una tarea.</p>`;
     } catch (e) {
       console.error("[crm-seguimientos] cargar:", e);
       cuerpo = `<div class="crm-card" style="padding:24px;color:var(--bad)">${e instanceof ZohoError ? esc(e.message) : "No pude leer Zoho ahora. Inténtalo en unos minutos."}</div>`;

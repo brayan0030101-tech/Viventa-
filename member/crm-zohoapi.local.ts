@@ -97,6 +97,20 @@ export async function duenoZoho(env: Env, f: FetchFn = fetch, now = Date.now()):
 
 // ─── Tareas pendientes de Maricela ───────────────────────────────────────────
 
+/** Prioridad de una tarea. En Zoho es el campo «Priority» de Tasks (Highest/High/Normal/Low/Lowest): alta = Highest o High, media = Normal, baja = Low o Lowest. */
+export type Prioridad = "alta" | "media" | "baja";
+export const PRIORIDADES: Prioridad[] = ["alta", "media", "baja"];
+export function prioridadDeZoho(raw: unknown): Prioridad {
+  const t = String(raw ?? "").toLowerCase();
+  if (/highest|high|alta|urgente/.test(t)) return "alta";
+  if (/lowest|low|baja/.test(t)) return "baja";
+  return "media";
+}
+/** Valor que se escribe en Zoho (lista del campo «Priority» de Tasks). */
+export const VALOR_ZOHO_PRIORIDAD: Record<Prioridad, string> = { alta: "High", media: "Normal", baja: "Low" };
+/** Orden: alta primero, luego media y baja. */
+export const pesoPrioridad = (p: Prioridad): number => (p === "alta" ? 0 : p === "media" ? 1 : 2);
+
 export interface TareaZoho {
   id: string;
   asunto: string;
@@ -104,6 +118,7 @@ export interface TareaZoho {
   estado: string;
   leadId: string;
   descripcion: string;
+  prioridad: Prioridad;
 }
 
 /** «Completa» (y su versión en inglés) es la única tarea hecha; todo lo demás está pendiente. */
@@ -118,7 +133,7 @@ export async function tareasPendientes(env: Env, hoy: string, f: FetchFn = fetch
   for (let off = 0; off < tope; off += 200) {
     const filas = await coql(
       env,
-      `select id, Subject, Due_Date, Status, Who_Id, What_Id, $se_module, Description from Tasks where (Owner = '${dueno.id}' and Due_Date <= '${hoy}') and (Status not in ('Completa','Completed')) order by Due_Date asc limit ${off}, 200`,
+      `select id, Subject, Due_Date, Status, Priority, Who_Id, What_Id, $se_module, Description from Tasks where (Owner = '${dueno.id}' and Due_Date <= '${hoy}') and (Status not in ('Completa','Completed')) order by Due_Date asc limit ${off}, 200`,
       f,
       now,
     );
@@ -127,7 +142,7 @@ export async function tareasPendientes(env: Env, hoy: string, f: FetchFn = fetch
       // Una tarea de un candidato lleva al candidato en Who_Id (o en What_Id con módulo Leads).
       const leadId = modulo === "Leads" ? refId(r["What_Id"]) || refId(r["Who_Id"]) : refId(r["Who_Id"]);
       if (!leadId) continue;
-      out.push({ id: String(r["id"]), asunto: String(r["Subject"] ?? ""), vence: String(r["Due_Date"] ?? ""), estado: String(r["Status"] ?? ""), leadId, descripcion: String(r["Description"] ?? "") });
+      out.push({ id: String(r["id"]), asunto: String(r["Subject"] ?? ""), vence: String(r["Due_Date"] ?? ""), estado: String(r["Status"] ?? ""), leadId, descripcion: String(r["Description"] ?? ""), prioridad: prioridadDeZoho(r["Priority"]) });
     }
     if (filas.length < 200) break;
   }
@@ -136,12 +151,12 @@ export async function tareasPendientes(env: Env, hoy: string, f: FetchFn = fetch
 
 export async function tareaPorId(env: Env, id: string, f: FetchFn = fetch, now = Date.now()): Promise<TareaZoho | null> {
   if (!/^\d{6,30}$/.test(id)) return null;
-  const filas = await coql(env, `select id, Subject, Due_Date, Status, Who_Id, What_Id, $se_module, Description from Tasks where id = '${id}'`, f, now);
+  const filas = await coql(env, `select id, Subject, Due_Date, Status, Priority, Who_Id, What_Id, $se_module, Description from Tasks where id = '${id}'`, f, now);
   const r = filas[0];
   if (!r) return null;
   const modulo = String(r["$se_module"] ?? "");
   const leadId = modulo === "Leads" ? refId(r["What_Id"]) || refId(r["Who_Id"]) : refId(r["Who_Id"]);
-  return { id: String(r["id"]), asunto: String(r["Subject"] ?? ""), vence: String(r["Due_Date"] ?? ""), estado: String(r["Status"] ?? ""), leadId, descripcion: String(r["Description"] ?? "") };
+  return { id: String(r["id"]), asunto: String(r["Subject"] ?? ""), vence: String(r["Due_Date"] ?? ""), estado: String(r["Status"] ?? ""), leadId, descripcion: String(r["Description"] ?? ""), prioridad: prioridadDeZoho(r["Priority"]) };
 }
 
 // ─── Candidatos y notas ──────────────────────────────────────────────────────
@@ -277,10 +292,10 @@ export async function crearNota(env: Env, leadId: string, texto: string, f: Fetc
 }
 
 /** Crea la siguiente tarea del candidato, a nombre de Maricela y «En Proceso». */
-export async function crearTarea(env: Env, a: { leadId: string; asunto: string; fecha: string; ownerId: string }, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+export async function crearTarea(env: Env, a: { leadId: string; asunto: string; fecha: string; ownerId: string; prioridad?: Prioridad }, f: FetchFn = fetch, now = Date.now()): Promise<string> {
   if (!idValido(a.leadId) || !/^\d{4}-\d{2}-\d{2}$/.test(a.fecha)) throw new ZohoError("Datos de la tarea no válidos.");
   await exigirDeMaricela(env, a.leadId, f, now);
-  return escribir(env, "/Tasks", "POST", { Subject: a.asunto.slice(0, 255), Due_Date: a.fecha, Status: "En Proceso", Owner: { id: a.ownerId }, What_Id: { id: a.leadId }, $se_module: "Leads" }, f, now);
+  return escribir(env, "/Tasks", "POST", { Subject: a.asunto.slice(0, 255), Due_Date: a.fecha, Status: "En Proceso", Owner: { id: a.ownerId }, What_Id: { id: a.leadId }, $se_module: "Leads", ...(a.prioridad ? { Priority: VALOR_ZOHO_PRIORIDAD[a.prioridad] } : {}) }, f, now);
 }
 
 /** Cambia el estado de UN candidato (p. ej. «Revisar en el futuro»). */
@@ -357,6 +372,12 @@ export async function estadoActualCandidato(env: Env, leadId: string, f: FetchFn
 export async function cambiarFechaTarea(env: Env, tareaId: string, fecha: string, f: FetchFn = fetch, now = Date.now()): Promise<void> {
   if (!idValido(tareaId) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ZohoError("Datos de la tarea no válidos.");
   await escribir(env, `/Tasks/${tareaId}`, "PUT", { Due_Date: fecha }, f, now);
+}
+
+/** Cambia la prioridad de una tarea (alta, media o baja). */
+export async function cambiarPrioridadTarea(env: Env, tareaId: string, p: Prioridad, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  if (!idValido(tareaId) || !PRIORIDADES.includes(p)) throw new ZohoError("Datos de la tarea no válidos.");
+  await escribir(env, `/Tasks/${tareaId}`, "PUT", { Priority: VALOR_ZOHO_PRIORIDAD[p] }, f, now);
 }
 
 /** Cambia el asunto y la fecha de una tarea (uso: dejar las tareas del bot con el título fijo). */
