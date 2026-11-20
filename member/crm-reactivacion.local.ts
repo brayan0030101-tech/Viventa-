@@ -323,7 +323,7 @@ export async function enviarReactivacion(
   let zoho = "";
   if (await escrituraActiva(env)) {
     try {
-      await crearNota(env, leadId, `Reactivación por WhatsApp (${hoyMadrid(now)}): se le escribió${reg!.oferta ? ` ofreciendo ${reg!.oferta}` : " con novedades de proyectos"}.`, opts.f, now);
+      await crearNota(env, leadId, `Reactivación por WhatsApp (${hoyMadrid(now)}): le escribí${reg!.oferta ? ` ofreciendo ${reg!.oferta}` : " con novedades de proyectos"}.`, opts.f, now);
       zoho = "nota guardada en Zoho";
     } catch (e) {
       if (e instanceof OtraAsesoraError) zoho = "no se dejó nota: este cliente no está a nombre de Maricela";
@@ -349,7 +349,7 @@ export async function pasarAPerdido(env: Env, leadId: string, opts: { f?: FetchF
   try {
     const fila = (await cargarReactivacion(env, now, opts.f)).find((x) => x.leadId === leadId);
     if (!fila) return { ok: false, error: "Ese cliente ya no está en la lista de reactivación." };
-    await crearNota(env, leadId, `Reactivación sin respuesta (${hoyMadrid(now)}): se le escribió y no respondió. Pasa a Cliente perdido.`, opts.f, now).catch(() => undefined);
+    await crearNota(env, leadId, `Reactivación sin respuesta (${hoyMadrid(now)}): le escribí y no respondió. Pasa a Cliente perdido.`, opts.f, now).catch(() => undefined);
     const trans = (await transicionesDe(env, leadId, opts.f, now)).find((t) => t.nombre === "Cliente perdido");
     let manual = false;
     if (!trans) manual = true;

@@ -90,15 +90,15 @@ export function armarNota(l: LeadResumen, cotizada: boolean, ultimoMensaje: stri
   const m = l.ficha.metadata;
   const linea = (k: string, v?: string) => (v ? `${k}: ${v}` : "");
   return [
-    `Cliente registrado en Viventa el ${hoy(now)} (llegó por ${canal}).`,
-    faltan.length ? `Prospección incompleta: faltan ${faltan.map((k) => ETIQUETA_PREGUNTA[k] ?? k).join(", ")}. Se sube para intentar activarlo: escribirle o llamarlo para completar los datos.` : "",
+    `Registré al cliente en Viventa el ${hoy(now)} (llegó por ${canal}).`,
+    faltan.length ? `Prospección incompleta: faltan ${faltan.map((k) => ETIQUETA_PREGUNTA[k] ?? k).join(", ")}. Lo subí para intentar activarlo: escribirle o llamarlo para completar los datos.` : "",
     linea("Quiere comprar en", m.ciudadCompra), linea("Vive en", m.ciudadResidencia), linea("Para", m.motivoCompra), linea("Entrega", m.entregaInmediataOFutura),
     linea("Ahorro", m.ahorroDisponible), linea("Puede destinar al mes", m.capacidadMensual), linea("Trabajo", m.tipoEmpleo), linea("Ingresos", m.ingresosMensuales),
     linea("Situación de residencia", m.situacionResidencia), linea("Quiere conocer primero", m.primerInteres), linea("Estudio de viabilidad gratuito", m.estudioViabilidad),
     linea("Reportado en Datacrédito", m.reportadoDatacredito), linea("¿Puede quitar el reporte?", m.puedeQuitarReporte),
     linea("Compra", m.compraSoloOAcompanado), linea("Datos de quien compra con él/ella", m.datosCoComprador), linea("Ingresos de la otra persona", m.ingresosCoComprador),
     linea("Notas de la conversación", resumirNotas(l.ficha.notas)),
-    cotizada ? "Ya se le envió una cotización." : "Todavía no se le ha enviado cotización.",
+    cotizada ? "Ya le envié una cotización." : "Todavía no le he enviado cotización.",
     ultimoMensaje ? `Su último mensaje: «${ultimoMensaje.replace(/\s+/g, " ").slice(0, 160)}»` : "",
     "Siguiente paso: escribirle por WhatsApp y, si le interesa, agendar la videollamada.",
   ].filter(Boolean).join("\n");

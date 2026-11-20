@@ -105,7 +105,7 @@ async function registrarEnvio(env: Env, convId: string, f: FetchFn, now: number)
   await db.run("UPDATE conversations SET metadata = json_remove(json_set(COALESCE(metadata,'{}'),'$.viabilidad_enviada', ?), '$.viabilidad_pendiente') WHERE id = ?", [new Date(now).toISOString(), convId]);
   try {
     const z = (await db.first<{ z: string | null }>("SELECT json_extract(COALESCE(metadata,'{}'),'$.zoho_lead_id') AS z FROM conversations WHERE id = ?", [convId]))?.z;
-    if (z && (await escrituraActiva(env))) await crearNota(env, z, `Estudio de viabilidad (${hoyMadrid(now)}): se le envió por WhatsApp el enlace del formulario gratuito.`, f, now);
+    if (z && (await escrituraActiva(env))) await crearNota(env, z, `Estudio de viabilidad (${hoyMadrid(now)}): le envié por WhatsApp el enlace del formulario gratuito.`, f, now);
   } catch (e) {
     console.error("[viabilidad] nota:", e instanceof Error ? e.message : e);
   }

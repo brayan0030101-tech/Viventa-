@@ -374,8 +374,8 @@ ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion
  "motivo": "una frase para Maricela: por qué eliges esa acción y esa temperatura",
  "dias_siguiente": número de días para la siguiente tarea (dentro del rango de la temperatura),
  "motivo_cierre": "uno de los motivos de la lista de su estado, solo si la acción es perdido, descartado o futuro; si no, vacío",
- "nota": "la nota para dejar en Zoho tras el contacto: qué se hace ahora y en qué quedamos, en 1 o 2 frases",
- "tarea_siguiente": "asunto corto de la siguiente tarea de Zoho (vacío si la acción es futuro, perdido o descartado)"
+ "nota": "la nota para dejar en Zoho tras el contacto, escrita por Maricela en PRIMERA PERSONA («Le escribí por WhatsApp para…; quedé en enviarle los proyectos»): qué hago ahora y en qué quedamos, en 1 o 2 frases. Nunca digas «el equipo», «el equipo comercial» ni «el bot»",
+ "tarea_siguiente": "asunto corto de la siguiente tarea de Zoho, como una tarea que Maricela se asigna a sí misma (verbo en infinitivo: «Enviarle los proyectos…», «Llamarlo para…»; nunca «el equipo debe…»); vacío si la acción es futuro, perdido o descartado"
 }`;
 }
 

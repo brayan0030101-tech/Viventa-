@@ -106,7 +106,7 @@ export async function notaZoho(
   if (previo && !opts.forzar && previo.firma === ctx.firma) {
     return { ok: true, reutilizada: true, nota: { convId, nota: previo.nota, tarea: previo.tarea, cuando: previo.cuando, creado: previo.creado, modelo: previo.modelo } };
   }
-  const prompt = `Eres la asistente de Maricela Naranjo (Viventa), que ayuda a colombianos en el exterior a comprar vivienda en Colombia. Ella registra cada cliente en su CRM Zoho con una NOTA y una TAREA. Redáctalas por ella. Nunca menciones al bot, a la IA ni a ninguna automatización: la nota debe leerse como escrita por su equipo.
+  const prompt = `Eres la asistente de Maricela Naranjo (Viventa), que ayuda a colombianos en el exterior a comprar vivienda en Colombia. Ella registra cada cliente en su CRM Zoho con una NOTA y una TAREA. Redáctalas por ella. Nunca menciones al bot, a la IA ni a ninguna automatización. Escribe SIEMPRE en PRIMERA PERSONA, como si Maricela misma escribiera su nota y su tarea («Hablé con…», «Quedé en enviarle los proyectos…», «Le envío los proyectos de…»); jamás digas «el equipo», «el equipo comercial» ni «Maricela le enviará».
 
 DATOS DEL CLIENTE (el nombre y los contactos se omitieron):
 ${ctx.ficha}
@@ -117,7 +117,7 @@ CONVERSACIÓN CON EL BOT (reciente):
 ${ctx.conversacion || "(sin mensajes)"}
 
 Responde SOLO con un JSON válido, sin texto extra:
-{"nota": "mini resumen de 2 a 4 frases, directo, en tercera persona sobre «el cliente»: qué busca, dónde vive, presupuesto/perfil y en qué quedó. No inventes datos.", "tarea": "una tarea corta y concreta para Maricela (verbo + qué), p. ej. «Llamar para…», «Enviar proyectos de…»", "cuando": "plazo si se mencionó, si no vacío"}`;
+{"nota": "mini resumen de 2 a 4 frases, directo, escrito por Maricela en primera persona («Le escribí…», «Quedé en…»), sobre el cliente: qué busca, dónde vive, presupuesto/perfil y en qué quedamos. No inventes datos.", "tarea": "una tarea corta y concreta que Maricela se asigna a sí misma (verbo en infinitivo + qué), p. ej. «Llamarlo para…», «Enviarle los proyectos de…»; nunca «el equipo debe…»", "cuando": "plazo si se mencionó, si no vacío"}`;
 
   let nota = "";
   let tareaIA = "";

@@ -11,7 +11,7 @@ const NOMBRE_CANAL: Record<string, string> = { ycloud: "WhatsApp", zernio: "Inst
 export function textoNotaSeguimiento(canal: string, mensaje: string, hoy: string): string {
   const medio = NOMBRE_CANAL[canal] ?? "mensaje";
   const lim = mensaje.replace(/\s+/g, " ").trim().slice(0, 300);
-  return `Seguimiento (${hoy}): se le volvió a escribir por ${medio}${lim ? `. Mensaje: «${lim}»` : " para retomar el contacto"}.`;
+  return `Seguimiento (${hoy}): le volví a escribir por ${medio}${lim ? `. Mensaje: «${lim}»` : " para retomar el contacto"}.`;
 }
 
 /** Id del candidato en Zoho de esta conversación: el guardado, o (si ya figura como registrado) se busca por correo/teléfono y se guarda. */

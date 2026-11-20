@@ -153,7 +153,7 @@ export async function runSegurosMasivo(env: Env, now = Date.now(), f?: FetchFn):
         cupo--;
         seguidosFallidos = 0;
         if (await escrituraActiva(env)) {
-          await crearNota(env, cand.id, `Oferta de seguros ERGO|DKV por WhatsApp (${hoyMadrid(now)}): se le escribió ofreciendo 1 mes de seguro gratis.`, f, now).catch((e) => {
+          await crearNota(env, cand.id, `Oferta de seguros ERGO|DKV por WhatsApp (${hoyMadrid(now)}): le escribí ofreciendo 1 mes de seguro gratis.`, f, now).catch((e) => {
             if (!(e instanceof OtraAsesoraError)) console.error("[seguros] nota Zoho:", e);
           });
         }

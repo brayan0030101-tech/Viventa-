@@ -222,8 +222,32 @@ export function sinBot(t: string): string {
     .replace(/\b(el|un) bot\b/gi, (_m, a: string) => `${a} asistente`)
     .replace(/\bbot\b/gi, "asistente");
 }
+/**
+ * Todo lo que se escribe en Zoho va en PRIMERA PERSONA, como si lo escribiera Maricela (pedido del 20 nov 2026: a veces salía «el equipo tiene que enviar proyectos»).
+ * Reescribe las frases más comunes con «el equipo (comercial)» o «Maricela» como sujeto («le enviará» → «le enviaré», «tiene que enviar» → «tengo que enviar»).
+ * No toca lo que va entre comillas «…» (mensajes citados).
+ */
+export function enPrimeraPersona(t: string): string {
+  const SUJETO = "(?:(?:el|nuestro|su) equipo(?: comercial)?(?: de Maricela(?: Naranjo)?)?|Maricela(?: Naranjo)?)";
+  const mayus = (orig: string, nuevo: string) => (/^[A-ZÁÉÍÓÚÑ]/.test(orig) ? nuevo.charAt(0).toUpperCase() + nuevo.slice(1) : nuevo);
+  const reglas: Array<[RegExp, (m: string, ...g: string[]) => string]> = [
+    // «el equipo comercial de Maricela le enviará los proyectos» → «le enviaré los proyectos»
+    [new RegExp(`\\b${SUJETO}\\s+((?:le|te|les|lo|la|los)\\s+)?([a-záéíóúñ]+r)(?:á|án)(?![a-záéíóúñ])`, "gi"), (m, pron, inf) => mayus(m, `${(pron ?? "").toLowerCase()}${inf.toLowerCase()}é`)],
+    // «el equipo tiene que / debe / necesita enviar» → «tengo que enviar»; «va a» → «voy a»; «quedó en» → «quedé en»
+    [new RegExp(`\\b${SUJETO}\\s+(?:tiene que|tienen que|debe|deben|necesita|necesitan)\\s+`, "gi"), (m) => mayus(m, "tengo que ")],
+    [new RegExp(`\\b${SUJETO}\\s+(?:va a|van a)\\s+`, "gi"), (m) => mayus(m, "voy a ")],
+    [new RegExp(`\\b${SUJETO}\\s+(?:quedó|quedaron) en\\s+`, "gi"), (m) => mayus(m, "quedé en ")],
+    [new RegExp(`\\b${SUJETO}\\s+se encargará de\\s+`, "gi"), (m) => mayus(m, "me encargaré de ")],
+  ];
+  // Se parte por los trozos entre «…» para no cambiar lo citado.
+  return t
+    .split(/(«[^»]*»)/)
+    .map((trozo) => (trozo.startsWith("«") ? trozo : reglas.reduce((acc, [re, f]) => acc.replace(re, f as never), trozo)))
+    .join("");
+}
+
 const limpiarBot = (v: unknown): unknown =>
-  typeof v === "string" ? sinBot(v) : Array.isArray(v) ? v.map(limpiarBot) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, limpiarBot(x)])) : v;
+  typeof v === "string" ? sinBot(enPrimeraPersona(v)) : Array.isArray(v) ? v.map(limpiarBot) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, limpiarBot(x)])) : v;
 
 /** Reescribe una nota o tarea ya existente (solo para quitar la palabra «bot» de lo que se subió antes de esta regla). */
 export async function actualizarRegistro(env: Env, ruta: string, dato: Record<string, unknown>, f: FetchFn = fetch, now = Date.now()): Promise<void> {

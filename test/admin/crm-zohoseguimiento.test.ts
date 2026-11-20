@@ -12,7 +12,7 @@ describe("textoNotaSeguimiento", () => {
     expect(t.toLowerCase()).not.toMatch(/\bbot\b/);
   });
   it("sin mensaje, queda una frase simple", () => {
-    expect(textoNotaSeguimiento("zernio", "", "2026-10-22")).toBe("Seguimiento (2026-10-22): se le volvió a escribir por Instagram para retomar el contacto.");
+    expect(textoNotaSeguimiento("zernio", "", "2026-10-22")).toBe("Seguimiento (2026-10-22): le volví a escribir por Instagram para retomar el contacto.");
   });
   it("recorta mensajes largos", () => {
     expect(textoNotaSeguimiento("ycloud", "x".repeat(900), "2026-10-22").length).toBeLessThan(400);
