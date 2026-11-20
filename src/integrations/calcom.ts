@@ -260,6 +260,55 @@ export async function estadoReserva(env: Env, uid: string): Promise<"activa" | "
   }
 }
 
+export interface ReservaCal {
+  uid: string;
+  /** accepted, cancelled, rejected, pending… (en minúsculas). */
+  status: string;
+  /** Inicio ISO (UTC). */
+  start: string;
+  meetingUrl?: string;
+  /** Si es el resultado de reprogramar otra reserva: la anterior. */
+  rescheduledFromUid?: string;
+  /** Si esta reserva se reprogramó: la nueva. */
+  rescheduledToUid?: string;
+}
+
+const aReserva = (b: Record<string, unknown>): ReservaCal => ({
+  uid: String(b["uid"] ?? ""),
+  status: String(b["status"] ?? "").toLowerCase(),
+  start: String(b["start"] ?? ""),
+  meetingUrl: typeof b["meetingUrl"] === "string" ? (b["meetingUrl"] as string) : undefined,
+  rescheduledFromUid: typeof b["rescheduledFromUid"] === "string" ? (b["rescheduledFromUid"] as string) : undefined,
+  rescheduledToUid: typeof b["rescheduledToUid"] === "string" ? (b["rescheduledToUid"] as string) : undefined,
+});
+
+/** Datos de UNA reserva de Cal.com (para saber si se canceló o se reprogramó). `claves` = nombres de campos que trae (diagnóstico). */
+export async function detalleReserva(env: Env, uid: string): Promise<{ ok: true; reserva: ReservaCal; claves: string[] } | { ok: false; reason: string }> {
+  if (!env.CALCOM_API_KEY || !uid) return { ok: false, reason: "not_configured" };
+  try {
+    const res = await fetch(`${CALCOM_API}/bookings/${encodeURIComponent(uid)}`, { headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": BOOKINGS_VERSION } });
+    if (res.status === 404) return { ok: false, reason: "not_found" };
+    if (!res.ok) return { ok: false, reason: `http_${res.status}` };
+    const b = ((await res.json()) as { data?: Record<string, unknown> }).data ?? {};
+    return { ok: true, reserva: aReserva(b), claves: Object.keys(b) };
+  } catch (e: any) {
+    return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
+  }
+}
+
+/** Reservas próximas (vigentes) de Cal.com. */
+export async function reservasProximas(env: Env, take = 100): Promise<{ ok: true; reservas: ReservaCal[] } | { ok: false; reason: string }> {
+  if (!env.CALCOM_API_KEY) return { ok: false, reason: "not_configured" };
+  try {
+    const res = await fetch(`${CALCOM_API}/bookings?status=upcoming&take=${take}`, { headers: { Authorization: `Bearer ${env.CALCOM_API_KEY}`, "cal-api-version": BOOKINGS_VERSION } });
+    if (!res.ok) return { ok: false, reason: `http_${res.status}` };
+    const lista = ((await res.json()) as { data?: Record<string, unknown>[] }).data ?? [];
+    return { ok: true, reservas: lista.map(aReserva) };
+  } catch (e: any) {
+    return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
+  }
+}
+
 export async function cancelBooking(
   env: Env,
   uid: string,

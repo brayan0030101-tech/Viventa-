@@ -186,6 +186,24 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     await st.set("zoho_diag_resultado", JSON.stringify({ picklist: res }));
     return;
   }
+  if (pedido.startsWith("cal_ver:")) {
+    // Solo lectura: estado de UNA reserva de Cal.com (por uid) y las reservas próximas que son reprogramaciones. Sin correos ni nombres.
+    await st.set("zoho_diag_pedir", "");
+    let res: unknown;
+    try {
+      const { detalleReserva, reservasProximas } = await import("../src/integrations/calcom");
+      const uid = pedido.slice(8).trim();
+      const d = await detalleReserva(env, uid);
+      const l = await reservasProximas(env, 60);
+      res = {
+        reserva: d.ok ? { ...d.reserva, claves: d.claves } : d,
+        proximas: l.ok ? l.reservas.map((r) => ({ uid: r.uid.slice(0, 6), start: r.start, status: r.status, deUid: r.rescheduledFromUid?.slice(0, 6), aUid: r.rescheduledToUid?.slice(0, 6) })).filter((r) => r.deUid || r.aUid || r.status !== "accepted").concat(l.reservas.filter((r) => r.uid === uid).map((r) => ({ uid: r.uid.slice(0, 6), start: r.start, status: r.status, deUid: undefined, aUid: undefined }))) : l,
+        total: l.ok ? l.reservas.length : null,
+      };
+    } catch (e) { res = { error: e instanceof Error ? e.message.slice(0, 300) : String(e) }; }
+    await st.set("zoho_diag_resultado", JSON.stringify({ cal_ver: res }).slice(0, 8000));
+    return;
+  }
   if (pedido === "botones_zoho") {
     // Solo lectura: los botones personalizados de Leads (nombre, dónde está y qué acción ejecuta). Para encontrar el de «Enviar Formulario CC».
     await st.set("zoho_diag_pedir", "");
