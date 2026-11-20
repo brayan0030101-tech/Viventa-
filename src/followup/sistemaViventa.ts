@@ -307,12 +307,18 @@ interface CitaRow {
   metadata: string | null;
 }
 
+/** El cliente pide cambiar o cancelar la videollamada (también el botón «Reprogramar» del recordatorio). */
+const RE_PIDIO_CAMBIO = /\breprogram|\bcancel|\b(cambiar|mover|aplazar|posponer)(la|le)?\b/i;
+
 export async function runRecordatoriosLlamada(
   env: Env,
   now = Date.now(),
 ): Promise<{ r24: number; r1: number; resumenes: number }> {
   const db = new Db(env.DB);
   const tz = botTimezone(env);
+  // Primero se pone al día con Cal.com: una cita cancelada no recibe recordatorios y una reprogramada los recibe en la fecha NUEVA.
+  const { sincronizarCitas } = await import("./sincronizarCitas");
+  await sincronizarCitas(env, now).catch((e) => console.error("[sistemaViventa] sincronizar citas:", e));
   const rows = await db.all<CitaRow>(
     `SELECT id, conversation_id, name, created_at, metadata FROM leads
       WHERE intent LIKE 'Cita ·%'
@@ -395,6 +401,17 @@ export async function runRecordatoriosLlamada(
         out.r24++;
       } catch (e) {
         await falloRecordatorio(env, "24 h", nombre || ref.channel_user_id, hora, e);
+      }
+    }
+
+    // Si después del recordatorio de 24 h el cliente pidió reprogramar o cancelar y la cita SIGUE activa (nadie la movió), no se le manda «en una hora te esperamos»:
+    // se avisa al equipo una vez (20 nov 2026: a Álvaro le llegó el aviso después de tocar «Reprogramar»).
+    const r24ms = Date.parse(meta.viventa_r24 ?? "");
+    if (falta <= H && Number.isFinite(r24ms)) {
+      const msgs = await db.all<{ c: string }>("SELECT content AS c FROM messages WHERE conversation_id = ? AND role = 'user' AND created_at > ? ORDER BY created_at DESC LIMIT 12", [conv.id, r24ms]);
+      if (msgs.some((m) => RE_PIDIO_CAMBIO.test(m.c)) && (await claim(db, "leads", lead.id, "viventa_r1", now))) {
+        await avisarEquipo(env, "📅 Pidió reprogramar o cancelar y la cita sigue activa", `${nombre || ref.channel_user_id} escribió que quiere reprogramar o cancelar su videollamada de las ${hora} (hora de España), pero en Cal.com sigue vigente. No se le mandó el recordatorio de 1 hora. Muévela o cancélala en Cal.com y el sistema ajusta los recordatorios.`);
+        continue;
       }
     }
 

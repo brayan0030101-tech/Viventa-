@@ -271,6 +271,8 @@ export interface ReservaCal {
   rescheduledFromUid?: string;
   /** Si esta reserva se reprogramó: la nueva. */
   rescheduledToUid?: string;
+  /** Correos de los asistentes (en minúsculas; solo para emparejar, nunca se muestran). */
+  emails: string[];
 }
 
 const aReserva = (b: Record<string, unknown>): ReservaCal => ({
@@ -280,6 +282,7 @@ const aReserva = (b: Record<string, unknown>): ReservaCal => ({
   meetingUrl: typeof b["meetingUrl"] === "string" ? (b["meetingUrl"] as string) : undefined,
   rescheduledFromUid: typeof b["rescheduledFromUid"] === "string" ? (b["rescheduledFromUid"] as string) : undefined,
   rescheduledToUid: typeof b["rescheduledToUid"] === "string" ? (b["rescheduledToUid"] as string) : undefined,
+  emails: (Array.isArray(b["attendees"]) ? (b["attendees"] as Array<Record<string, unknown>>) : []).map((a) => String(a?.["email"] ?? "").toLowerCase()).filter(Boolean),
 });
 
 /** Datos de UNA reserva de Cal.com (para saber si se canceló o se reprogramó). `claves` = nombres de campos que trae (diagnóstico). */

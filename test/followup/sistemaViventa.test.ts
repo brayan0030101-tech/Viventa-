@@ -273,6 +273,17 @@ describe("videollamada: recordatorios y resumen", () => {
     }
   });
 
+  it("si tras el recordatorio de 24 h el cliente tocó «Reprogramar» y la cita sigue activa, NO se le manda «en una hora»; se avisa al equipo", async () => {
+    const convId = await seedCita("34600000088", NOW + 55 * 60_000, NOW - 3 * 24 * H);
+    await db.run("UPDATE leads SET metadata = json_set(metadata, '$.viventa_r24', ?) WHERE conversation_id = ?", [new Date(NOW - 20 * H).toISOString(), convId]);
+    await msgs.append(convId, "user", "Reprogramar", { createdAt: NOW - 19 * H });
+    const r = await runRecordatoriosLlamada(env, NOW);
+    expect(r.r1).toBe(0);
+    expect(sendOutboundMock).not.toHaveBeenCalled();
+    const m = JSON.parse((await db.first<{ m: string }>("SELECT metadata AS m FROM leads WHERE conversation_id = ?", [convId]))!.m);
+    expect(m.viventa_r1).toBeTruthy(); // marcado: no se reintenta
+  });
+
   it("a ~1 h manda el recordatorio y el resumen del lead a Maricela", async () => {
     await seedCita("34600000021", NOW + 55 * 60_000, NOW - 3 * 24 * H);
     const r = await runRecordatoriosLlamada(env, NOW);
