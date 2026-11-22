@@ -19,6 +19,8 @@ export const AJUSTE_SEGUROS = "viventa_seguros_masivo";
 export const TPL_SEGUROS = "viventa_tpl_seguros";
 export const AJUSTE_MAX_DIA = "viventa_seguros_max_dia";
 export const ESTADOS_SEGUROS = ["Descartado", "Cliente perdido", "Revisar en el futuro"];
+/** La plantilla de seguros se creó en idioma «es» (las demás, en es_ES): Meta exige el mismo código. */
+export const IDIOMA_SEGUROS = "es";
 export const WA_SEGUROS = "https://wa.me/34603039032";
 const MAX_POR_PASADA = 3;
 const MAX_DIA_DEFECTO = 10;
@@ -142,7 +144,7 @@ export async function runSegurosMasivo(env: Env, now = Date.now(), f?: FetchFn):
       hechos.add(tel);
       try {
         await db.run("UPDATE conversations SET metadata = json_set(COALESCE(metadata,'{}'),'$.zoho_nota_seguimiento', ?) WHERE id = ?", [hoyMadrid(now), conv.id]).catch(() => undefined);
-        const via = await enviarACliente(env, db, ref, textoLibre(nombre), { setting: TPL_SEGUROS, params: [nombre || "hola"] }, ult?.t ?? null, now);
+        const via = await enviarACliente(env, db, ref, textoLibre(nombre), { setting: TPL_SEGUROS, params: [nombre || "hola"], lang: IDIOMA_SEGUROS }, ult?.t ?? null, now);
         await new MessagesRepo(db).append(
           conv.id,
           "note",

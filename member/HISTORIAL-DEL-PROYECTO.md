@@ -503,3 +503,7 @@
 - Plantillas de notas automáticas en primera persona («Registré al cliente…», «le volví a escribir…», «le envié el enlace del formulario…», «le escribí ofreciendo…»); prompts de la nota/tarea de Zoho y del borrador de Seguimientos piden primera persona.
 - Instrucciones del bot: nueva REGLA «NOTAS Y TAREAS EN PRIMERA PERSONA» (respaldo `custom_instructions_respaldo_20261120_primera_persona`; marcador `primera_persona` en el guardián). El chat con el cliente no cambia.
 - LÍMITE: las notas y tareas que YA están en Zoho no se reescriben (las notas no se pueden editar por la API); solo las nuevas.
+
+## 22 nov 2026 — Seguros: los primeros envíos fallaban por el idioma de la plantilla
+- Al activar el envío (tope 10/día) los 2 primeros intentos fallaron: se enviaba con el idioma general `es_ES` pero la plantilla `viventa_tpl_seguros` se creó en `es`, y Meta no la encuentra.
+- Arreglo: `enviarACliente` acepta `lang` opcional; seguros usa `IDIOMA_SEGUROS = "es"`. Los 2 clientes se liberaron para reintentar. Prueba añadida.

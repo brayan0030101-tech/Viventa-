@@ -105,7 +105,7 @@ export async function enviarACliente(
   db: Db,
   conv: ConvRef,
   text: string,
-  plantilla: { setting: string; params: string[] } | null,
+  plantilla: { setting: string; params: string[]; lang?: string } | null,
   lastUserAt: number | null,
   now: number,
   buttons?: { title: string; payload: string }[],
@@ -119,7 +119,7 @@ export async function enviarACliente(
   const settings = new SettingsRepo(db);
   const nombre = plantilla ? ((await settings.get(plantilla.setting)) ?? "").trim() : "";
   if (!plantilla || !nombre) throw new Error("sin_plantilla");
-  const lang = ((await settings.get(TPL_LANG)) ?? "").trim() || "es";
+  const lang = plantilla.lang || ((await settings.get(TPL_LANG)) ?? "").trim() || "es";
   await sendYCloudTemplate(env, conv.channel_user_id, nombre, lang, plantilla.params);
   await new MessagesRepo(db).append(conv.id, "assistant", text);
   await new ConversationsRepo(db).touchLastMessage(conv.id, now);

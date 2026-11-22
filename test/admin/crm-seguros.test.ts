@@ -18,6 +18,11 @@ describe("oferta de seguros ERGO|DKV", () => {
     expect(await runSegurosMasivo(env, Date.now())).toEqual({ sent: 0, omitidos: 0, fallos: 0 });
   });
 
+  it("la plantilla de seguros se envía en el idioma con el que se creó («es»), no en el general es_ES", async () => {
+    const { IDIOMA_SEGUROS } = await import("../../member/crm-seguros.local");
+    expect(IDIOMA_SEGUROS).toBe("es");
+  });
+
   it("excluye a quien pidió no ser contactado, número errado o sin datos", () => {
     expect(MOTIVO_EXCLUYE.test("No quiere ser contactado")).toBe(true);
     expect(MOTIVO_EXCLUYE.test("Número errado")).toBe(true);
