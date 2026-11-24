@@ -3,6 +3,7 @@
 // vencidas y, al pulsar «Preparar mensaje», la IA lee la NOTA del candidato (lo que se hizo y en qué quedaron)
 // y redacta el mensaje con las reglas de Maricela. FASE 1: solo borradores — no se envía nada ni se cambia
 // nada en Zoho. A la IA nunca se le manda el nombre, correo ni teléfono del cliente (se anonimiza).
+import { ANALISIS_PREVIO, ESTILO_HUMANO, saludoDelMomento } from "./estilo-humano.local";
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { workModel } from "../src/llm/work-model";
@@ -351,21 +352,25 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 5. La siguiente tarea depende del interés: caliente 2 o 3 días, tibio 5 a 7 días, frío 14 días.
 6. LA TAREA DE HOY MANDA: el asunto de la tarea (y su descripción) dice exactamente qué hay que hacer hoy con este candidato, y el mensaje debe lograr ESO. Ejemplo: si la tarea es «Confirmar si desea agendar la videollamada», el mensaje pregunta justo eso; si es «Preguntar si revisó los proyectos», pregunta si los revisó. Solo si la tarea es genérica («Seguimiento WhatsApp», «Seguimiento») decides tú según las notas y las reglas anteriores.
 7. Además del mensaje, escribe el asunto de la SIGUIENTE tarea que se dejará en Zoho: una frase corta y concreta con lo que habrá que hacer la próxima vez, que normalmente empieza por «Llamar» (por ejemplo «Llamar para confirmar si desea agendar la videollamada»), según en qué quede este contacto.
-Estilo del mensaje (el WhatsApp que se deja tras la llamada sin respuesta): WhatsApp en español, cálido y cercano, 2 a 4 renglones, UNA sola pregunta o propuesta, sin emojis, sin sonar a folleto. Empieza con "Hola [nombre]," (escribe literalmente [nombre]). No inventes datos ni precios, no nombres proyectos ni constructoras, no menciones notas, tareas ni el sistema, y no prometas cosas que no están en las notas.`;
+${ESTILO_HUMANO}
+El mensaje es el WhatsApp que se deja tras la llamada sin respuesta. Empieza con "Hola [nombre]," (escribe literalmente [nombre]) y sigue con el saludo del momento. No inventes datos ni precios, no nombres proyectos ni constructoras, no menciones notas, tareas ni el sistema, y no prometas cosas que no están en las notas.`;
 
-function prompt(c: { tarea: TareaZoho; nombre: string; notas: NotaZoho[]; conversacion: string; ficha: string; hoy: string }): string {
+function prompt(c: { tarea: TareaZoho; nombre: string; notas: NotaZoho[]; conversacion: string; ficha: string; hoy: string; saludo: string; sinHablar: string }): string {
   const notas = c.notas.length
     ? c.notas.map((n, i) => `NOTA ${i + 1}${n.creada ? ` (${n.creada.slice(0, 10)})` : ""}: ${anonimizar(`${n.titulo ? n.titulo + ". " : ""}${n.texto}`, c.nombre).replace(/\s+/g, " ").slice(0, 900)}`).join("\n")
     : "(El candidato no tiene notas.)";
   return `${REGLAS}
 
-Fecha de hoy: ${c.hoy}. Tarea de Zoho: «${anonimizar(c.tarea.asunto, c.nombre)}» (vence ${c.tarea.vence}).
+${ANALISIS_PREVIO}
+
+Fecha de hoy: ${c.hoy}. Momento del día: ${c.saludo}.${c.sinHablar ? ` ${c.sinHablar}` : ""} Tarea de Zoho: «${anonimizar(c.tarea.asunto, c.nombre)}» (vence ${c.tarea.vence}).
 ${c.tarea.descripcion ? `Descripción de la tarea: ${anonimizar(c.tarea.descripcion, c.nombre).replace(/\s+/g, " ").slice(0, 400)}\n` : ""}
 NOTAS DEL CANDIDATO (la más reciente primero):
 ${notas}
 
 ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion ? `ÚLTIMOS MENSAJES DE LA CONVERSACIÓN (CLIENTE / EQUIPO):\n${c.conversacion}\n\n` : ""}Responde SOLO con un JSON válido, sin texto antes ni después, con esta forma exacta:
 {
+ "analisis": "tu análisis previo del cliente (ver arriba), 3 a 5 frases cortas, solo para uso interno",
  "temperatura": "caliente" | "tibio" | "frio",
  "accion": "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado",
  "proyectos_enviados": true si las notas dicen que ya se le enviaron proyectos; si no, false,
@@ -405,13 +410,13 @@ export async function localDe(env: Env, telefonos: string[], nombre: string): Pr
   }
   if (!conv) return null;
   const msgs = await db.all<{ role: string; content: string; created_at: number }>(
-    "SELECT role, content, created_at FROM messages WHERE conversation_id = ? AND role IN ('user','assistant','owner') ORDER BY created_at DESC LIMIT 14",
+    "SELECT role, content, created_at FROM messages WHERE conversation_id = ? AND role IN ('user','assistant','owner') ORDER BY created_at DESC LIMIT 24",
     [conv.id],
   );
   const ultimoCliente = msgs.find((m) => m.role === "user")?.created_at ?? null;
   const conversacion = [...msgs]
     .reverse()
-    .map((m) => `${quien(m.role)}: ${anonimizar(m.content.replace(/\[\[[^\]]*\]\]/g, "").replace(/\s+/g, " "), nombre).slice(0, 260)}`)
+    .map((m) => `${quien(m.role)}: ${anonimizar(m.content.replace(/\[\[[^\]]*\]\]/g, "").replace(/\s+/g, " "), nombre).slice(0, 380)}`)
     .join("\n");
   const leads = await db.all<{ metadata: string | null }>("SELECT metadata FROM leads WHERE conversation_id = ? AND intent NOT LIKE 'Cita ·%' ORDER BY created_at ASC", [conv.id]);
   const meta: Record<string, string> = {};
@@ -474,7 +479,9 @@ export async function prepararBorrador(
     return { ok: false, error: e instanceof ZohoError ? e.message : "No pude consultar Zoho ahora. Inténtalo en unos minutos." };
   }
   const local = await localDe(env, [cand.movil, cand.telefono], cand.nombre);
-  const texto = prompt({ tarea, nombre: cand.nombre, notas, conversacion: local?.conversacion ?? "", ficha: local?.ficha ?? "", hoy: hoyMadrid(now) });
+  const dias = local?.ultimoCliente ? Math.floor((now - local.ultimoCliente) / (24 * H)) : null;
+  const sinHablar = dias == null ? "" : dias === 0 ? "El cliente escribió hoy." : `El cliente no escribe desde hace ${dias} día${dias === 1 ? "" : "s"}.`;
+  const texto = prompt({ tarea, nombre: cand.nombre, notas, conversacion: local?.conversacion ?? "", ficha: local?.ficha ?? "", hoy: hoyMadrid(now), saludo: saludoDelMomento(now), sinHablar });
   let modelo = "";
   let b: Borrador | null = null;
   try {

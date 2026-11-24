@@ -507,3 +507,10 @@
 ## 22 nov 2026 — Seguros: los primeros envíos fallaban por el idioma de la plantilla
 - Al activar el envío (tope 10/día) los 2 primeros intentos fallaron: se enviaba con el idioma general `es_ES` pero la plantilla `viventa_tpl_seguros` se creó en `es`, y Meta no la encuentra.
 - Arreglo: `enviarACliente` acepta `lang` opcional; seguros usa `IDIOMA_SEGUROS = "es"`. Los 2 clientes se liberaron para reintentar. Prueba añadida.
+
+## 24 nov 2026 — Mensajes de seguimiento y reactivación más humanos y personalizados
+- Pedido de Maricela/Brayan: menos robótico, más cercano, y que antes de escribir se analice al cliente.
+- Nuevo `member/estilo-humano.local.ts`: saludo según la hora de España, paso previo de ANÁLISIS (el modelo deja un campo interno «analisis» antes del mensaje), y estilo humano (retoma algo real de la persona, «¿cómo estás?», primera persona, 3 a 6 renglones, despedida cálida, sin frases de robot; nunca inventa enlaces: si el del formulario venció, ofrece enviar uno nuevo).
+- Se usa en seguimientos (`crm-seguimientos`) y reactivación (`crm-reactivacion`). El prompt ahora recibe 24 mensajes de la conversación (antes 14) y los días sin hablar.
+- Diag nuevo `borrador:<nombre>`: genera el borrador de la tarea de hoy sin enviar nada. Probado con July Parra.
+- Pendiente de decidir: poner automáticamente el enlace NUEVO del formulario en el mensaje. Generarlo hace que Zoho lo envíe también por correo al cliente, por eso no se hace solo.

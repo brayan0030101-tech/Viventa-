@@ -6,6 +6,7 @@
 //   · WhatsApp fuera de las 24 h exige una plantilla aprobada por Meta (ajuste viventa_tpl_reactivacion); al responder el cliente, el bot
 //     sigue la conversación con la oferta ya preparada (queda como nota interna en el hilo).
 //   · Si en 10 días no responde: botón para pasarlo a «Cliente perdido» (motivo «Nunca me respondió») u omitirlo.
+import { ANALISIS_PREVIO, ESTILO_HUMANO, saludoDelMomento } from "./estilo-humano.local";
 import type { Env } from "../src/env";
 import { Db } from "../src/db/client";
 import { SettingsRepo } from "../src/db/settings";
@@ -194,12 +195,13 @@ export function leerBorradorReactiva(texto: string, nombre: string): BorradorRea
 
 const REGLAS = `Eres la asistente comercial de Maricela Naranjo (Viventa), que ayuda a colombianos en el exterior a comprar vivienda en Colombia.
 Este cliente quedó «para después» hace unas semanas y vamos a escribirle por WhatsApp para REACTIVARLO antes de que lo reasigne la empresa.
-Escribe UN mensaje corto (máximo 5 líneas), cercano, en español, SIN emojis y sin presionar:
+Escribe UN mensaje corto (máximo 6 líneas):
 1. Salúdalo con [nombre] y retoma con naturalidad lo que se habló (ciudad o zona de interés, perfil), SIN repetir datos personales ni cifras de ingresos.
 2. Cuéntale UNA oferta concreta y atractiva de las "OFERTAS DEL CATÁLOGO" que mejor encaje con lo que buscaba (la ciudad que dijo; si no dijo ciudad, la más atractiva/irresistible: un descuento, una entrega inmediata, una preaprobación de crédito). USA SOLO lo que aparece en el catálogo: no inventes precios, descuentos, fechas ni proyectos. Si el catálogo no trae nada relevante, habla de forma general de nuevas oportunidades en la ciudad que le interesaba, sin cifras.
 3. Termina con UNA pregunta fácil de responder (por ejemplo si quiere que le envíes la información o agendar una videollamada corta con Maricela).
+${ESTILO_HUMANO}
 Responde SOLO con un JSON válido, sin texto extra:
-{"mensaje": "texto para el cliente", "oferta": "frase corta de la oferta que usaste (vacío si fue general)", "ciudad": "ciudad o zona que le interesaba (vacío si no se sabe)"}`;
+{"analisis": "tu análisis previo del cliente, 3 a 5 frases internas", "mensaje": "texto para el cliente", "oferta": "frase corta de la oferta que usaste (vacío si fue general)", "ciudad": "ciudad o zona que le interesaba (vacío si no se sabe)"}`;
 
 const idLead = (id: string): boolean => /^\d{6,30}$/.test(id);
 
@@ -234,6 +236,9 @@ export async function prepararMensaje(
   const ofertas = await ofertasKb(env, `${notasTxt.slice(0, 300)} ${local?.ficha.slice(0, 200) ?? ""} vivienda proyecto oferta descuento entrega inmediata`);
   const catalogo = ofertas.map((o, i) => `${i + 1}. ${o.titulo}: ${o.texto}`).join("\n") || "(no hay ofertas en el catálogo para esta consulta)";
   const prompt = `${REGLAS}
+
+${ANALISIS_PREVIO}
+Momento del día: ${saludoDelMomento(now)}.
 
 DATOS DEL CLIENTE (el nombre y los contactos se omitieron):
 - País: ${cand.pais || "no indicado"}
