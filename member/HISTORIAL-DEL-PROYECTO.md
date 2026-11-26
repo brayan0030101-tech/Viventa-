@@ -520,3 +520,4 @@
 - Hasta el 25 nov se enviaron 40 ofertas (16 Descartado, 24 Cliente perdido); cada una pudo dejar una nota.
 - Arreglo: el módulo de seguros ya no escribe nada en Zoho (prueba que lo impide). El envío se pausó (`viventa_seguros_masivo` vacío) hasta que Brayan confirme.
 - Regla: nada nuevo que escriba en el CRM sin que Brayan o Maricela lo pidan expresamente. Borrar las notas ya creadas queda pendiente de su permiso.
+- Prueba de borrado (26 nov 2026, con permiso de Brayan): se intentó borrar UNA nota de seguros (Nixon Espinoza) por la API. Zoho respondió 403 «permission denied»: el perfil de Maricela no permite borrar notas, ni por la pantalla ni por la conexión. Código `borrarNotaSeguros` dejado, limitado al texto exacto; no se usa más. Las notas solo las puede borrar un administrador de Zoho.

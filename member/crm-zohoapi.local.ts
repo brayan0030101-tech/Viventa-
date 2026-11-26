@@ -207,7 +207,7 @@ export async function notasDe(env: Env, leadId: string, n = 8, f: FetchFn = fetc
 }
 
 // ─── Escritura (fase 2) ──────────────────────────────────────────────────────
-// Solo se completan tareas, se agregan notas/tareas y se cambia el estado de UN candidato. Nunca se borra nada.
+// Solo se completan tareas, se agregan notas/tareas y se cambia el estado de UN candidato. Nunca se borra nada, salvo `borrarNotaSeguros` (26 nov 2026, con permiso de Brayan, solo notas con el texto exacto de la oferta de seguros).
 
 /**
  * Regla de Maricela (24 oct 2026): nada de lo que llega a Zoho puede mencionar al bot (notas, tareas, motivos). Se limpia aquí, en el único
@@ -519,4 +519,26 @@ export async function candidatosEnEstado(env: Env, estado: string, f: FetchFn = 
     console.error("[zohoapi] completar candidatos:", e);
   }
   return out;
+}
+
+/** Texto con el que el envío de seguros dejó notas por error (26 nov 2026). Solo estas se pueden borrar. */
+export const RE_NOTA_SEGUROS = /^Oferta de seguros ERGO\|DKV por WhatsApp \(\d{4}-\d{2}-\d{2}\): le escrib[ií] ofreciendo 1 mes de seguro gratis\.$/;
+
+/** Borra las notas de seguros creadas por error en la ficha. Nunca toca otra nota. `soloContar` no borra nada. */
+export async function borrarNotaSeguros(env: Env, leadId: string, opts: { soloContar?: boolean; max?: number } = {}, f: FetchFn = fetch, now = Date.now()): Promise<{ encontradas: number; borradas: number; error?: string }> {
+  if (!idValido(leadId)) throw new ZohoError("Candidato no válido.");
+  await exigirDeMaricela(env, leadId, f, now);
+  const j = (await llamar(env, `/Leads/${leadId}/Notes?fields=id,Note_Content&per_page=200`, {}, f, now)) as { data?: Array<Record<string, unknown>> };
+  const mias = (j.data ?? []).filter((n) => RE_NOTA_SEGUROS.test(String(n["Note_Content"] ?? "").trim()) && /^\d{6,30}$/.test(String(n["id"] ?? "")));
+  if (opts.soloContar) return { encontradas: mias.length, borradas: 0 };
+  let borradas = 0;
+  for (const n of mias.slice(0, opts.max ?? 1)) {
+    try {
+      await llamar(env, `/Leads/${leadId}/Notes/${String(n["id"])}`, { method: "DELETE" }, f, now);
+      borradas++;
+    } catch (e) {
+      return { encontradas: mias.length, borradas, error: e instanceof Error ? e.message.slice(0, 200) : String(e) };
+    }
+  }
+  return { encontradas: mias.length, borradas };
 }

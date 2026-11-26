@@ -59,3 +59,12 @@ describe("seguros no escribe en Zoho", () => {
     expect(src).not.toMatch(/escrituraActiva/);
   });
 });
+
+describe("borrado de las notas de seguros creadas por error", () => {
+  it("solo reconoce el texto exacto de la oferta, ninguna otra nota", async () => {
+    const { RE_NOTA_SEGUROS } = await import("../../member/crm-zohoapi.local");
+    expect(RE_NOTA_SEGUROS.test("Oferta de seguros ERGO|DKV por WhatsApp (2026-11-22): le escribí ofreciendo 1 mes de seguro gratis.")).toBe(true);
+    expect(RE_NOTA_SEGUROS.test("Hablé con él por teléfono; quedó en revisar los proyectos.")).toBe(false);
+    expect(RE_NOTA_SEGUROS.test("Oferta de seguros ERGO|DKV por WhatsApp (2026-11-22): le escribí ofreciendo 1 mes de seguro gratis. Además quiere comprar en Medellín.")).toBe(false);
+  });
+});

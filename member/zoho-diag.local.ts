@@ -535,6 +535,23 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido.startsWith("borrar_nota_seguros:")) {
+    // PRUEBA con UNA ficha (nombre) o conteo: «borrar_nota_seguros:<nombre>» borra 1 nota de seguros; «contar_nota_seguros:<nombre>» solo cuenta.
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const { candidatosPorIds, borrarNotaSeguros } = await import("./crm-zohoapi.local");
+      const quien = pedido.slice(20).trim().toLowerCase();
+      const ids = (await new (await import("../src/db/client")).Db(env.DB).all<{ lead_id: string }>("SELECT lead_id FROM crm_seguros WHERE enviado_en IS NOT NULL")).map((r) => r.lead_id);
+      const cands = await candidatosPorIds(env, ids.slice(0, 100), fetch, now);
+      const hit = [...cands.entries()].filter(([, c]) => c.nombre.toLowerCase().includes(quien));
+      if (hit.length !== 1) { await st.set("zoho_diag_resultado", JSON.stringify({ error: `coincidencias: ${hit.length}` })); return; }
+      const r = await borrarNotaSeguros(env, hit[0][0], { max: 1 }, fetch, now);
+      await st.set("zoho_diag_resultado", JSON.stringify({ nombre: hit[0][1].nombre, ...r }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido.startsWith("cerrar_tareas:")) {
     // Completa tareas que quedaron abiertas por el fallo de «Ya lo envié» (ids separados por coma).
     await st.set("zoho_diag_pedir", "");
