@@ -11,9 +11,9 @@ import { MessagesRepo } from "../src/db/messages";
 import { puedeEscribirAhora } from "../src/lib/horarioCliente";
 import { esNumeroColombiano } from "../src/channels/ycloud";
 import { enviarACliente } from "../src/followup/sistemaViventa";
-import { escrituraActiva, hoyMadrid } from "./crm-seguimientos.local";
+import { hoyMadrid } from "./crm-seguimientos.local";
 import { telefonoInternacional } from "./crm-reactivacion.local";
-import { candidatosEnEstado, crearNota, zohoGet, zohoListo, OtraAsesoraError, type FetchFn } from "./crm-zohoapi.local";
+import { candidatosEnEstado, zohoGet, zohoListo, type FetchFn } from "./crm-zohoapi.local";
 
 export const AJUSTE_SEGUROS = "viventa_seguros_masivo";
 export const TPL_SEGUROS = "viventa_tpl_seguros";
@@ -154,11 +154,7 @@ export async function runSegurosMasivo(env: Env, now = Date.now(), f?: FetchFn):
         out.sent++;
         cupo--;
         seguidosFallidos = 0;
-        if (await escrituraActiva(env)) {
-          await crearNota(env, cand.id, `Oferta de seguros ERGO|DKV por WhatsApp (${hoyMadrid(now)}): le escribí ofreciendo 1 mes de seguro gratis.`, f, now).catch((e) => {
-            if (!(e instanceof OtraAsesoraError)) console.error("[seguros] nota Zoho:", e);
-          });
-        }
+        // Sin nota en Zoho: la oferta de seguros NO es sobre vivienda y Maricela no pidió que quede en la ficha (24-26 nov 2026).
       } catch (e) {
         console.error("[seguros] envío:", e instanceof Error ? e.message : e);
         await db.run("UPDATE crm_seguros SET resultado = 'fallo' WHERE lead_id = ? AND enviado_en IS NULL", [cand.id]);

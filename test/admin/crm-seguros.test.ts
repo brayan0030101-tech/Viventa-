@@ -50,3 +50,12 @@ describe("oferta de seguros ERGO|DKV", () => {
     expect(r).toEqual([{ lead_id: "L1", resultado: "no_interesa" }, { lead_id: "L2", resultado: "respondio" }]);
   });
 });
+
+describe("seguros no escribe en Zoho", () => {
+  it("el módulo de seguros no importa ni usa crearNota (la oferta no deja notas en las fichas)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("member/crm-seguros.local.ts", "utf8");
+    expect(src).not.toMatch(/crearNota/);
+    expect(src).not.toMatch(/escrituraActiva/);
+  });
+});

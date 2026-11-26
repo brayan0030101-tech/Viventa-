@@ -514,3 +514,9 @@
 - Se usa en seguimientos (`crm-seguimientos`) y reactivación (`crm-reactivacion`). El prompt ahora recibe 24 mensajes de la conversación (antes 14) y los días sin hablar.
 - Diag nuevo `borrador:<nombre>`: genera el borrador de la tarea de hoy sin enviar nada. Probado con July Parra.
 - Pendiente de decidir: poner automáticamente el enlace NUEVO del formulario en el mensaje. Generarlo hace que Zoho lo envíe también por correo al cliente, por eso no se hace solo.
+
+## 26 nov 2026 — ERROR MÍO: el envío de seguros dejaba una nota en Zoho sin que nadie lo pidiera
+- `runSegurosMasivo` llamaba a `crearNota` en la ficha de cada cliente («Oferta de seguros ERGO|DKV por WhatsApp… le escribí ofreciendo 1 mes de seguro gratis»). Nadie lo había pedido: lo añadí yo por costumbre del resto del CRM. Maricela lo vio en Zoho y no puede borrar notas.
+- Hasta el 25 nov se enviaron 40 ofertas (16 Descartado, 24 Cliente perdido); cada una pudo dejar una nota.
+- Arreglo: el módulo de seguros ya no escribe nada en Zoho (prueba que lo impide). El envío se pausó (`viventa_seguros_masivo` vacío) hasta que Brayan confirme.
+- Regla: nada nuevo que escriba en el CRM sin que Brayan o Maricela lo pidan expresamente. Borrar las notas ya creadas queda pendiente de su permiso.
