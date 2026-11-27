@@ -542,3 +542,78 @@ export async function borrarNotaSeguros(env: Env, leadId: string, opts: { soloCo
   }
   return { encontradas: mias.length, borradas };
 }
+
+// ─── Oportunidades (Deals): nota y tarea, y su pareja SV ↔ Vivecasa (27 nov 2026, pedido de Maricela) ─────────
+
+export interface DealZoho {
+  id: string;
+  nombre: string;
+  tipo: string;
+  pipeline: string;
+  etapa: string;
+  ownerId: string;
+  ownerNombre: string;
+  contactoId: string;
+  linkSV: string;
+  linkVC: string;
+  modificado: string;
+}
+
+const CAMPOS_DEAL = "Deal_Name,Type,Pipeline,Stage,Owner,Contact_Name,Link_Oportunidad_SV,Link_Oportunidad_Vivecasa,Modified_Time";
+
+const aDeal = (r: Record<string, unknown>): DealZoho => ({
+  id: String(r["id"] ?? ""),
+  nombre: String(r["Deal_Name"] ?? ""),
+  tipo: String(r["Type"] ?? ""),
+  pipeline: String(r["Pipeline"] ?? ""),
+  etapa: String(r["Stage"] ?? ""),
+  ownerId: refId(r["Owner"]),
+  ownerNombre: String((r["Owner"] as { name?: string } | null)?.name ?? ""),
+  contactoId: refId(r["Contact_Name"]),
+  linkSV: refId(r["Link_Oportunidad_SV"]),
+  linkVC: refId(r["Link_Oportunidad_Vivecasa"]),
+  modificado: String(r["Modified_Time"] ?? ""),
+});
+
+export async function dealPorId(env: Env, id: string, f: FetchFn = fetch, now = Date.now()): Promise<DealZoho | null> {
+  if (!idValido(id)) return null;
+  const j = (await llamar(env, `/Deals/${id}?fields=${CAMPOS_DEAL}`, {}, f, now)) as { data?: Array<Record<string, unknown>> } | null;
+  const r = j?.data?.[0];
+  return r ? aDeal(r) : null;
+}
+
+/** Oportunidades de un contacto (para encontrar la otra rama). */
+export async function dealsDeContacto(env: Env, contactoId: string, f: FetchFn = fetch, now = Date.now()): Promise<DealZoho[]> {
+  if (!idValido(contactoId)) return [];
+  const filas = await coql(env, `select id, Deal_Name, Type, Pipeline, Stage, Owner, Contact_Name, Link_Oportunidad_SV, Link_Oportunidad_Vivecasa, Modified_Time from Deals where Contact_Name = '${contactoId}' order by Modified_Time desc limit 0, 50`, f, now);
+  return filas.map(aDeal);
+}
+
+/** Oportunidad a la que pertenece una tarea (What_Id), o "" si la tarea no es de una oportunidad. */
+export async function dealDeTarea(env: Env, tareaId: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  if (!idValido(tareaId)) return "";
+  const filas = await coql(env, `select What_Id, $se_module from Tasks where id = '${tareaId}'`, f, now);
+  const r = filas[0];
+  return r && String(r["$se_module"] ?? "") === "Deals" ? refId(r["What_Id"]) : "";
+}
+
+/** Solo se escribe en oportunidades a nombre de Maricela. */
+export async function exigirDealDeMaricela(env: Env, deal: DealZoho, f: FetchFn = fetch, now = Date.now()): Promise<void> {
+  const yo = await duenoZoho(env, f, now);
+  if (deal.ownerId && deal.ownerId !== yo.id) throw new OtraAsesoraError(deal.ownerNombre);
+}
+
+/** Agrega una nota a una oportunidad (solo si es de Maricela). */
+export async function crearNotaDeal(env: Env, deal: DealZoho, texto: string, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  if (!idValido(deal.id)) throw new ZohoError("Oportunidad no válida.");
+  await exigirDealDeMaricela(env, deal, f, now);
+  return escribir(env, `/Deals/${deal.id}/Notes`, "POST", { Note_Title: "Seguimiento", Note_Content: texto.slice(0, 3000) }, f, now);
+}
+
+/** Crea la siguiente tarea de una oportunidad, a nombre de Maricela y «En Proceso». */
+export async function crearTareaDeal(env: Env, deal: DealZoho, a: { asunto: string; fecha: string; prioridad?: Prioridad }, f: FetchFn = fetch, now = Date.now()): Promise<string> {
+  if (!idValido(deal.id) || !/^\d{4}-\d{2}-\d{2}$/.test(a.fecha)) throw new ZohoError("Datos de la tarea no válidos.");
+  await exigirDealDeMaricela(env, deal, f, now);
+  const yo = await duenoZoho(env, f, now);
+  return escribir(env, "/Tasks", "POST", { Subject: a.asunto.slice(0, 255), Due_Date: a.fecha, Status: "En Proceso", Owner: { id: yo.id }, What_Id: { id: deal.id }, $se_module: "Deals", ...(a.prioridad ? { Priority: VALOR_ZOHO_PRIORIDAD[a.prioridad] } : {}) }, f, now);
+}

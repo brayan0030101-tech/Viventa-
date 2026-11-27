@@ -529,3 +529,11 @@
 - Cuando la IA propone la acción por su cuenta, también puede elegir «mensaje» (cliente que contesta por WhatsApp pero no atiende llamadas, pidió que le escriban, ya hubo varios intentos de llamada, o hoy toca enviarle algo).
 - La reactivación de clientes (tercer caso de Maricela) ya tenía su propio generador con ofertas del catálogo y el mismo estilo humano.
 - Diag `borrador:<nombre>|<acción>` para probar sin enviar nada.
+
+## 27 nov 2026 — Oportunidades: nota y siguiente tarea copiadas a la pareja SV ↔ Vivecasa
+- Pedido de Maricela: una persona suele tener dos oportunidades en Zoho («Nombre - SV» y «Nombre - Vivecasa», mismo contacto, enlazadas por `Link_Oportunidad_SV` / `Link_Oportunidad_Vivecasa`). Quiere dejar nota y tarea en una y que se copien a la otra desde el CRM.
+- En «Seguimientos», cada tarea de oportunidad tiene el botón «📝 Nota y siguiente tarea»: formulario con nota (primera persona), siguiente tarea, fecha (sin fines de semana ni más de 25 al día), prioridad y casilla «copiar a la otra oportunidad». Al guardar: nota y tarea en la oportunidad, copia en la pareja si se marcó, y completa la tarea de hoy. Cada paso se recuerda (`crm_op_hecho`): reintentar no duplica.
+- Seguridad: solo se escribe en oportunidades A NOMBRE DE MARICELA. Si la pareja es de otra asesora no se escribe en ninguna y se explica; el formulario no ofrece copiar.
+- Pareja: por el enlace entre ambas y, si no, por el contacto (la de la otra rama, preferiblemente suya).
+- Comprobado en lectura con datos reales (diag `parejas_oportunidades`): de las primeras 40 oportunidades de Maricela (147 en total), las 40 tienen su pareja también suya. NO se ha escrito aún nada real: pendiente de una primera prueba con un caso real aprobado.
+- No cubre las oportunidades GES/Desembolso (otras ramas, de otras áreas).

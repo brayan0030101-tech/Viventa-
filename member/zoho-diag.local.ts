@@ -554,6 +554,30 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
     }
     return;
   }
+  if (pedido === "parejas_oportunidades") {
+    // Solo lectura: de las oportunidades de Maricela, cuántas tienen su pareja SV↔VC también suya, de otra asesora o sin encontrar.
+    await st.set("zoho_diag_pedir", "");
+    try {
+      const { cargarOportunidades, parejaDe, ramaDeDeal } = await import("./crm-oportunidades.local");
+      const { dealPorId } = await import("./crm-zohoapi.local");
+      const { ops } = await cargarOportunidades(env, now);
+      const cuenta = { total: ops.length, suya: 0, otraAsesora: 0, sinPareja: 0, revisadas: 0 };
+      const ejemplos: string[] = [];
+      for (const o of ops.slice(0, 40)) {
+        const d = await dealPorId(env, o.id);
+        if (!d) continue;
+        cuenta.revisadas++;
+        const p = await parejaDe(env, d);
+        if (p.ok) { cuenta.suya++; if (ejemplos.length < 3) ejemplos.push(`${d.nombre} (${ramaDeDeal(d)}) ↔ ${p.pareja.nombre}`); }
+        else if (/es de /.test(p.motivo)) cuenta.otraAsesora++;
+        else cuenta.sinPareja++;
+      }
+      await st.set("zoho_diag_resultado", JSON.stringify({ cuenta, ejemplos }));
+    } catch (e) {
+      await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
+    }
+    return;
+  }
   if (pedido.startsWith("cerrar_tareas:")) {
     // Completa tareas que quedaron abiertas por el fallo de «Ya lo envié» (ids separados por coma).
     await st.set("zoho_diag_pedir", "");

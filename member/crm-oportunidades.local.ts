@@ -5,8 +5,10 @@
 import type { Env } from "../src/env";
 import { crmLayout } from "./crm-shell.local";
 import { esc, ESTILO_CRM } from "./crm.local";
-import { ZohoError, urlFichaZoho, coql, duenoZoho, tareaPorId, completarTarea, ESTADOS_HECHOS, prioridadDeZoho, pesoPrioridad, zohoGet, zohoListo, type FetchFn, type Prioridad } from "./crm-zohoapi.local";
-import { ETIQ_PRIORIDAD, escrituraActiva, hoyMadrid, htmlPrioridad } from "./crm-seguimientos.local";
+import { ZohoError, OtraAsesoraError, PRIORIDADES, urlFichaZoho, coql, duenoZoho, tareaPorId, completarTarea, ESTADOS_HECHOS, prioridadDeZoho, pesoPrioridad, zohoGet, zohoListo, dealPorId, dealsDeContacto, dealDeTarea, crearNotaDeal, crearTareaDeal, exigirDealDeMaricela, type DealZoho, type FetchFn, type Prioridad } from "./crm-zohoapi.local";
+import { Db } from "../src/db/client";
+import { fechaDisponibleZoho } from "./crm-agenda.local";
+import { ETIQ_PRIORIDAD, escrituraActiva, hoyMadrid, htmlPrioridad, masDias } from "./crm-seguimientos.local";
 
 const DIA = 86_400_000;
 export type Rama = "SV" | "VC";
@@ -224,6 +226,147 @@ export async function completarTareaOp(env: Env, tareaId: string, now = Date.now
   }
 }
 
+// ─── Nota y siguiente tarea en la oportunidad, copiadas a su pareja SV ↔ Vivecasa ──────────────────────────────
+// Una persona suele tener dos oportunidades: «Nombre - SV» (Servicio Viventa) y «Nombre - Vivecasa». Pedido de Maricela (27 nov 2026):
+// dejar la nota y la tarea en una y que se copien a la otra desde el CRM. Solo se escribe en oportunidades A NOMBRE DE MARICELA.
+
+export const ramaDeDeal = (d: Pick<DealZoho, "pipeline" | "tipo">): Rama => ramaDe(d.pipeline, d.tipo);
+
+export type Pareja = { ok: true; pareja: DealZoho } | { ok: false; motivo: string };
+
+/** La otra oportunidad de la misma persona (la de la otra rama): primero por el enlace entre ambas y, si no, por el contacto. */
+export async function parejaDe(env: Env, deal: DealZoho, f?: FetchFn, now = Date.now()): Promise<Pareja> {
+  const rama = ramaDeDeal(deal);
+  const otra = rama === "SV" ? "Vivecasa" : "Servicio Viventa";
+  const linkId = rama === "SV" ? deal.linkVC : deal.linkSV;
+  let pareja: DealZoho | null = null;
+  if (linkId && linkId !== deal.id) pareja = await dealPorId(env, linkId, f, now).catch(() => null);
+  if (!pareja && deal.contactoId) {
+    const yo = await duenoZoho(env, f, now);
+    const delContacto = (await dealsDeContacto(env, deal.contactoId, f, now).catch(() => [])).filter((d) => d.id !== deal.id && ramaDeDeal(d) !== rama);
+    // Si hay varias (p. ej. «SV» y «SV 2»), se prefiere la de Maricela y, entre esas, la modificada más recientemente.
+    pareja = delContacto.find((d) => d.ownerId === yo.id) ?? delContacto[0] ?? null;
+  }
+  if (!pareja) return { ok: false, motivo: `No encontré la oportunidad de ${otra} de esta persona.` };
+  const yo = await duenoZoho(env, f, now);
+  if (pareja.ownerId && pareja.ownerId !== yo.id) return { ok: false, motivo: `La oportunidad de ${otra} es de ${pareja.ownerNombre || "otra asesora"}: no se escribe en ella.` };
+  return { ok: true, pareja };
+}
+
+export interface EntradaOp {
+  nota: string;
+  tareaSiguiente: string;
+  fecha: string;
+  prioridad?: string;
+  copiar: boolean;
+  /** También marca como completa la tarea de hoy de la pareja, si tiene una igual de pendiente. */
+}
+interface PasosOp {
+  nota?: boolean;
+  tarea?: boolean;
+  notaPareja?: boolean;
+  tareaPareja?: boolean;
+  completada?: boolean;
+}
+export type ResultadoOp = { ok: true; pasos: PasosOp; fecha: string; aviso: string; pareja: string } | { ok: false; error: string; pasos: PasosOp };
+
+async function asegurarTablaOp(db: Db): Promise<void> {
+  await db.run("CREATE TABLE IF NOT EXISTS crm_op_hecho (tarea_id TEXT PRIMARY KEY, creado INTEGER NOT NULL, pasos TEXT NOT NULL DEFAULT '{}')");
+}
+
+/** Deja la nota y la siguiente tarea en la oportunidad (y en su pareja si se pide) y completa la tarea de hoy. Cada paso se recuerda: reintentar no duplica nada. */
+export async function aplicarEnOportunidad(env: Env, tareaId: string, entrada: EntradaOp, now = Date.now(), f?: FetchFn): Promise<ResultadoOp> {
+  if (!(await escrituraActiva(env))) return { ok: false, error: "Zoho está en modo solo lectura. Avísale a Brayan para activar la escritura.", pasos: {} };
+  const nota = entrada.nota.replace(/\s+/g, " ").trim();
+  const asunto = entrada.tareaSiguiente.replace(/\s+/g, " ").trim();
+  if (!nota && !asunto) return { ok: false, error: "Escribe la nota o la siguiente tarea (o las dos).", pasos: {} };
+  if (asunto && !/^\d{4}-\d{2}-\d{2}$/.test(entrada.fecha)) return { ok: false, error: "Elige la fecha de la siguiente tarea.", pasos: {} };
+  const db = new Db(env.DB);
+  await asegurarTablaOp(db);
+  const previo = await db.first<{ pasos: string }>("SELECT pasos FROM crm_op_hecho WHERE tarea_id = ?", [tareaId]);
+  const pasos: PasosOp = previo ? (JSON.parse(previo.pasos) as PasosOp) : {};
+  const guardar = async () => db.run("INSERT OR REPLACE INTO crm_op_hecho (tarea_id, creado, pasos) VALUES (?,?,?)", [tareaId, now, JSON.stringify(pasos)]);
+  let nombrePareja = "";
+  let fechaFinal = entrada.fecha;
+  let aviso = "";
+  try {
+    const dealId = await dealDeTarea(env, tareaId, f, now);
+    if (!dealId) return { ok: false, error: "Esa tarea no es de una oportunidad.", pasos };
+    const deal = await dealPorId(env, dealId, f, now);
+    if (!deal) return { ok: false, error: "No encontré la oportunidad en Zoho.", pasos };
+    await exigirDealDeMaricela(env, deal, f, now);
+    const t = await tareaPorId(env, tareaId, f, now);
+    if (!t) return { ok: false, error: "No encontré esa tarea en Zoho.", pasos };
+    if (ESTADOS_HECHOS.includes(t.estado) && !pasos.nota && !pasos.tarea) return { ok: false, error: "Esa tarea ya está completa en Zoho: no cambié nada.", pasos };
+    let pareja: DealZoho | null = null;
+    if (entrada.copiar) {
+      const p = await parejaDe(env, deal, f, now);
+      if (!p.ok) return { ok: false, error: `${p.motivo} No cambié nada: desmarca «copiar» si quieres dejarlo solo aquí.`, pasos };
+      pareja = p.pareja;
+      nombrePareja = p.pareja.nombre;
+    }
+    const hoy = hoyMadrid(now);
+    if (asunto && !pasos.tarea) {
+      // Reglas de Maricela: ni sábados ni domingos y máximo de tareas por día (si no, el siguiente día con espacio).
+      const disp = await fechaDisponibleZoho(env, entrada.fecha, hoy, f, now, false).catch(() => ({ fecha: entrada.fecha, motivo: "" }));
+      fechaFinal = disp.fecha;
+      aviso = disp.motivo;
+    }
+    const prio: Prioridad = PRIORIDADES.includes(entrada.prioridad as Prioridad) ? (entrada.prioridad as Prioridad) : "media";
+    if (nota && !pasos.nota) { await crearNotaDeal(env, deal, nota, f, now); pasos.nota = true; await guardar(); }
+    if (asunto && !pasos.tarea) { await crearTareaDeal(env, deal, { asunto, fecha: fechaFinal, prioridad: prio }, f, now); pasos.tarea = true; await guardar(); }
+    if (pareja) {
+      if (nota && !pasos.notaPareja) { await crearNotaDeal(env, pareja, nota, f, now); pasos.notaPareja = true; await guardar(); }
+      if (asunto && !pasos.tareaPareja) { await crearTareaDeal(env, pareja, { asunto, fecha: fechaFinal, prioridad: prio }, f, now); pasos.tareaPareja = true; await guardar(); }
+    }
+    if (!pasos.completada && !ESTADOS_HECHOS.includes(t.estado)) { await completarTarea(env, tareaId, f, now); pasos.completada = true; await guardar(); }
+    return { ok: true, pasos, fecha: asunto ? fechaFinal : "", aviso, pareja: nombrePareja };
+  } catch (e) {
+    console.error("[crm-oportunidades] aplicar:", e);
+    return { ok: false, error: e instanceof ZohoError ? e.message : "No pude actualizar Zoho. Inténtalo en unos minutos.", pasos };
+  }
+}
+
+const resumenOp = (p: PasosOp, copiar: boolean): string =>
+  [p.nota ? "nota creada" : "", p.tarea ? "siguiente tarea creada" : "", copiar && p.notaPareja ? "nota copiada a la otra oportunidad" : "", copiar && p.tareaPareja ? "tarea copiada a la otra oportunidad" : "", p.completada ? "tarea de hoy completa" : ""].filter(Boolean).join(" · ") || "nada todavía";
+
+export function tarjetaResultadoOp(r: ResultadoOp, copiar: boolean): string {
+  if (!r.ok) return `<div style="border-left:4px solid var(--bad);padding:8px 10px;font-size:12px;margin-top:6px"><b style="color:var(--bad)">No se terminó.</b> ${esc(r.error)}<div class="text-dim" style="margin-top:4px">Hecho hasta ahora: ${esc(resumenOp(r.pasos, copiar))}. Si vuelves a pulsarlo, no se repite lo ya hecho.</div></div>`;
+  return `<div style="border-left:4px solid var(--ok);padding:8px 10px;font-size:12px;margin-top:6px"><b style="color:var(--ok)">✔ Zoho actualizado.</b> ${esc(resumenOp(r.pasos, copiar))}${r.pareja ? ` (también en «${esc(r.pareja)}»)` : ""}.${r.fecha ? ` Siguiente tarea para el ${esc(r.fecha)}.${r.aviso ? ` ${esc(r.aviso)}` : ""}` : ""}<div class="text-dim" style="font-size:10.5px;margin-top:3px">Al recargar, la tarea sale de la lista.</div></div>`;
+}
+
+/** Formulario que se abre bajo la tarea: nota, siguiente tarea, fecha, prioridad y (si hay pareja de Maricela) casilla para copiar. */
+export async function formularioOp(env: Env, tareaId: string, now = Date.now(), f?: FetchFn): Promise<string> {
+  try {
+    const dealId = await dealDeTarea(env, tareaId, f, now);
+    const deal = dealId ? await dealPorId(env, dealId, f, now) : null;
+    if (!deal) return `<span style="color:var(--bad);font-size:11px">No encontré la oportunidad de esta tarea en Zoho.</span>`;
+    const p = await parejaDe(env, deal, f, now);
+    const hoy = hoyMadrid(now);
+    const rama = ramaDeDeal(deal);
+    const otra = rama === "SV" ? "Vivecasa" : "SV";
+    const copiar = p.ok
+      ? `<label style="display:flex;gap:6px;align-items:flex-start;font-size:12px;margin:8px 0"><input type="checkbox" name="copiar" value="1" checked style="margin-top:2px"><span><b style="color:var(--cream)">Copiar la nota y la tarea también a «${esc(p.pareja.nombre)}»</b> (${otra}, también tuya)</span></label>`
+      : `<div class="text-dim" style="font-size:11.5px;margin:8px 0">↔ ${esc(p.motivo)} Solo se deja en esta oportunidad.</div>`;
+    const idF = "fn-" + tareaId;
+    return `<form id="${idF}" hx-post="/crm/oportunidades/nota-hecho" hx-target="#fo-${esc(tareaId)}" hx-swap="innerHTML" hx-disabled-elt="find button" hx-confirm="En Zoho se va a: dejar la nota, crear la siguiente tarea${p.ok ? " (también en la otra oportunidad si dejas marcada la casilla)" : ""} y marcar ESTA tarea como completa. ¿Confirmas?" style="margin:6px 0 0;text-align:left">
+      <input type="hidden" name="tarea" value="${esc(tareaId)}">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:3px">Oportunidad: <b>${esc(deal.nombre)}</b> · ${chipRama(rama)}</div>
+      <label style="font-size:11.5px;color:var(--cream)"><b>Nota</b> (primera persona: «Hablé con…»)</label>
+      <textarea name="nota" rows="3" class="crm-in" style="width:100%;font-size:12px;margin:3px 0 6px" placeholder="Qué hice y en qué quedamos"></textarea>
+      <label style="font-size:11.5px;color:var(--cream)"><b>Siguiente tarea</b></label>
+      <input name="tarea_siguiente" class="crm-in" style="width:100%;font-size:12px;margin:3px 0 6px" placeholder="Llamarlo para…">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="date" name="fecha" min="${esc(hoy)}" value="${esc(masDias(hoy, 3))}" class="crm-in" style="font-size:12px">
+        <select name="prioridad" class="crm-in" style="font-size:12px">${PRIORIDADES.map((x) => `<option value="${x}"${x === "media" ? " selected" : ""}>${ETIQ_PRIORIDAD[x].txt}</option>`).join("")}</select></div>
+      ${copiar}
+      <button class="bigbtn" style="cursor:pointer;padding:5px 12px;font-size:11.5px">✅ Guardar en Zoho y completar la tarea</button>
+    </form>`;
+  } catch (e) {
+    console.error("[crm-oportunidades] formulario:", e);
+    return `<span style="color:var(--bad);font-size:11px">${e instanceof ZohoError ? esc(e.message) : "No pude leer Zoho ahora."}</span>`;
+  }
+}
+
 export function htmlTareasOportunidades(filas: FilaTareaOp[], hoy: string, escritura: boolean, env?: Env): string {
   if (filas.length === 0) return `<div style="padding:24px 18px;text-align:center;color:var(--dim)">No hay tareas vencidas ni para hoy en tus oportunidades 🎉</div>`;
   const COLS = "130px minmax(160px,1fr) 80px minmax(150px,1fr) 260px";
@@ -238,7 +381,7 @@ export function htmlTareasOportunidades(filas: FilaTareaOp[], hoy: string, escri
           <span>${chipRama(x.op.rama)}</span>
           <span class="text-muted" style="font-size:12px">${esc(x.tarea.asunto || "Tarea")}<br><span class="text-dim" style="font-size:10.5px">${esc(x.op.etapa)}</span></span>
           <span><form hx-post="/crm/seguimientos/fecha" hx-target="#${id}" hx-swap="innerHTML" hx-disabled-elt="find button" style="margin:0 0 4px;display:flex;gap:4px;flex-wrap:wrap"><input type="hidden" name="tarea" value="${esc(x.tarea.id)}"><input type="date" name="fecha" min="${esc(hoy)}" required class="crm-in" style="font-size:11px;padding:3px 4px;width:118px"><button class="bigbtn" style="cursor:pointer;padding:3px 8px;font-size:11px">Cambiar fecha</button></form>
-            ${escritura ? `<button class="bigbtn" style="cursor:pointer;padding:4px 10px;font-size:11px" hx-post="/crm/oportunidades/completar" hx-vals='{"tarea":"${esc(x.tarea.id)}"}' hx-target="#${id}" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="¿Marcar esta tarea como completa en Zoho?">✔ Marcar completa</button>` : ""}
+            ${escritura ? `<button type="button" class="ghostbtn" style="border:1px solid var(--line);padding:4px 10px;font-size:11px;cursor:pointer;background:none;color:var(--cream);font-family:inherit;margin-right:4px" hx-post="/crm/oportunidades/nota-form" hx-vals='{"tarea":"${esc(x.tarea.id)}"}' hx-target="#${id}" hx-swap="innerHTML" hx-disabled-elt="this">📝 Nota y siguiente tarea</button><button class="bigbtn" style="cursor:pointer;padding:4px 10px;font-size:11px" hx-post="/crm/oportunidades/completar" hx-vals='{"tarea":"${esc(x.tarea.id)}"}' hx-target="#${id}" hx-swap="innerHTML" hx-disabled-elt="this" hx-confirm="¿Marcar esta tarea como completa en Zoho?">✔ Marcar completa</button>` : ""}
             <span id="${id}" style="display:block;margin-top:3px"></span></span></div>`;
       })
       .join("")}`;

@@ -409,6 +409,18 @@ export function crmApp(): Hono<Vars> {
     const { renderOportunidades } = await import("./crm-oportunidades.local");
     return pagina(c, await renderOportunidades(c.env, { rama: c.req.query("rama") }));
   });
+  app.post("/oportunidades/nota-form", async (c) => {
+    const { formularioOp } = await import("./crm-oportunidades.local");
+    const f = await c.req.parseBody();
+    return c.html(await formularioOp(c.env, String(f["tarea"] ?? "")));
+  });
+  app.post("/oportunidades/nota-hecho", async (c) => {
+    const { aplicarEnOportunidad, tarjetaResultadoOp } = await import("./crm-oportunidades.local");
+    const f = await c.req.parseBody();
+    const copiar = String(f["copiar"] ?? "") === "1";
+    const r = await aplicarEnOportunidad(c.env, String(f["tarea"] ?? ""), { nota: String(f["nota"] ?? ""), tareaSiguiente: String(f["tarea_siguiente"] ?? ""), fecha: String(f["fecha"] ?? ""), prioridad: String(f["prioridad"] ?? ""), copiar });
+    return c.html(tarjetaResultadoOp(r, copiar));
+  });
   app.post("/oportunidades/completar", async (c) => {
     const { completarTareaOp } = await import("./crm-oportunidades.local");
     const f = await c.req.parseBody();
