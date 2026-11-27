@@ -26,7 +26,8 @@ const DIA = 86_400_000;
 const H = 3_600_000;
 
 export type Temperatura = "caliente" | "tibio" | "frio";
-export type Accion = "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado";
+export type Accion = "whatsapp" | "videollamada" | "mensaje" | "futuro" | "perdido" | "descartado";
+export const ACCIONES: Accion[] = ["whatsapp", "videollamada", "mensaje", "futuro", "perdido", "descartado"];
 /** «Cliente perdido» y «Descartado» son estados de Zoho que piden un MOTIVO, no dejan tarea y solo dejan nota (Maricela, 14 oct 2026). */
 export const esCierre = (a: string): boolean => a === "perdido" || a === "descartado";
 
@@ -288,7 +289,7 @@ export async function fragmentoFecha(env: Env, tareaId: string, fecha: string, n
 const TEMPS: Temperatura[] = ["caliente", "tibio", "frio"];
 
 /** Lee y valida el JSON de la IA. Devuelve null si no sirve (sin mensaje, o acción inválida). */
-export function leerBorrador(texto: string, base: { tareaId: string; leadId: string; nombre: string; creado: number; modelo: string }): Borrador | null {
+export function leerBorrador(texto: string, base: { tareaId: string; leadId: string; nombre: string; creado: number; modelo: string; accionForzada?: Accion }): Borrador | null {
   const m = texto.match(/\{[\s\S]*\}/);
   if (!m) return null;
   let j: Record<string, unknown>;
@@ -299,8 +300,8 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
   }
   const t = String(j["temperatura"] ?? "").toLowerCase().replace("í", "i").replace("ó", "o");
   const temperatura: Temperatura = (TEMPS as string[]).includes(t) ? (t as Temperatura) : "tibio";
-  const accion = String(j["accion"] ?? "").toLowerCase();
-  if (accion !== "whatsapp" && accion !== "videollamada" && accion !== "futuro" && accion !== "perdido" && accion !== "descartado") return null;
+  const accion = (base.accionForzada ?? String(j["accion"] ?? "").toLowerCase()) as Accion;
+  if (!(ACCIONES as string[]).includes(accion)) return null;
   const primerNombre = base.nombre.split(/\s+/).find((w) => w.replace(/[^\p{L}]/gu, "").length >= 2) ?? "";
   const mensajeCrudo = String(j["mensaje"] ?? "");
   const mensaje = (accion === "descartado" ? "" : mensajeCrudo)
@@ -343,6 +344,7 @@ export function leerBorrador(texto: string, base: { tareaId: string; leadId: str
 const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para comprar vivienda en Colombia desde el exterior). Hoy toca hacerle seguimiento a un candidato. Reglas de Maricela:
 1. Lee las NOTAS: son lo que se hizo y en qué quedó el contacto. A partir de ellas decide si el candidato es CALIENTE (muy interesado, avanza), TIBIO (interesado pero lento) o FRÍO (poco interés o sin respuesta). No hay otra clasificación.
 2. REGLA DE MARICELA (20 oct 2026, MANDA): el seguimiento es PRIMERO UNA LLAMADA, porque es más personal; solo si el cliente no contesta se deja un WhatsApp. Por eso, cuando la acción sea "whatsapp" o "videollamada", el "mensaje" es el WhatsApp que se deja DESPUÉS de intentar llamar y no ser atendida: empieza diciendo que se intentó llamar y no se pudo hablar (por ejemplo «intenté llamarte hace un momento y no pude comunicarme»). Si es frío, o todavía no se le han enviado proyectos: el WhatsApp pregunta si sigue interesado. Si YA se le enviaron proyectos: lo mejor es proponerle una videollamada. En "futuro" y "perdido" no se llama: son mensajes de cierre.
+   EXCEPCIÓN (acción "mensaje", escribir directo SIN decir que se llamó): cuando las notas o la conversación muestren que el cliente contesta por WhatsApp pero no atiende llamadas, que pidió que le escriban, que ya se intentó llamar varias veces sin éxito, o cuando lo que toca hoy es enviarle algo (proyectos, enlace, información). En ese caso el mensaje NO menciona ninguna llamada.
 3. Si ya tiene perfil financiero y quiere avanzar, pregúntale si quiere seguir con el estudio de financiación. Si los ingresos del candidato son MENOS de 1.250 euros al mes, es muy difícil un crédito hipotecario: recomiéndale con tacto un segundo titular (por ejemplo su pareja o un familiar).
 4. El seguimiento termina solo cuando el cliente compró, pidió que no lo contactemos más o ya no quiere comprar: en ese caso NO se deja otra tarea, solo una nota, y el candidato pasa a uno de dos estados de Zoho, cada uno con su MOTIVO:
    - "descartado": no es trabajable y no se debe insistir ni reactivar. Aquí NO se escribe mensaje. Motivos: ${MOTIVOS_DESCARTADO.join(" | ")}.
@@ -355,11 +357,25 @@ const REGLAS = `Eres la asistente de Maricela Naranjo (Viventa, asesoría para c
 ${ESTILO_HUMANO}
 El mensaje es el WhatsApp que se deja tras la llamada sin respuesta. Empieza con "Hola [nombre]," (escribe literalmente [nombre]) y sigue con el saludo del momento. No inventes datos ni precios, no nombres proyectos ni constructoras, no menciones notas, tareas ni el sistema, y no prometas cosas que no están en las notas.`;
 
-function prompt(c: { tarea: TareaZoho; nombre: string; notas: NotaZoho[]; conversacion: string; ficha: string; hoy: string; saludo: string; sinHablar: string }): string {
+/** Cada acción pide un mensaje, una nota y una siguiente tarea DISTINTOS (Maricela, 27 nov 2026: no es lo mismo llamar, escribir, pasar a futuro o dar por perdido). */
+const TAREA_REGLA = "La nota va en primera persona y dice lo que hice y por qué; la «tarea_siguiente» es lo que haré después.";
+export const GUIA_ACCION: Record<Accion, string> = {
+  whatsapp: `MARICELA YA ELIGIÓ LA ACCIÓN: «Llamar primero; si no contesta, dejar WhatsApp» (accion = "whatsapp"). El mensaje es el WhatsApp que se deja DESPUÉS de intentar llamar sin éxito: empieza diciendo que intentaste llamar y no pudiste hablar, y pregunta lo que toca hoy. La nota: «Intenté llamarle y no contestó; le dejé un WhatsApp para…». La siguiente tarea normalmente empieza por «Llamar». ${TAREA_REGLA}`,
+  videollamada: `MARICELA YA ELIGIÓ LA ACCIÓN: «Llamar para proponer la videollamada; si no contesta, WhatsApp» (accion = "videollamada"). El mensaje se deja tras intentar llamar sin éxito y propone con calidez una videollamada corta (sin presionar, con la opción de decir cuándo le viene bien). La nota: «Intenté llamarle para proponerle una videollamada y le dejé un WhatsApp…». ${TAREA_REGLA}`,
+  mensaje: `MARICELA YA ELIGIÓ LA ACCIÓN: «Escribirle por WhatsApp, sin llamar» (accion = "mensaje"). El mensaje NO menciona ninguna llamada ni dice «te llamé»: es un WhatsApp directo y natural sobre lo que toca hoy (por ejemplo preguntar si revisó lo enviado, retomar su duda o enviarle lo que pidió). La nota: «Le escribí por WhatsApp para…» (nunca «intenté llamarle»). La siguiente tarea puede ser esperar su respuesta o llamarle, según en qué quede. ${TAREA_REGLA}`,
+  futuro: `MARICELA YA ELIGIÓ LA ACCIÓN: «Pasar a Revisar en el futuro» (accion = "futuro"). El mensaje es un ÚLTIMO WhatsApp breve y amable para este cliente: reconoce el tiempo que lleva, dile que no quieres llenarlo de mensajes y que cuando quiera retomar su proyecto aquí estás (menciona algo personal suyo si lo hay). Sin pedir respuesta y sin presionar. No hay siguiente tarea (Zoho crea la suya a los 3 meses). La nota: «Lo pasé a Revisar en el futuro porque…; retomo el contacto en unos meses». Elige el motivo_cierre de la lista de «futuro».`,
+  perdido: `MARICELA YA ELIGIÓ LA ACCIÓN: «Pasar a Cliente perdido» (accion = "perdido"). El mensaje es una despedida cálida y agradecida, distinta a la de «futuro»: es un cierre; agradece su tiempo, deséale lo mejor con su proyecto y deja la puerta abierta sin pedir nada ni presionar. No hay siguiente tarea. La nota: «Cerré su seguimiento como cliente perdido porque…». Elige el motivo_cierre de la lista de «perdido» que mejor encaje.`,
+  descartado: `MARICELA YA ELIGIÓ LA ACCIÓN: «Pasar a Descartado» (accion = "descartado"). NO se escribe mensaje (déjalo vacío) ni hay siguiente tarea. La nota: «Lo descarté porque…», con el motivo claro. Elige el motivo_cierre de la lista de «descartado» que mejor encaje.`,
+};
+const GUIA_TODAS = `ADAPTA TODO A LA ACCIÓN que elijas: el mensaje, la nota y la siguiente tarea cambian según sea «whatsapp» (tras llamar sin éxito: «intenté llamarte…»), «videollamada» (proponerla tras llamar), «mensaje» (escribir directo, SIN decir que se llamó), «futuro» (último mensaje amable, sin presionar, no llenarlo de mensajes), «perdido» (despedida agradecida que cierra) o «descartado» (sin mensaje). Nunca digas «te llamé» si la acción es «mensaje», «futuro» o «perdido». ${TAREA_REGLA}`;
+
+function prompt(c: { tarea: TareaZoho; nombre: string; notas: NotaZoho[]; conversacion: string; ficha: string; hoy: string; saludo: string; sinHablar: string; forzada?: Accion }): string {
   const notas = c.notas.length
     ? c.notas.map((n, i) => `NOTA ${i + 1}${n.creada ? ` (${n.creada.slice(0, 10)})` : ""}: ${anonimizar(`${n.titulo ? n.titulo + ". " : ""}${n.texto}`, c.nombre).replace(/\s+/g, " ").slice(0, 900)}`).join("\n")
     : "(El candidato no tiene notas.)";
   return `${REGLAS}
+
+${c.forzada ? GUIA_ACCION[c.forzada] : GUIA_TODAS}
 
 ${ANALISIS_PREVIO}
 
@@ -372,7 +388,7 @@ ${c.ficha ? `DATOS QUE EL BOT YA REUNIÓ:\n${c.ficha}\n\n` : ""}${c.conversacion
 {
  "analisis": "tu análisis previo del cliente (ver arriba), 3 a 5 frases cortas, solo para uso interno",
  "temperatura": "caliente" | "tibio" | "frio",
- "accion": "whatsapp" | "videollamada" | "futuro" | "perdido" | "descartado",
+ "accion": "whatsapp" | "videollamada" | "mensaje" | "futuro" | "perdido" | "descartado",
  "proyectos_enviados": true si las notas dicen que ya se le enviaron proyectos; si no, false,
  "segundo_titular": true si recomiendas un segundo titular por ingresos menores a 1.250 euros; si no, false,
  "mensaje": "el mensaje de WhatsApp listo para dejar si no contesta la llamada (vacío solo si la acción es descartado; en futuro y perdido es un último mensaje amable que deja la puerta abierta)",
@@ -436,7 +452,7 @@ export async function localDe(env: Env, telefonos: string[], nombre: string): Pr
 export async function prepararBorrador(
   env: Env,
   tareaId: string,
-  opts: { forzar?: boolean; f?: FetchFn; leadId?: string } = {},
+  opts: { forzar?: boolean; f?: FetchFn; leadId?: string; accion?: Accion } = {},
   now = Date.now(),
 ): Promise<{ ok: true; borrador: Borrador; reutilizado: boolean } | { ok: false; error: string }> {
   const db = new Db(env.DB);
@@ -481,7 +497,7 @@ export async function prepararBorrador(
   const local = await localDe(env, [cand.movil, cand.telefono], cand.nombre);
   const dias = local?.ultimoCliente ? Math.floor((now - local.ultimoCliente) / (24 * H)) : null;
   const sinHablar = dias == null ? "" : dias === 0 ? "El cliente escribió hoy." : `El cliente no escribe desde hace ${dias} día${dias === 1 ? "" : "s"}.`;
-  const texto = prompt({ tarea, nombre: cand.nombre, notas, conversacion: local?.conversacion ?? "", ficha: local?.ficha ?? "", hoy: hoyMadrid(now), saludo: saludoDelMomento(now), sinHablar });
+  const texto = prompt({ tarea, nombre: cand.nombre, notas, conversacion: local?.conversacion ?? "", ficha: local?.ficha ?? "", hoy: hoyMadrid(now), saludo: saludoDelMomento(now), sinHablar, forzada: opts.accion });
   let modelo = "";
   let b: Borrador | null = null;
   try {
@@ -490,7 +506,7 @@ export async function prepararBorrador(
     // Con 900 tokens de tope Sonnet 5.5 gastaba todo razonando y la respuesta llegaba cortada (13 oct 2026).
     const r = await llm.generate({ prompt: texto, maxOutputTokens: 4000, temperature: 0.3 } as never);
     const crudo = String((r as { text?: string }).text ?? "");
-    b = leerBorrador(crudo, { tareaId, leadId: tarea.leadId, nombre: cand.nombre, creado: now, modelo });
+    b = leerBorrador(crudo, { tareaId, leadId: tarea.leadId, nombre: cand.nombre, creado: now, modelo, accionForzada: opts.accion });
     if (!b) console.error(`[crm-seguimientos] respuesta sin JSON válido (${crudo.length} caracteres): ${crudo.slice(0, 200)}`);
   } catch (e) {
     console.error("[crm-seguimientos] IA:", e);
@@ -610,7 +626,7 @@ const ETIQ_TEMP: Record<Temperatura, { txt: string; color: string }> = {
   tibio: { txt: "🌤 Tibio", color: "var(--accent-2)" },
   frio: { txt: "⚪ Frío", color: "var(--info)" },
 };
-const ETIQ_ACC: Record<Accion, string> = { whatsapp: "📞 Llamar primero · si no contesta, WhatsApp", videollamada: "📞 Llamar para proponer la videollamada · si no contesta, WhatsApp", perdido: "🏁 Pasar a «Cliente perdido»", descartado: "🚫 Pasar a «Descartado»", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
+const ETIQ_ACC: Record<Accion, string> = { mensaje: "💬 Escribirle por WhatsApp (sin llamar)", whatsapp: "📞 Llamar primero · si no contesta, WhatsApp", videollamada: "📞 Llamar para proponer la videollamada · si no contesta, WhatsApp", perdido: "🏁 Pasar a «Cliente perdido»", descartado: "🚫 Pasar a «Descartado»", futuro: `🗓 Pasar a «${ESTADO_FUTURO}»` };
 
 const campoCopiable = (id: string, titulo: string, valor: string, filas: number, editable = false, nombre = ""): string =>
   `<div style="margin-bottom:12px">
@@ -621,7 +637,7 @@ const campoCopiable = (id: string, titulo: string, valor: string, filas: number,
 
 /** Maricela elige la acción a mano (WhatsApp, videollamada, futuro, perdido, descartado) en vez de depender de lo que propuso la IA: se guarda en el borrador. */
 export async function cambiarAccionBorrador(env: Env, tareaId: string, accion: string, now = Date.now()): Promise<boolean> {
-  if (!["whatsapp", "videollamada", "futuro", "perdido", "descartado"].includes(accion)) return false;
+  if (!(ACCIONES as string[]).includes(accion)) return false;
   const db = new Db(env.DB);
   await asegurarTabla(db);
   const g = await db.first<{ borrador: string }>("SELECT borrador FROM crm_seg_borrador WHERE tarea_id = ?", [tareaId]);
@@ -671,18 +687,19 @@ export function tarjetaBorrador(b: Borrador, cand: { movil: string; telefono: st
         </div>
         <div class="text-dim" style="font-size:10.5px;margin-top:6px">Los botones escriben el resultado de la llamada al inicio de la nota; en Zoho se guarda cuando pulses «Ya lo envié».</div></div>`
     : "";
+  const avisoEscribir = b.accion === "mensaje" ? `<div style="border:1px solid var(--accent);padding:8px 10px;font-size:12px;margin-bottom:10px;color:var(--cream)">💬 <b>Escríbele directo, sin llamar.</b> El mensaje y la nota están redactados para eso: no dicen que se intentó llamar.</div>` : "";
   const cuerpo =
     b.accion === "descartado"
       ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">No hace falta escribirle. El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.descartado)}»</b> y solo se deja la nota (ninguna tarea).</div>`
       : `${b.accion === "perdido" ? `<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">El candidato pasa a <b style="color:var(--cream)">«${esc(ESTADOS_CIERRE.perdido)}»</b> y solo se deja la nota (ninguna tarea). Antes puedes enviarle un último mensaje dejando la puerta abierta (opcional).</div>` : ""}
          ${campoCopiable(id + "m", b.accion === "perdido" || b.accion === "futuro" ? "Último mensaje para el cliente (opcional, puedes editarlo)" : "Mensaje para el cliente (puedes editarlo)", b.mensaje, 5, true)}
          ${boton}`;
-  const selAccion = `<select name="accion" hx-post="/crm/seguimientos/accion" hx-vals='{"tarea":"${esc(b.tareaId)}"}' hx-trigger="change" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" class="crm-in" style="font-size:12px;padding:4px 6px;margin-left:8px" title="Cambia lo que se va a hacer con este cliente">${(Object.keys(ETIQ_ACC) as Accion[]).map((a) => `<option value="${a}"${a === b.accion ? " selected" : ""}>${ETIQ_ACC[a]}</option>`).join("")}</select>`;
+  const selAccion = `<select name="accion" hx-post="/crm/seguimientos/accion" hx-vals='{"tarea":"${esc(b.tareaId)}"}' hx-trigger="change" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" hx-indicator="#bor-${esc(b.tareaId)}" hx-disabled-elt="this" class="crm-in" style="font-size:12px;padding:4px 6px;margin-left:8px" title="Cambia lo que se va a hacer con este cliente: el mensaje, la nota y la tarea se vuelven a redactar para esa opción (tarda unos segundos)">${ACCIONES.map((a) => `<option value="${a}"${a === b.accion ? " selected" : ""}>${ETIQ_ACC[a]}</option>`).join("")}</select>`;
   return `<div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:12px">
     <div style="font-size:12.5px;margin-bottom:8px">${chips}</div>
-    <div style="font-size:12px;margin-bottom:10px"><b style="color:var(--cream)">¿Qué quieres hacer con este cliente?</b>${selAccion}</div>
+    <div style="font-size:12px;margin-bottom:10px"><b style="color:var(--cream)">¿Qué quieres hacer con este cliente?</b>${selAccion}<span class="text-dim" style="font-size:10.5px;margin-left:8px">Al cambiar, el mensaje, la nota y la tarea se rehacen para esa opción.</span></div>
     ${b.motivo ? `<div class="text-dim" style="font-size:12px;margin-bottom:10px">Por qué: ${esc(b.motivo)}</div>` : ""}
-    ${avisoFuturo}${avisoLlamar}${cuerpo}
+    ${avisoFuturo}${avisoLlamar}${avisoEscribir}${cuerpo}
     <form hx-post="/crm/seguimientos/hecho" hx-target="#bor-${esc(b.tareaId)}" hx-swap="innerHTML" hx-confirm="${esc(confirmacion)}" style="margin:0">
       <input type="hidden" name="tarea" value="${esc(b.tareaId)}">
       ${esCierre(b.accion) || b.accion === "futuro" ? `<div style="margin-bottom:12px"><b style="font-size:12px;color:var(--cream)">Motivo en Zoho</b><br><select name="motivo_cierre" class="crm-in" style="margin-top:4px;font-size:12.5px">${listaMotivos.map((m) => `<option value="${esc(m)}"${m === b.motivoCierre ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></div>` : ""}
@@ -717,6 +734,14 @@ function resumenPasos(p: PasosHechos): string {
 }
 
 export async function fragmentoCambiarAccion(env: Env, tareaId: string, accion: string, now = Date.now(), f?: FetchFn): Promise<string> {
+  // Cada acción pide su propio mensaje, nota y tarea: se rehace el borrador para ESA acción. Si la IA falla, solo cambia la acción (como antes).
+  if ((ACCIONES as string[]).includes(accion)) {
+    const db = new Db(env.DB);
+    await asegurarTabla(db);
+    const g = await db.first<{ lead_id: string }>("SELECT lead_id FROM crm_seg_borrador WHERE tarea_id = ?", [tareaId]);
+    const r = await prepararBorrador(env, tareaId, { forzar: true, f, leadId: g?.lead_id, accion: accion as Accion }, now);
+    if (r.ok) return fragmentoBorrador(env, tareaId, false, now, f, g?.lead_id);
+  }
   if (!(await cambiarAccionBorrador(env, tareaId, accion, now))) return `<div style="color:var(--bad);font-size:12.5px;margin-top:8px">No se pudo cambiar la acción: prepara el mensaje de nuevo.</div>`;
   return fragmentoBorrador(env, tareaId, false, now, f);
 }

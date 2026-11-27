@@ -523,13 +523,15 @@ export async function runZohoDiag(env: Env, now = Date.now()): Promise<void> {
       const { tareasPendientes, hoyMadrid: hoyM } = await import("./crm-zohoapi.local").then(async (z) => ({ tareasPendientes: z.tareasPendientes, hoyMadrid: (await import("./crm-seguimientos.local")).hoyMadrid }));
       const { prepararBorrador } = await import("./crm-seguimientos.local");
       const { candidatosPorIds } = await import("./crm-zohoapi.local");
-      const quien = pedido.slice(9).trim().toLowerCase();
+      const [quienRaw, accionRaw] = pedido.slice(9).split("|");
+      const quien = quienRaw.trim().toLowerCase();
+      const accionPedida = (accionRaw ?? "").trim();
       const tareas = await tareasPendientes(env, hoyM(now), fetch, now);
       const cands = await candidatosPorIds(env, tareas.map((t) => t.leadId), fetch, now);
       const t = tareas.find((x) => (cands.get(x.leadId)?.nombre ?? "").toLowerCase().includes(quien));
       if (!t) { await st.set("zoho_diag_resultado", JSON.stringify({ error: "sin tarea pendiente para ese nombre" })); return; }
-      const r = await prepararBorrador(env, t.id, { forzar: true, leadId: t.leadId }, now);
-      await st.set("zoho_diag_resultado", JSON.stringify(r.ok ? { mensaje: r.borrador.mensaje, motivo: r.borrador.motivo, accion: r.borrador.accion, temperatura: r.borrador.temperatura } : r));
+      const r = await prepararBorrador(env, t.id, { forzar: true, leadId: t.leadId, ...(accionPedida ? { accion: accionPedida as never } : {}) }, now);
+      await st.set("zoho_diag_resultado", JSON.stringify(r.ok ? { accion: r.borrador.accion, mensaje: r.borrador.mensaje, nota: r.borrador.nota, tarea: r.borrador.tareaSiguiente } : r));
     } catch (e) {
       await st.set("zoho_diag_resultado", JSON.stringify({ error: e instanceof Error ? e.message.slice(0, 200) : String(e) }));
     }

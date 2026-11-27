@@ -521,3 +521,11 @@
 - Arreglo: el módulo de seguros ya no escribe nada en Zoho (prueba que lo impide). El envío se pausó (`viventa_seguros_masivo` vacío) hasta que Brayan confirme.
 - Regla: nada nuevo que escriba en el CRM sin que Brayan o Maricela lo pidan expresamente. Borrar las notas ya creadas queda pendiente de su permiso.
 - Prueba de borrado (26 nov 2026, con permiso de Brayan): se intentó borrar UNA nota de seguros (Nixon Espinoza) por la API. Zoho respondió 403 «permission denied»: el perfil de Maricela no permite borrar notas, ni por la pantalla ni por la conexión. Código `borrarNotaSeguros` dejado, limitado al texto exacto; no se usa más. Las notas solo las puede borrar un administrador de Zoho.
+
+## 27 nov 2026 — Seguimientos: el mensaje, la nota y la tarea cambian según lo que se va a hacer con el cliente
+- Maricela (nota de voz del 27 nov): no es lo mismo llamar, escribir, pasar a futuro, dar por perdido o reactivar; el mismo mensaje «te llamé y no contestaste» no sirve para todo, y a veces al cliente solo se le escribe.
+- Nueva acción **«Escribirle por WhatsApp (sin llamar)»** (`mensaje`): el mensaje y la nota no mencionan ninguna llamada.
+- Al cambiar la opción de «¿Qué quieres hacer con este cliente?» el borrador se REHACE con la IA para esa acción (`GUIA_ACCION`): llamar primero (tras llamar sin éxito), proponer videollamada, escribir directo, futuro (último mensaje amable, sin presionar), perdido (despedida agradecida que cierra) y descartado (sin mensaje). Si la IA falla, solo cambia la acción como antes.
+- Cuando la IA propone la acción por su cuenta, también puede elegir «mensaje» (cliente que contesta por WhatsApp pero no atiende llamadas, pidió que le escriban, ya hubo varios intentos de llamada, o hoy toca enviarle algo).
+- La reactivación de clientes (tercer caso de Maricela) ya tenía su propio generador con ofertas del catálogo y el mismo estilo humano.
+- Diag `borrador:<nombre>|<acción>` para probar sin enviar nada.
